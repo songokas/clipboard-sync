@@ -249,6 +249,9 @@ fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message, En
         group: group.name.clone(),
         nonce: nonce.clone(),
     };
+
+    debug!("Encrypt additional data: {:?}", add);
+
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
 
@@ -269,6 +272,9 @@ fn decrypt(message: &Message, identity: &str, group: &Group) -> Result<String, E
         group: message.group.clone(),
         nonce: message.nonce,
     };
+
+    debug!("Decrypt additional data: {:?}", ad);
+
     let add_bytes = bincode::serialize(&ad)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     let enc_msg = Payload {
@@ -291,14 +297,23 @@ fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<(), Cli
     Ok(())
 }
 
-async fn send(data: &[u8], remote_addr: &SocketAddr) -> Result<usize, ConnectionError>
+// async fn send(data: &[u8], remote_addr: &SocketAddr) -> Result<usize, ConnectionError>
+// {
+//     debug!("Send to {}", remote_addr);
+//     let local_address = "0.0.0.0:8901".parse::<SocketAddr>()?;
+//     let sock = UdpSocket::bind(local_address).await?;
+//     sock.connect(remote_addr).await?;
+//     let len = sock.send(data).await?;
+//     return Ok(len);
+// }
+
+async fn obtain_socket(remote_addr: &SocketAddr) -> Result<UdpSocket, ConnectionError>
 {
     debug!("Send to {}", remote_addr);
     let local_address = "0.0.0.0:8901".parse::<SocketAddr>()?;
     let sock = UdpSocket::bind(local_address).await?;
     sock.connect(remote_addr).await?;
-    let len = sock.send(data).await?;
-    return Ok(len);
+    return Ok(sock);
 }
 
 async fn on_clipboard_change(contents: &str, groups: &[Group]) -> Result<usize, ClipboardError>
@@ -306,10 +321,19 @@ async fn on_clipboard_change(contents: &str, groups: &[Group]) -> Result<usize, 
     let mut sent = 0;
     for group in groups {
         for addr in &group.allowed_hosts {
-            let message = encrypt(&contents.as_bytes(), &addr.ip().to_string(), group)?;
+
+            let sock = obtain_socket(addr).await?;
+            let local_socket = &sock.local_addr()
+                .map_err(|err| ConnectionError::IoError(err))?;
+
+            let message = encrypt(&contents.as_bytes(), &local_socket.ip().to_string(), group)?;
             let bytes = bincode::serialize(&message)
                 .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-            sent += send(&bytes, addr).await?;
+                
+            sent += sock.send(&bytes).await
+                .map_err(|err| ConnectionError::IoError(err))?;
+
+            // sent += send(&bytes, addr).await?;
         }
     }
     Ok(sent)
