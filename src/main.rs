@@ -15,6 +15,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::time::{sleep, Duration};
+use tokio::sync::mpsc::{channel, Sender, Receiver};
 
 use clap::{load_yaml, App};
 use env_logger::Env;
@@ -289,12 +290,12 @@ fn decrypt(message: &Message, identity: &str, group: &Group) -> Result<String, E
     return Ok(String::from_utf8_lossy(&plaintext).to_string());
 }
 
-fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<(), ClipboardError>
+fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<String, ClipboardError>
 {
     let (message, group) = validate(buffer, groups)?;
     let contents = decrypt(&message, identity, &group)?;
     set_clipboard(&contents)?;
-    Ok(())
+    Ok(contents)
 }
 
 // async fn send(data: &[u8], remote_addr: &SocketAddr) -> Result<usize, ConnectionError>
@@ -340,22 +341,26 @@ async fn on_clipboard_change(contents: &str, groups: &[Group]) -> Result<usize, 
 }
 
 async fn wait_on_receive(
+    channel: Sender<String>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
     groups: &[Group],
 ) -> Result<(), io::Error>
 {
     let sock = UdpSocket::bind(local_address).await?;
-    let mut buf = [0; 1024];
+    let mut buf = [0; 1424];
     while running.load(Ordering::Relaxed) {
         let (len, addr) = sock.recv_from(&mut buf).await?;
         debug!("Packet received from {} length {}", addr, len);
         let result = on_receive(&buf[..len], &addr.ip().to_string(), groups);
         match result {
+            Ok(contents) => {
+                if let Err(msg) = channel.try_send(hash(&contents)) {
+                    warn!("Unable to update current hash {}", msg);
+                }
+            }
             Err(err) => error!("{:?}", err),
-            _ => {}
         };
-        sock.send_to(b"thanks", addr).await?;
     }
     Ok(())
 }
@@ -368,12 +373,16 @@ fn hash(contents: &str) -> String
     return hex.to_string();
 }
 
-async fn wait_on_clipboard(running: Arc<AtomicBool>, groups: &[Group])
+async fn wait_on_clipboard(mut channel: Receiver<String>, running: Arc<AtomicBool>, groups: &[Group])
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
     let mut current_hash: String = "".to_owned();
     while running.load(Ordering::Relaxed) {
         sleep(Duration::from_millis(500)).await;
+        if let Ok(rhash) = channel.try_recv() {
+            debug!("Updated hash {} to {}", current_hash, rhash);
+            current_hash = rhash;
+        }
         let contents = match clipboard.get_contents() {
             Ok(contents) => contents,
             _ => {
@@ -450,9 +459,11 @@ async fn main() -> Result<(), CliError>
     }))
     .init();
 
+    let (tx, rx) = channel(100);
+
     join!(
-        wait_on_receive(socket_address, Arc::clone(&running), &groups),
-        wait_on_clipboard(Arc::clone(&running), &groups)
+        wait_on_receive(tx, socket_address, Arc::clone(&running), &groups),
+        wait_on_clipboard(rx, Arc::clone(&running), &groups)
     );
 
     Ok(())
