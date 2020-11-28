@@ -2,10 +2,10 @@ use bincode;
 use chacha20poly1305::aead::{Aead, NewAead, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use chrono::Utc;
-use log::{debug};
+use log::debug;
+use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use rand::prelude::*;
 
 use crate::errors::*;
 use crate::message::*;
@@ -44,7 +44,8 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
     return Ok(Message::from_additional(&add, ciphertext));
 }
 
-pub fn decrypt(message: &Message, identity: &str, group: &Group) -> Result<String, EncryptionError>
+pub fn decrypt(message: &Message, identity: &str, group: &Group)
+    -> Result<String, EncryptionError>
 {
     let ad = AdditionalData {
         identity: identity.to_owned(),
@@ -67,7 +68,6 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group) -> Result<Strin
         .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()))?;
     return Ok(String::from_utf8_lossy(&plaintext).to_string());
 }
-
 
 pub fn hash(contents: &str) -> String
 {

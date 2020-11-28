@@ -6,22 +6,21 @@ args:
     - config:
         short: c
         long: config
-        value_name: FILE
         help: "config file to load"
         takes_value: true
     - allowed-host:
         short: i
         long: allowed-host
-        help: "hosts to sync with defaults: 224.0.0.89"
+        help: "hosts to sync with default: 224.0.0.89:8900"
         takes_value: true
     - bind-address:
         short: l
         long: bind-address
         help: "default: 0.0.0.0:8900"
         takes_value: true
-    - send-address:
-        short: l
-        long: send-address
+    - send-using-address:
+        short: s
+        long: send-using-address
         help: "default: 0.0.0.0:8901"
         takes_value: true
     - group:
@@ -41,5 +40,5 @@ args:
     - verbose:
         short: v
         long: verbose
-        multiple: true
         help: sets the level of logging verbosity. default info
+        takes_value: true

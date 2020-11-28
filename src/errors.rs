@@ -22,7 +22,7 @@ pub enum ConnectionError
     IoError(io::Error),
     SocketError(std::net::AddrParseError),
     FailedToConnect(String),
-    NoPublic(String)
+    NoPublic(String),
 }
 
 #[derive(Debug)]
@@ -97,6 +97,14 @@ impl From<std::net::AddrParseError> for CliError
     fn from(error: std::net::AddrParseError) -> Self
     {
         CliError::SocketError(error)
+    }
+}
+
+impl From<io::Error> for CliError
+{
+    fn from(error: io::Error) -> Self
+    {
+        CliError::IoError(error)
     }
 }
 
