@@ -23,6 +23,9 @@ use log::{debug, error, info, warn};
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+
 mod serde_key
 {
     use super::*;
@@ -333,10 +336,18 @@ async fn wait_on_receive(
     Ok(())
 }
 
+fn hash(contents: &str) -> String
+{
+    let mut hasher = DefaultHasher::new();
+    hasher.write(contents.as_bytes());
+    let hex = hasher.finish();
+    return hex.to_string();
+}
+
 async fn wait_on_clipboard(running: Arc<AtomicBool>, groups: &[Group])
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
-    let mut current_contents: String = "".to_owned();
+    let mut current_hash: String = "".to_owned();
     while running.load(Ordering::Relaxed) {
         sleep(Duration::from_millis(500)).await;
         let contents = match clipboard.get_contents() {
@@ -346,14 +357,17 @@ async fn wait_on_clipboard(running: Arc<AtomicBool>, groups: &[Group])
                 continue;
             }
         };
-        debug!("Clipboard {}", &contents);
-        if contents != current_contents {
-            debug!("Clipboard changed {}", &contents);
+        let hash = hash(&contents);
+        if current_hash == "" {
+            current_hash = hash.clone();
+        }
+        if contents != "" && hash != current_hash {
+            debug!("Clipboard changed {}", &hash);
             match on_clipboard_change(&contents, groups).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             }
-            current_contents = contents;
+            current_hash = hash;
         }
     }
 }

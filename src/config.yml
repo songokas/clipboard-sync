@@ -1,7 +1,4 @@
-bind_address: 0.0.0.0
-bind_port: 83232
-
-identity: virgis-su-virguciu
+bind_address: 0.0.0.0:8992
 
 groups:
   home:
