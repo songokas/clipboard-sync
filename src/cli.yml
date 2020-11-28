@@ -12,12 +12,17 @@ args:
     - allowed-host:
         short: i
         long: allowed-host
-        help: "hosts to sync with"
+        help: "hosts to sync with defaults: 224.0.0.89"
         takes_value: true
-    - bind-socket:
+    - bind-address:
         short: l
-        long: local-socket
-        help: "e.g. 0.0.0.0:8080 default: 0.0.0.0:235324"
+        long: bind-address
+        help: "default: 0.0.0.0:8900"
+        takes_value: true
+    - send-address:
+        short: l
+        long: send-address
+        help: "default: 0.0.0.0:8901"
         takes_value: true
     - group:
         short: g
@@ -28,6 +33,10 @@ args:
         short: k
         long: key
         help: "encryption key 32 chars long"
+        takes_value: true
+    - public-ip:
+        long: public-ip
+        help: "override public ip when sent outside local network"
         takes_value: true
     - verbose:
         short: v
