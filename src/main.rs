@@ -294,7 +294,7 @@ fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<(), Cli
 async fn send(data: &[u8], remote_addr: &SocketAddr) -> Result<usize, ConnectionError>
 {
     debug!("Send to {}", remote_addr);
-    let local_address = "0.0.0.0:0".parse::<SocketAddr>()?;
+    let local_address = "0.0.0.0:8901".parse::<SocketAddr>()?;
     let sock = UdpSocket::bind(local_address).await?;
     sock.connect(remote_addr).await?;
     let len = sock.send(data).await?;
@@ -306,7 +306,7 @@ async fn on_clipboard_change(contents: &str, groups: &[Group]) -> Result<usize, 
     let mut sent = 0;
     for group in groups {
         for addr in &group.allowed_hosts {
-            let message = encrypt(&contents.as_bytes(), &addr.to_string(), group)?;
+            let message = encrypt(&contents.as_bytes(), &addr.ip().to_string(), group)?;
             let bytes = bincode::serialize(&message)
                 .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
             sent += send(&bytes, addr).await?;
@@ -385,7 +385,7 @@ async fn main() -> Result<(), CliError>
     let verbosity: u8 = matches.occurrences_of("verbose") as u8;
     let config_path = matches.value_of("config");
 
-    let local_address = matches.value_of("bind-address").unwrap_or("127.0.0.1:8920");
+    let local_address = matches.value_of("bind-address").unwrap_or("0.0.0.0:8900");
     let group = matches.value_of("group").unwrap_or("default");
 
     let allowed_host = matches.value_of("allowed-host").unwrap_or("");
