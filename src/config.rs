@@ -6,7 +6,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::collections::HashMap;
 
 use crate::errors::CliError;
-use crate::message::{default_socket_send_address, default_allowed_hosts, Group};
+use crate::message::{Group};
+use crate::defaults::{default_socket_send_address, default_allowed_hosts};
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FullConfig

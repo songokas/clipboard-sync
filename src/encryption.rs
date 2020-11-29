@@ -4,8 +4,13 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use chrono::Utc;
 use log::debug;
 use rand::prelude::*;
+use std::io::prelude::*;
+use std::io::{self, Read};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use flate2::read::ZlibDecoder;
 
 use crate::errors::*;
 use crate::message::*;
@@ -68,12 +73,27 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group)
         .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()));
 }
 
-pub fn hash(contents: &str) -> String
+pub fn hash(bytes: &[u8]) -> String
 {
     let mut hasher = DefaultHasher::new();
-    hasher.write(contents.as_bytes());
+    hasher.write(bytes);
     let hex = hasher.finish();
     return hex.to_string();
+}
+
+pub fn compress(data: &[u8]) -> io::Result<Vec<u8>>
+{
+    let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+    e.write_all(data);
+    return e.finish();
+}
+
+pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
+{
+    let mut d = ZlibDecoder::new(&data[..]);
+    let mut buffer = Vec::new();
+    d.read_to_end(&mut buffer)?;
+    return Ok(buffer);
 }
 
 #[cfg(test)]

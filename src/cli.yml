@@ -28,6 +28,11 @@ args:
         long: group
         help: "group to use. default: default"
         takes_value: true
+    - clipboard:
+        short: c
+        long: clipboard
+        help: "clipboard type. default: clipboard. can be clipboard, /path/to/file, /path/to/dir/"
+        takes_value: true
     - key:
         short: k
         long: key

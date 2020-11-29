@@ -2,6 +2,8 @@ use chacha20poly1305::{Key, Nonce};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use crate::defaults::*;
+
 mod serde_key_str
 {
     use super::*;
@@ -83,20 +85,7 @@ pub struct AdditionalData
     pub identity: String,
 }
 
-pub fn default_socket_send_address() -> SocketAddr
-{
-    return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
-}
 
-pub fn default_allowed_host() -> SocketAddr
-{
-    return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 89)), 8900);
-}
-
-pub fn default_allowed_hosts() -> Vec<SocketAddr>
-{
-    return vec![default_allowed_host()];
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Group
@@ -110,6 +99,8 @@ pub struct Group
     pub public_ip: Option<IpAddr>,
     #[serde(default = "default_socket_send_address")]
     pub send_using_address: SocketAddr,
+    #[serde(default = "default_clipboard")]
+    pub clipboard: String, 
 }
 
 #[cfg(test)]
@@ -134,7 +125,8 @@ impl Group
             allowed_hosts: Vec::new(),
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
             public_ip: None,
-            send_using_address: default_socket_send_address()
+            send_using_address: default_socket_send_address(),
+            clipboard: default_clipboard()
         }
     }
 }

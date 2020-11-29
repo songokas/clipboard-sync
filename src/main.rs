@@ -17,14 +17,14 @@ pub mod encryption;
 pub mod errors;
 pub mod message;
 pub mod process;
+pub mod socket;
+pub mod defaults;
 
-use crate::config::{load_groups, FullConfig};
+use crate::config::{FullConfig, load_groups};
+use crate::defaults::*;
 use crate::errors::CliError;
 use crate::message::Group;
 use crate::process::{wait_on_clipboard, wait_on_receive};
-
-const MAX_CHANNEL: usize = 100;
-const KEY_SIZE: usize = 32;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -36,17 +36,18 @@ async fn main() -> Result<(), CliError>
 
     let config_path = matches.value_of("config");
 
-    let local_address = matches.value_of("bind-address").unwrap_or("0.0.0.0:8900");
-    let send_address = matches.value_of("send-address").unwrap_or("0.0.0.0:8901");
+    let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
+    let send_address = matches.value_of("send-address").unwrap_or(SEND_ADDRESS);
     let public_ip = matches
         .value_of("public-ip")
         .and_then(|ip| ip.parse::<IpAddr>().ok());
 
-    let group = matches.value_of("group").unwrap_or("default");
+    let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
+    let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
 
     let allowed_host = matches
         .value_of("allowed-host")
-        .unwrap_or("224.0.0.89:8900");
+        .unwrap_or(DEFAULT_ALLOWED_HOST);
 
     let key_data = matches.value_of("key").unwrap_or("");
     
@@ -75,6 +76,7 @@ async fn main() -> Result<(), CliError>
             key: key.clone(),
             public_ip,
             send_using_address,
+            clipboard: clipboard_type.to_owned()
         }];
         let full_config =
             FullConfig::from_groups(socket_address, send_using_address, public_ip, groups);

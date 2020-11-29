@@ -3,7 +3,7 @@ use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
 use std::io;
 use std::iter::Iterator;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -13,16 +13,20 @@ use tokio::time::{sleep, Duration};
 use log::{debug, error, info, warn};
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
+use std::fs;
 use std::collections::HashMap;
+use walkdir::WalkDir;
 
 use crate::encryption::*;
 use crate::errors::*;
 use crate::message::*;
+use crate::socket::*;
+use crate::defaults::*;
 
-const MAX_CLIPBOARD: usize = 1432;
+// type DirStructure = HashMap<String, Vec<u8>>;
 
 pub async fn wait_on_receive(
-    channel: Sender<String>,
+    channel: Sender<(String, String)>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
     groups: &[Group],
@@ -44,33 +48,75 @@ pub async fn wait_on_receive(
         let (len, addr) = sock.recv_from(&mut buf).await?;
         debug!("Packet received from {} length {}", addr, len);
         let result = on_receive(&buf[..len], &addr.ip().to_string(), groups);
+
         match result {
-            Ok(contents) => {
-                if let Err(msg) = channel.try_send(hash(&contents)) {
+            Ok((_, hash, group_name)) => {
+                if let Err(msg) = channel.try_send((group_name, hash)) {
                     warn!("Unable to update current hash {}", msg);
                 }
-            }
+            },
             Err(err) => error!("{:?}", err),
         };
     }
     Ok(())
 }
 
+fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
+{
+    // let hash = DirStructure::new();
+    // let walk = WalkDir::new(directory)
+    //     .follow_links(true)
+    //     .into_iter()
+    //     .filter_map(|e| e.ok());
+    // for entry in walk {
+    //     let full_path = entry.path();
+    //     let partial_path = full_path.to_string().replace(directory, "");
+    //     let data = match fs::read(&full_path) {
+    //         Ok(d) => d,
+    //         Err(err) => {
+    //             continue;
+    //         }
+    //     };
+    //     hash.insert(partial_path, data);
+    // }
+    // let add_bytes = bincode::serialize(&hash)
+    //     .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+    // return Ok(add_bytes);
+    return Err(EncryptionError::InvalidMessage("Clipboard sync with dirs not implemented".to_owned()));
+}
+
+fn bytes_to_dir(directory: &str, data: Vec<u8>) -> Result<(), EncryptionError>
+{
+    // let hash: DirStructure = bincode::deserialize(&data)
+    //     .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+    // for (file, data) in hash {
+
+    // }
+    return Err(EncryptionError::InvalidMessage("Clipboard sync with dirs not implemented".to_owned()));
+}
+
 pub async fn wait_on_clipboard(
-    mut channel: Receiver<String>,
+    mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
     groups: &[Group],
 )
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
-    let mut current_hash: String = "".to_owned();
+    let mut hash_cache: HashMap<String, String> = HashMap::new();
     info!("Listen for clipboard changes");
     while running.load(Ordering::Relaxed) {
         sleep(Duration::from_millis(500)).await;
-        if let Ok(rhash) = channel.try_recv() {
-            debug!("Updated hash {} to {}", current_hash, rhash);
-            current_hash = rhash;
+        if let Ok((group_name, rhash)) = channel.try_recv() {
+            let current_hash = match hash_cache.get(&group_name) {
+                Some(val) => val.clone(),
+                None => "".to_owned()
+            };
+            if &current_hash != &rhash {
+                hash_cache.insert(group_name.clone(), rhash.clone());
+                debug!("Updated current hash {} to {} for group {}", current_hash, rhash, group_name);
+            }
         }
+
         let contents = match clipboard.get_contents() {
             Ok(contents) => contents,
             _ => {
@@ -78,17 +124,58 @@ pub async fn wait_on_clipboard(
                 continue;
             }
         };
-        let hash = hash(&contents);
-        if current_hash == "" {
-            current_hash = hash.clone();
-        }
-        if contents != "" && hash != current_hash {
+
+        for group in groups {
+
+            let bytes: Vec<u8> = if group.clipboard == "clipboard" {
+                contents.as_bytes().to_vec()
+            } else if group.clipboard.ends_with("/") {
+                match dir_to_bytes(&group.clipboard) {
+                    Ok(bytes) => bytes,
+                    Err(err) => { 
+                        error!("Error reading directory. Message: {:?}", err);
+                        continue;
+                    }
+                }
+            } else {
+                match fs::read(&group.clipboard) {
+                    Ok(bytes) => bytes,
+                    Err(err) => { 
+                        error!("Error reading file {}. Message: {}", &group.clipboard, err);
+                        continue;
+                    }
+                }
+            };
+
+            if bytes.len() == 0 {
+                continue;
+            }
+            let hash = hash(&bytes);
+
+            let entry_value = match hash_cache.get(&group.name) {
+                Some(val) => val,
+                None => {
+                    hash_cache.insert(group.name.clone(), hash.clone());
+                    &hash
+                }
+            };
+            if entry_value == &hash {
+                continue;
+            }
             debug!("Clipboard changed {}", &hash);
-            match on_clipboard_change(&contents, groups).await {
+
+            let data = match compress(&bytes) {
+                Ok(d) => d,
+                Err(err) => {
+                    error!("Failed to compress data for {}", &group.name);
+                    continue;
+                }
+            };
+
+            match on_clipboard_change(&data, &group).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             }
-            current_hash = hash;
         }
     }
 }
@@ -118,124 +205,56 @@ fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), Validat
     return Ok((message, group.clone()));
 }
 
-fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<String, ClipboardError>
+fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<(String, String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups)?;
-    let data = decrypt(&message, identity, &group)?;
-    let contents = String::from_utf8_lossy(&data).to_string();
-    set_clipboard(&contents)?;
-    Ok(contents)
+    let bytes = decrypt(&message, identity, &group)?;
+    let data = uncompress(bytes)?;
+    let hash = hash(&data);
+    if group.clipboard == "clipboard" {
+        let contents = String::from_utf8_lossy(&data).to_string();
+        set_clipboard(&contents)?;
+        return Ok((contents, hash, group.name.clone()));
+    } else if group.clipboard.ends_with("/") {
+        fs::create_dir(&group.clipboard)?;
+        bytes_to_dir(&group.clipboard, data)?;
+        return Ok((group.clipboard.clone(), hash, group.name.clone()));
+    }
+    fs::write(&group.clipboard, data)?;
+    return Ok((group.clipboard.clone(), hash, group.name.clone()));
 }
 
-async fn obtain_socket(
-    local_address: &SocketAddr,
-    remote_addr: &SocketAddr,
-) -> Result<UdpSocket, ConnectionError>
-{
-    debug!("Send to {} using {}", remote_addr, local_address);
-    let sock = UdpSocket::bind(local_address).await?;
-    sock.connect(remote_addr).await?;
-    return Ok(sock);
-}
-
-fn obtain_local_addr(sock: &UdpSocket) -> Result<IpAddr, ConnectionError>
-{
-    return sock
-        .local_addr()
-        .map(|s| s.ip().clone())
-        .map_err(|err| ConnectionError::IoError(err));
-}
-
-async fn on_clipboard_change(contents: &str, groups: &[Group]) -> Result<usize, ClipboardError>
+async fn on_clipboard_change(buffer: &[u8], group: &Group) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
-    for group in groups {
-        for addr in &group.allowed_hosts {
-            let sock = obtain_socket(&group.send_using_address, addr).await?;
-            let remote_ip = addr.ip();
+    for addr in &group.allowed_hosts {
+        let sock = obtain_socket(&group.send_using_address, addr).await?;
+        let remote_ip = addr.ip();
 
-            let identity = if remote_ip.is_multicast() {
-                let local_addr = obtain_local_addr(&sock)?;
-                join_group(&sock, &local_addr, &remote_ip);
-                Ok(local_addr)
-            } else if remote_ip.is_global() {
-                group.public_ip.ok_or(ConnectionError::NoPublic(
-                    "Group missing public ip however global routing requested".to_owned(),
-                ))
-            } else {
-                obtain_local_addr(&sock)
-            };
+        let identity = if remote_ip.is_multicast() {
+            let local_addr = obtain_local_addr(&sock)?;
+            join_group(&sock, &local_addr, &remote_ip);
+            Ok(local_addr)
+        } else if remote_ip.is_global() {
+            group.public_ip.ok_or(ConnectionError::NoPublic(
+                "Group missing public ip however global routing requested".to_owned(),
+            ))
+        } else {
+            obtain_local_addr(&sock)
+        };
 
-            let message = encrypt(&contents.as_bytes(), &identity?.to_string(), group)?;
-            let bytes = bincode::serialize(&message)
-                .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+        let message = encrypt(&buffer, &identity?.to_string(), group)?;
+        let bytes = bincode::serialize(&message)
+            .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
 
-            sent += sock
-                .send(&bytes)
-                .await
-                .map_err(|err| ConnectionError::IoError(err))?;
-        }
+        sent += sock
+            .send(&bytes)
+            .await
+            .map_err(|err| ConnectionError::IoError(err))?;
     }
-    Ok(sent)
+    return Ok(sent);
 }
 
-fn join_group(sock: &UdpSocket, interface_addr: &IpAddr, remote_ip: &IpAddr)
-{
-    let interface_ipv4 = match interface_addr {
-        IpAddr::V4(ipv4) => ipv4,
-        _ => {
-            warn!("Ipv6 multicast not supported");
-            return;
-        }
-    };
-
-    let op = match remote_ip {
-        IpAddr::V4(multicast_ipv4) => {
-            sock.set_multicast_loop_v4(false).unwrap_or(());
-            sock.join_multicast_v4(multicast_ipv4.clone(), interface_ipv4.clone())
-        }
-        _ => {
-            warn!("Ipv6 multicast not supported");
-            return;
-        }
-    };
-    if let Err(_) = op {
-        warn!("Unable to join multicast network");
-    } else {
-        debug!("Joined multicast {}", remote_ip);
-    }
-}
-
-fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
-{
-    let mut cache = HashMap::new();
-    for group in groups {
-        for addr in &group.allowed_hosts {
-            if cache.contains_key(&addr.ip()) {
-                continue;
-            } 
-            if addr.ip().is_multicast() {
-                let op = match addr.ip() {
-                    IpAddr::V4(ip) => {
-                        sock.set_multicast_loop_v4(false).unwrap_or(());
-                        sock.join_multicast_v4(ip, ipv4.clone())
-                    },
-                    _ => {
-                        warn!("Multicast ipv6 not supported");
-                        continue;
-                    }
-                };
-                if let Err(_) = op {
-                    warn!("Unable to join multicast {}", addr.ip());
-                    continue;
-                } else {
-                    cache.insert(addr.ip(), true);
-                    info!("Joined multicast {}", addr.ip());
-                }
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod socketstest {

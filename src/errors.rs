@@ -45,6 +45,7 @@ pub enum CliError
 #[derive(Debug)]
 pub enum ClipboardError
 {
+    IoError(io::Error),
     ConnectionError(ConnectionError),
     EncryptionError(EncryptionError),
     ValidationError(ValidationError),
@@ -65,6 +66,14 @@ impl From<ValidationError> for ClipboardError
     fn from(error: ValidationError) -> Self
     {
         ClipboardError::ValidationError(error)
+    }
+}
+
+impl From<io::Error> for ClipboardError
+{
+    fn from(error: io::Error) -> Self
+    {
+        ClipboardError::IoError(error)
     }
 }
 
