@@ -121,7 +121,8 @@ fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), Validat
 fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<String, ClipboardError>
 {
     let (message, group) = validate(buffer, groups)?;
-    let contents = decrypt(&message, identity, &group)?;
+    let data = decrypt(&message, identity, &group)?;
+    let contents = String::from_utf8_lossy(&data).to_string();
     set_clipboard(&contents)?;
     Ok(contents)
 }
@@ -153,7 +154,6 @@ async fn on_clipboard_change(contents: &str, groups: &[Group]) -> Result<usize, 
             let sock = obtain_socket(&group.send_using_address, addr).await?;
             let remote_ip = addr.ip();
 
-            // @TODO cleanup
             let identity = if remote_ip.is_multicast() {
                 let local_addr = obtain_local_addr(&sock)?;
                 join_group(&sock, &local_addr, &remote_ip);
@@ -191,6 +191,7 @@ fn join_group(sock: &UdpSocket, interface_addr: &IpAddr, remote_ip: &IpAddr)
 
     let op = match remote_ip {
         IpAddr::V4(multicast_ipv4) => {
+            sock.set_multicast_loop_v4(false).unwrap_or(());
             sock.join_multicast_v4(multicast_ipv4.clone(), interface_ipv4.clone())
         }
         _ => {
@@ -215,7 +216,10 @@ fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
             } 
             if addr.ip().is_multicast() {
                 let op = match addr.ip() {
-                    IpAddr::V4(ip) => sock.join_multicast_v4(ip, ipv4.clone()),
+                    IpAddr::V4(ip) => {
+                        sock.set_multicast_loop_v4(false).unwrap_or(());
+                        sock.join_multicast_v4(ip, ipv4.clone())
+                    },
                     _ => {
                         warn!("Multicast ipv6 not supported");
                         continue;
@@ -229,6 +233,28 @@ fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
                     info!("Joined multicast {}", addr.ip());
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod socketstest {
+    use super::*;
+
+    #[test]
+    fn test_validate() {
+
+        let groups = vec![Group::from_name("test1"), Group::from_name("test2")];
+        let sequences: Vec<(Vec<u8>, bool)> = vec![
+            (bincode::serialize(&Message::from_group("test1")).unwrap().to_vec(), true),
+            (bincode::serialize(&Message::from_group("none")).unwrap().to_vec(), false),
+            ([3, 3, 98].to_vec(), false),
+            ([].to_vec(), false)
+        ];
+
+        for (bytes, expected) in sequences {
+            let result = validate(&bytes, &groups);
+            assert_eq!(result.is_ok(), expected);
         }
     }
 }

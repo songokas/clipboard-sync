@@ -45,11 +45,11 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
 }
 
 pub fn decrypt(message: &Message, identity: &str, group: &Group)
-    -> Result<String, EncryptionError>
+    -> Result<Vec<u8>, EncryptionError>
 {
     let ad = AdditionalData {
         identity: identity.to_owned(),
-        group: message.group.clone(),
+        group: group.name.clone(),
         nonce: message.nonce,
     };
 
@@ -63,10 +63,9 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group)
     };
 
     let cipher = ChaCha20Poly1305::new(&group.key);
-    let plaintext = cipher
+    return cipher
         .decrypt(&message.nonce, enc_msg)
-        .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()))?;
-    return Ok(String::from_utf8_lossy(&plaintext).to_string());
+        .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()));
 }
 
 pub fn hash(contents: &str) -> String
@@ -75,4 +74,39 @@ pub fn hash(contents: &str) -> String
     hasher.write(contents.as_bytes());
     let hex = hasher.finish();
     return hex.to_string();
+}
+
+#[cfg(test)]
+mod encryptiontest {
+    use super::*;
+
+    #[test]
+    fn test_encryption() {
+
+        let group1 = Group::from_name("test1");
+        let group2 = Group::from_name("test2");
+
+        let sequences: Vec<(bool, Vec<u8>, &str, &Group, &str, &Group)> = vec![
+            (true, b"content".to_vec(), "1", &group1, "1", &group1),
+            (false, b"content".to_vec(), "1", &group1, "2", &group1),
+            (false, b"content".to_vec(), "1", &group1, "1", &group2),
+        ];
+
+        for (expected, bytes, identity1, group1, identity2, group2) in sequences {
+            let msg = encrypt(&bytes, identity1, group1);
+            let data = decrypt(&msg.unwrap(), identity2, group2);
+            if expected {
+                assert_eq!(bytes, data.unwrap());
+            } else {
+                assert_eq!(true, data.is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_hash()
+    {
+        assert_eq!("12095268261750217435", hash("content"));
+        assert_eq!("15130871412783076140", hash(""));
+    }
 }

@@ -47,6 +47,7 @@ async fn main() -> Result<(), CliError>
     let allowed_host = matches
         .value_of("allowed-host")
         .unwrap_or("224.0.0.89:8900");
+
     let key_data = matches.value_of("key").unwrap_or("");
     
     if config_path.is_none() {
@@ -106,3 +107,4 @@ async fn main() -> Result<(), CliError>
 
     Ok(())
 }
+

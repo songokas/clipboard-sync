@@ -83,9 +83,19 @@ pub struct AdditionalData
     pub identity: String,
 }
 
-pub fn serde_default_socket() -> SocketAddr
+pub fn default_socket_send_address() -> SocketAddr
 {
     return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+}
+
+pub fn default_allowed_host() -> SocketAddr
+{
+    return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 89)), 8900);
+}
+
+pub fn default_allowed_hosts() -> Vec<SocketAddr>
+{
+    return vec![default_allowed_host()];
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -93,11 +103,38 @@ pub struct Group
 {
     #[serde(default)]
     pub name: String,
-    #[serde(skip)]
+    #[serde(default = "default_allowed_hosts")]
     pub allowed_hosts: Vec<SocketAddr>,
     #[serde(with = "serde_key_str")]
     pub key: Key,
     pub public_ip: Option<IpAddr>,
-    #[serde(default = "serde_default_socket")]
+    #[serde(default = "default_socket_send_address")]
     pub send_using_address: SocketAddr,
+}
+
+#[cfg(test)]
+impl Message
+{
+    pub fn from_group(name: &str) -> Self
+    {
+        return Message {
+            nonce: Nonce::from_slice(b"123456789101").clone(),
+            group: name.to_owned(),
+            text: [1, 2, 4].to_vec()
+        };
+    }
+}
+
+impl Group
+{
+    pub fn from_name(name: &str) -> Self
+    {
+        return Group {
+            name: name.to_owned(),
+            allowed_hosts: Vec::new(),
+            key: Key::from_slice(b"23232323232323232323232323232323").clone(),
+            public_ip: None,
+            send_using_address: default_socket_send_address()
+        }
+    }
 }
