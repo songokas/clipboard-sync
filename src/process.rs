@@ -3,7 +3,7 @@ use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
 use std::io;
 use std::iter::Iterator;
-use std::net::{IpAddr};
+use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -11,19 +11,17 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
+use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
-use std::fs;
-use std::collections::HashMap;
-use walkdir::WalkDir;
 
+use crate::defaults::*;
 use crate::encryption::*;
 use crate::errors::*;
+use crate::filesystem::*;
 use crate::message::*;
 use crate::socket::*;
-use crate::defaults::*;
-
-// type DirStructure = HashMap<String, Vec<u8>>;
 
 pub async fn wait_on_receive(
     channel: Sender<(String, String)>,
@@ -54,52 +52,18 @@ pub async fn wait_on_receive(
                 if let Err(msg) = channel.try_send((group_name, hash)) {
                     warn!("Unable to update current hash {}", msg);
                 }
-            },
+            }
             Err(err) => error!("{:?}", err),
         };
     }
     Ok(())
 }
 
-fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
-{
-    // let hash = DirStructure::new();
-    // let walk = WalkDir::new(directory)
-    //     .follow_links(true)
-    //     .into_iter()
-    //     .filter_map(|e| e.ok());
-    // for entry in walk {
-    //     let full_path = entry.path();
-    //     let partial_path = full_path.to_string().replace(directory, "");
-    //     let data = match fs::read(&full_path) {
-    //         Ok(d) => d,
-    //         Err(err) => {
-    //             continue;
-    //         }
-    //     };
-    //     hash.insert(partial_path, data);
-    // }
-    // let add_bytes = bincode::serialize(&hash)
-    //     .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    // return Ok(add_bytes);
-    return Err(EncryptionError::InvalidMessage("Clipboard sync with dirs not implemented".to_owned()));
-}
-
-fn bytes_to_dir(directory: &str, data: Vec<u8>) -> Result<(), EncryptionError>
-{
-    // let hash: DirStructure = bincode::deserialize(&data)
-    //     .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    // for (file, data) in hash {
-
-    // }
-    return Err(EncryptionError::InvalidMessage("Clipboard sync with dirs not implemented".to_owned()));
-}
-
 pub async fn wait_on_clipboard(
     mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
     groups: &[Group],
-)
+) -> Result<(), io::Error>
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
     let mut hash_cache: HashMap<String, String> = HashMap::new();
@@ -109,11 +73,14 @@ pub async fn wait_on_clipboard(
         if let Ok((group_name, rhash)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
-                None => "".to_owned()
+                None => "".to_owned(),
             };
             if &current_hash != &rhash {
                 hash_cache.insert(group_name.clone(), rhash.clone());
-                debug!("Updated current hash {} to {} for group {}", current_hash, rhash, group_name);
+                debug!(
+                    "Updated current hash {} to {} for group {}",
+                    current_hash, rhash, group_name
+                );
             }
         }
 
@@ -126,21 +93,20 @@ pub async fn wait_on_clipboard(
         };
 
         for group in groups {
-
             let bytes: Vec<u8> = if group.clipboard == "clipboard" {
                 contents.as_bytes().to_vec()
             } else if group.clipboard.ends_with("/") {
                 match dir_to_bytes(&group.clipboard) {
                     Ok(bytes) => bytes,
-                    Err(err) => { 
+                    Err(err) => {
                         error!("Error reading directory. Message: {:?}", err);
                         continue;
                     }
                 }
             } else {
-                match fs::read(&group.clipboard) {
+                match read_file(&group.clipboard, MAX_FILE_SIZE) {
                     Ok(bytes) => bytes,
-                    Err(err) => { 
+                    Err(err) => {
                         error!("Error reading file {}. Message: {}", &group.clipboard, err);
                         continue;
                     }
@@ -167,7 +133,7 @@ pub async fn wait_on_clipboard(
             let data = match compress(&bytes) {
                 Ok(d) => d,
                 Err(err) => {
-                    error!("Failed to compress data for {}", &group.name);
+                    error!("Failed to compress data for {} {}", &group.name, err);
                     continue;
                 }
             };
@@ -178,6 +144,7 @@ pub async fn wait_on_clipboard(
             }
         }
     }
+    return Ok(());
 }
 
 fn set_clipboard(contents: &str) -> Result<(), ClipboardError>
@@ -205,7 +172,11 @@ fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), Validat
     return Ok((message, group.clone()));
 }
 
-fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<(String, String, String), ClipboardError>
+fn on_receive(
+    buffer: &[u8],
+    identity: &str,
+    groups: &[Group],
+) -> Result<(String, String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups)?;
     let bytes = decrypt(&message, identity, &group)?;
@@ -216,8 +187,7 @@ fn on_receive(buffer: &[u8], identity: &str, groups: &[Group]) -> Result<(String
         set_clipboard(&contents)?;
         return Ok((contents, hash, group.name.clone()));
     } else if group.clipboard.ends_with("/") {
-        fs::create_dir(&group.clipboard)?;
-        bytes_to_dir(&group.clipboard, data)?;
+        bytes_to_dir(&group.clipboard, data, identity)?;
         return Ok((group.clipboard.clone(), hash, group.name.clone()));
     }
     fs::write(&group.clipboard, data)?;
@@ -228,6 +198,10 @@ async fn on_clipboard_change(buffer: &[u8], group: &Group) -> Result<usize, Clip
 {
     let mut sent = 0;
     for addr in &group.allowed_hosts {
+        if addr.port() == 0 {
+            debug!("Not sending to host {}", addr);
+            continue;
+        }
         let sock = obtain_socket(&group.send_using_address, addr).await?;
         let remote_ip = addr.ip();
 
@@ -255,20 +229,30 @@ async fn on_clipboard_change(buffer: &[u8], group: &Group) -> Result<usize, Clip
     return Ok(sent);
 }
 
-
 #[cfg(test)]
-mod socketstest {
+mod socketstest
+{
     use super::*;
 
     #[test]
-    fn test_validate() {
-
+    fn test_validate()
+    {
         let groups = vec![Group::from_name("test1"), Group::from_name("test2")];
         let sequences: Vec<(Vec<u8>, bool)> = vec![
-            (bincode::serialize(&Message::from_group("test1")).unwrap().to_vec(), true),
-            (bincode::serialize(&Message::from_group("none")).unwrap().to_vec(), false),
+            (
+                bincode::serialize(&Message::from_group("test1"))
+                    .unwrap()
+                    .to_vec(),
+                true,
+            ),
+            (
+                bincode::serialize(&Message::from_group("none"))
+                    .unwrap()
+                    .to_vec(),
+                false,
+            ),
             ([3, 3, 98].to_vec(), false),
-            ([].to_vec(), false)
+            ([].to_vec(), false),
         ];
 
         for (bytes, expected) in sequences {

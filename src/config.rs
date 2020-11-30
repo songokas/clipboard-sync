@@ -1,14 +1,13 @@
 use log::{error, info};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 use std::net::{IpAddr, SocketAddr};
-use std::collections::HashMap;
 
+use crate::defaults::{default_allowed_hosts, default_socket_send_address};
 use crate::errors::CliError;
-use crate::message::{Group};
-use crate::defaults::{default_socket_send_address, default_allowed_hosts};
-
+use crate::message::Group;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FullConfig
@@ -37,13 +36,9 @@ impl FullConfig
         };
     }
 
-    pub fn groups(&self) -> Vec<Group> {
-        return self.groups
-            .iter()
-            .map(|(_, v)| {
-                v.clone()
-            })
-            .collect();
+    pub fn groups(&self) -> Vec<Group>
+    {
+        return self.groups.iter().map(|(_, v)| v.clone()).collect();
     }
 }
 
@@ -59,7 +54,9 @@ pub fn load_groups(
     let reader = BufReader::new(yaml_file);
 
     let mut full_config: FullConfig = serde_yaml::from_reader(reader)
-        .map_err(|err| { error!("Error while parsing: {:?}", err); })
+        .map_err(|err| {
+            error!("Error while parsing: {:?}", err);
+        })
         .map_err(|_| Error::new(ErrorKind::InvalidData, format!("Unable to parse yaml file")))?;
 
     for (key, group) in full_config.groups.iter_mut() {
@@ -91,32 +88,49 @@ fn to_hash_map(groups: &[Group]) -> HashMap<String, Group>
 }
 
 #[cfg(test)]
-mod configtest {
+mod configtest
+{
     use super::*;
 
     #[test]
-    fn test_load_groups() {
+    fn test_load_groups()
+    {
         let socket_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
         let full_config = load_groups("config.sample.yaml", socket_addr).unwrap();
-        assert_eq!(full_config.bind_address, "0.0.0.0:8900".parse::<SocketAddr>().unwrap());
-        assert_eq!(full_config.send_using_address, Some("0.0.0.0:8901".parse::<SocketAddr>().unwrap()));
-        assert_eq!(full_config.public_ip, Some("1.1.1.1".parse::<IpAddr>().unwrap()));
+        assert_eq!(
+            full_config.bind_address,
+            "0.0.0.0:8900".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            full_config.send_using_address,
+            Some("0.0.0.0:8901".parse::<SocketAddr>().unwrap())
+        );
+        assert_eq!(
+            full_config.public_ip,
+            Some("1.1.1.1".parse::<IpAddr>().unwrap())
+        );
 
         let group1 = full_config.groups.get("specific_hosts").unwrap();
 
         assert_eq!(group1.name, "specific_hosts");
-        assert_eq!(group1.send_using_address, full_config.send_using_address.unwrap());
+        assert_eq!(
+            group1.send_using_address,
+            full_config.send_using_address.unwrap()
+        );
         assert_eq!(group1.public_ip, full_config.public_ip);
         let allowed_local = vec![
             "192.168.0.153:8900".parse::<SocketAddr>().unwrap(),
             "192.168.0.54:20034".parse::<SocketAddr>().unwrap(),
         ];
         assert_eq!(group1.allowed_hosts, allowed_local);
-        
+
         let group2 = full_config.groups.get("local_network").unwrap();
-        
+
         assert_eq!(group2.name, "local_network");
-        assert_eq!(group2.send_using_address, full_config.send_using_address.unwrap());
+        assert_eq!(
+            group2.send_using_address,
+            full_config.send_using_address.unwrap()
+        );
         assert_eq!(group2.public_ip, full_config.public_ip);
 
         let allowed_hosts = vec![socket_addr];
@@ -125,10 +139,20 @@ mod configtest {
         let group3 = full_config.groups.get("external").unwrap();
 
         assert_eq!(group3.name, "external");
-        assert_eq!(group3.send_using_address, "0.0.0.0:9000".parse::<SocketAddr>().unwrap());
+        assert_eq!(
+            group3.send_using_address,
+            "0.0.0.0:9000".parse::<SocketAddr>().unwrap()
+        );
         assert_eq!(group3.public_ip, "2.2.2.2".parse::<IpAddr>().ok());
 
         let allowed_ext = vec!["3.3.3.3:80".parse::<SocketAddr>().unwrap()];
         assert_eq!(group3.allowed_hosts, allowed_ext);
+
+        let group4 = full_config.groups.get("receive_only_dir").unwrap();
+        let allowed_receive = vec![
+            "192.168.0.111:0".parse::<SocketAddr>().unwrap(),
+            "192.168.0.112:0".parse::<SocketAddr>().unwrap(),
+        ];
+        assert_eq!(group4.allowed_hosts, allowed_receive);
     }
 }

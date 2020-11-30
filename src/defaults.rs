@@ -1,4 +1,4 @@
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:8901";
@@ -8,6 +8,7 @@ pub const DEFAULT_ALLOWED_HOST: &str = "224.0.0.89:8900";
 pub const MAX_CHANNEL: usize = 100;
 pub const KEY_SIZE: usize = 32;
 pub const MAX_CLIPBOARD: usize = 1432;
+pub const MAX_FILE_SIZE: usize = 1432;
 
 pub fn default_socket_send_address() -> SocketAddr
 {

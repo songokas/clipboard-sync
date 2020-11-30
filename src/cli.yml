@@ -29,7 +29,7 @@ args:
         help: "group to use. default: default"
         takes_value: true
     - clipboard:
-        short: c
+        short: p
         long: clipboard
         help: "clipboard type. default: clipboard. can be clipboard, /path/to/file, /path/to/dir/"
         takes_value: true
@@ -39,6 +39,7 @@ args:
         help: "encryption key 32 chars long"
         takes_value: true
     - public-ip:
+        short: u
         long: public-ip
         help: "override public ip when sent outside local network"
         takes_value: true

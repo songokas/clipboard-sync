@@ -2,15 +2,15 @@ use bincode;
 use chacha20poly1305::aead::{Aead, NewAead, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use chrono::Utc;
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
 use log::debug;
 use rand::prelude::*;
-use std::io::prelude::*;
-use std::io::{self, Read};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use flate2::Compression;
-use flate2::write::ZlibEncoder;
-use flate2::read::ZlibDecoder;
+use std::io::prelude::*;
+use std::io::{self, Read};
 
 use crate::errors::*;
 use crate::message::*;
@@ -84,7 +84,7 @@ pub fn hash(bytes: &[u8]) -> String
 pub fn compress(data: &[u8]) -> io::Result<Vec<u8>>
 {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-    e.write_all(data);
+    e.write_all(data)?;
     return e.finish();
 }
 
@@ -97,12 +97,13 @@ pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
 }
 
 #[cfg(test)]
-mod encryptiontest {
+mod encryptiontest
+{
     use super::*;
 
     #[test]
-    fn test_encryption() {
-
+    fn test_encryption()
+    {
         let group1 = Group::from_name("test1");
         let group2 = Group::from_name("test2");
 
@@ -126,7 +127,38 @@ mod encryptiontest {
     #[test]
     fn test_hash()
     {
-        assert_eq!("12095268261750217435", hash("content"));
-        assert_eq!("15130871412783076140", hash(""));
+        assert_eq!("12095268261750217435", hash("content".as_bytes()));
+        assert_eq!("15130871412783076140", hash("".as_bytes()));
+    }
+
+    fn compress_data_provider() -> Vec<(Vec<u8>, &'static str)>
+    {
+        let data_t = vec![
+            (
+                vec![120, 156, 203, 40, 205, 77, 204, 3, 0, 6, 88, 2, 26],
+                "human",
+            ),
+            (vec![120, 156, 3, 0, 0, 0, 0, 1], ""),
+        ];
+        return data_t;
+    }
+
+    #[test]
+    fn test_compress()
+    {
+        for (expected, string_to_compress) in compress_data_provider() {
+            let data = compress(string_to_compress.as_bytes()).unwrap();
+            // println!("{:?}", data);
+            assert_eq!(expected, data);
+        }
+    }
+
+    #[test]
+    fn test_uncompress()
+    {
+        for (bytes_to_uncompress, expected) in compress_data_provider() {
+            let data = uncompress(bytes_to_uncompress).unwrap();
+            assert_eq!(expected, String::from_utf8_lossy(&data).to_string());
+        }
     }
 }

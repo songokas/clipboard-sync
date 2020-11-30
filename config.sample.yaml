@@ -22,6 +22,12 @@ groups:
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file
-   local_network_dir: 
+  local_network_dir:
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard/dir/ # sync dir
+  receive_only_dir:
+    key: "32323232323232323232323232323232"
+    clipboard: /tmp/cliboard/dir/ # files will be created as /tmp/cliboard/dir/192.168.0.111
+    allowed_hosts:
+      - "192.168.0.111:0" # port 0 - receive only
+      - "192.168.0.112:0"

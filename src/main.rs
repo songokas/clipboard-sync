@@ -1,28 +1,30 @@
 #![feature(ip)]
 
 use chacha20poly1305::Key;
+use log::{error, info};
 use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc::channel;
-use log::{debug};
 
 use clap::{load_yaml, App};
 use env_logger::Env;
-use futures::join;
+use futures::try_join;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
 pub mod config;
+pub mod defaults;
 pub mod encryption;
 pub mod errors;
+pub mod filesystem;
 pub mod message;
 pub mod process;
 pub mod socket;
-pub mod defaults;
 
-use crate::config::{FullConfig, load_groups};
+use crate::config::{load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
+use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{wait_on_clipboard, wait_on_receive};
 
@@ -49,8 +51,14 @@ async fn main() -> Result<(), CliError>
         .value_of("allowed-host")
         .unwrap_or(DEFAULT_ALLOWED_HOST);
 
-    let key_data = matches.value_of("key").unwrap_or("");
-    
+    let key_data: String = match matches.value_of("key") {
+        Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
+            Ok(file_contents) => file_contents,
+            Err(_) => expected_key.to_owned(),
+        },
+        None => "".to_owned(),
+    };
+
     if config_path.is_none() {
         if key_data.len() != KEY_SIZE {
             return Err(CliError::ArgumentError(format!(
@@ -76,7 +84,7 @@ async fn main() -> Result<(), CliError>
             key: key.clone(),
             public_ip,
             send_using_address,
-            clipboard: clipboard_type.to_owned()
+            clipboard: clipboard_type.to_owned(),
         }];
         let full_config =
             FullConfig::from_groups(socket_address, send_using_address, public_ip, groups);
@@ -92,21 +100,22 @@ async fn main() -> Result<(), CliError>
         .map(|config_path| create_groups_from_config(&config_path))
         .unwrap_or_else(create_groups_from_cli)?;
 
-    debug!("{:?}", full_config);
     let running = Arc::new(AtomicBool::new(true));
 
     let (tx, rx) = channel(MAX_CHANNEL);
     let groups = full_config.groups();
-    join!(
-        wait_on_receive(
-            tx,
-            full_config.bind_address,
-            Arc::clone(&running),
-            &groups
-        ),
+    let res = try_join!(
+        wait_on_receive(tx, full_config.bind_address, Arc::clone(&running), &groups),
         wait_on_clipboard(rx, Arc::clone(&running), &groups)
     );
-
-    Ok(())
+    match res {
+        Ok(((), ())) => {
+            info!("Finished running");
+            return Ok(());
+        }
+        Err(err) => {
+            error!("Finished with error {}", err);
+            return Err(CliError::IoError(err));
+        }
+    };
 }
-

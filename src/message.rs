@@ -1,6 +1,6 @@
 use chacha20poly1305::{Key, Nonce};
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
 use crate::defaults::*;
 
@@ -18,23 +18,6 @@ mod serde_key_str
     {
         let str_data: String = Deserialize::deserialize(deserializer)?;
         Ok(Key::from_slice(&str_data.as_bytes()).clone())
-    }
-}
-
-mod serde_key
-{
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(key: &Key, serializer: S) -> Result<S::Ok, S::Error>
-    {
-        serializer.serialize_bytes(key)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Key, D::Error>
-    {
-        let key_data: Vec<u8> = Deserialize::deserialize(deserializer)?;
-        Ok(Key::from_slice(&key_data).clone())
     }
 }
 
@@ -85,8 +68,6 @@ pub struct AdditionalData
     pub identity: String,
 }
 
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Group
 {
@@ -100,7 +81,7 @@ pub struct Group
     #[serde(default = "default_socket_send_address")]
     pub send_using_address: SocketAddr,
     #[serde(default = "default_clipboard")]
-    pub clipboard: String, 
+    pub clipboard: String,
 }
 
 #[cfg(test)]
@@ -111,7 +92,7 @@ impl Message
         return Message {
             nonce: Nonce::from_slice(b"123456789101").clone(),
             group: name.to_owned(),
-            text: [1, 2, 4].to_vec()
+            text: [1, 2, 4].to_vec(),
         };
     }
 }
@@ -126,7 +107,7 @@ impl Group
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
             public_ip: None,
             send_using_address: default_socket_send_address(),
-            clipboard: default_clipboard()
-        }
+            clipboard: default_clipboard(),
+        };
     }
 }

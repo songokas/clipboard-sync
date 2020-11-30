@@ -1,8 +1,8 @@
+use log::{debug, info, warn};
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use tokio::net::UdpSocket;
-use log::{debug, error, info, warn};
-use std::net::SocketAddr;
-use std::collections::HashMap;
 
 use crate::errors::ConnectionError;
 use crate::message::Group;
@@ -60,13 +60,13 @@ pub fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
         for addr in &group.allowed_hosts {
             if cache.contains_key(&addr.ip()) {
                 continue;
-            } 
+            }
             if addr.ip().is_multicast() {
                 let op = match addr.ip() {
                     IpAddr::V4(ip) => {
                         sock.set_multicast_loop_v4(false).unwrap_or(());
                         sock.join_multicast_v4(ip, ipv4.clone())
-                    },
+                    }
                     _ => {
                         warn!("Multicast ipv6 not supported");
                         continue;
