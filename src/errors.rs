@@ -26,18 +26,9 @@ pub enum ConnectionError
 }
 
 #[derive(Debug)]
-// @TODO remove
-pub enum ConfigError
-{
-    IoError(io::Error),
-    MissingFile(String),
-}
-
-#[derive(Debug)]
 pub enum CliError
 {
     IoError(io::Error),
-    MissingFile(String),
     ArgumentError(String),
     SocketError(std::net::AddrParseError),
 }
@@ -51,14 +42,6 @@ pub enum ClipboardError
     ValidationError(ValidationError),
     Provider(String),
     Access(String),
-}
-
-impl From<io::Error> for ConfigError
-{
-    fn from(error: io::Error) -> Self
-    {
-        ConfigError::IoError(error)
-    }
 }
 
 impl From<ValidationError> for ClipboardError

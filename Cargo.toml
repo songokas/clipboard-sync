@@ -4,8 +4,6 @@ version = "0.1.0"
 authors = ["Tomas Jakstas <tom.jakstas@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 clipboard = "0.5"
 chacha20poly1305 = "0.7"

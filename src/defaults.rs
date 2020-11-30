@@ -7,8 +7,8 @@ pub const DEFAULT_CLIPBOARD: &str = "clipboard";
 pub const DEFAULT_ALLOWED_HOST: &str = "224.0.0.89:8900";
 pub const MAX_CHANNEL: usize = 100;
 pub const KEY_SIZE: usize = 32;
-pub const MAX_CLIPBOARD: usize = 1432;
-pub const MAX_FILE_SIZE: usize = 1432;
+pub const MAX_FILE_SIZE: usize = 10 * 1024 * 1024;
+pub const MAX_RECEIVE_BUFFER: usize = 8096;
 
 pub fn default_socket_send_address() -> SocketAddr
 {

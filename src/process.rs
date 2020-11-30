@@ -41,7 +41,7 @@ pub async fn wait_on_receive(
         join_groups(&sock, groups, &ipv4);
     }
 
-    let mut buf = [0; MAX_CLIPBOARD];
+    let mut buf = vec![0; MAX_RECEIVE_BUFFER];
     while running.load(Ordering::Relaxed) {
         let (len, addr) = sock.recv_from(&mut buf).await?;
         debug!("Packet received from {} length {}", addr, len);

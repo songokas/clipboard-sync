@@ -75,8 +75,7 @@ async fn main() -> Result<(), CliError>
         let key = Key::from_slice(key_data.as_bytes());
 
         let socket_address = local_address
-            .parse::<SocketAddr>()
-            .map_err(|err| CliError::ArgumentError(err.to_string()))?;
+            .parse::<SocketAddr>()?;
 
         let groups = vec![Group {
             name: group.to_owned(),

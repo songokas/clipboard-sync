@@ -15,7 +15,6 @@ pub struct FullConfig
     pub bind_address: SocketAddr,
     pub send_using_address: Option<SocketAddr>,
     pub public_ip: Option<IpAddr>,
-    // @TODO this should be Vec<Group> find a better way to deal with serde
     groups: HashMap<String, Group>,
 }
 
@@ -75,7 +74,7 @@ pub fn load_groups(
             }
         }
     }
-    return Ok(full_config.clone());
+    return Ok(full_config);
 }
 
 fn to_hash_map(groups: &[Group]) -> HashMap<String, Group>
