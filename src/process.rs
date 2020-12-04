@@ -176,7 +176,8 @@ fn on_receive(
     let data = uncompress(bytes)?;
     let hash = hash(&data);
     if group.clipboard == "clipboard" {
-        let contents = String::from_utf8_lossy(&data).to_string();
+        let contents: String = String::from_utf8(data)
+            .map_err(|e| ClipboardError::Invalid(format!("Not a valid utf8 string {}", e)))?;
         set_clipboard(&contents)?;
         return Ok((contents, hash, group.name.clone()));
     } else if group.clipboard.ends_with("/") {

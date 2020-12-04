@@ -46,6 +46,7 @@ pub enum ClipboardError
     ConnectionError(ConnectionError),
     EncryptionError(EncryptionError),
     ValidationError(ValidationError),
+    Invalid(String),
     Provider(String),
     Access(String),
 }
