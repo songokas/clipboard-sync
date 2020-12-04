@@ -20,9 +20,14 @@ pub enum ValidationError
 pub enum ConnectionError
 {
     IoError(io::Error),
+    #[cfg(feature = "quic")]
+    Http3(quiche::Error),
     SocketError(std::net::AddrParseError),
     FailedToConnect(String),
+    InvalidBuffer(String),
     NoPublic(String),
+    ReceiveError(ValidationError),
+    Encryption(EncryptionError),
 }
 
 #[derive(Debug)]
@@ -31,6 +36,7 @@ pub enum CliError
     IoError(io::Error),
     ArgumentError(String),
     SocketError(std::net::AddrParseError),
+    ConnectionError(ConnectionError),
 }
 
 #[derive(Debug)]
@@ -84,6 +90,22 @@ impl From<std::net::AddrParseError> for ConnectionError
     }
 }
 
+impl From<ValidationError> for ConnectionError
+{
+    fn from(error: ValidationError) -> Self
+    {
+        ConnectionError::ReceiveError(error)
+    }
+}
+
+impl From<EncryptionError> for ConnectionError
+{
+    fn from(error: EncryptionError) -> Self
+    {
+        ConnectionError::Encryption(error)
+    }
+}
+
 impl From<std::net::AddrParseError> for CliError
 {
     fn from(error: std::net::AddrParseError) -> Self
@@ -105,5 +127,22 @@ impl From<io::Error> for ConnectionError
     fn from(error: io::Error) -> Self
     {
         ConnectionError::IoError(error)
+    }
+}
+
+#[cfg(feature = "quic")]
+impl From<quiche::Error> for ConnectionError
+{
+    fn from(error: quiche::Error) -> Self
+    {
+        ConnectionError::Http3(error)
+    }
+}
+
+impl From<ConnectionError> for CliError
+{
+    fn from(error: ConnectionError) -> Self
+    {
+        CliError::ConnectionError(error)
     }
 }

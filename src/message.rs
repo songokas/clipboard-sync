@@ -62,6 +62,7 @@ impl Message
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AdditionalData
 {
+    // not needed remove
     #[serde(with = "serde_nonce")]
     pub nonce: Nonce,
     pub group: String,

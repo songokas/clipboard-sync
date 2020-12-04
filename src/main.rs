@@ -39,7 +39,9 @@ async fn main() -> Result<(), CliError>
     let config_path = matches.value_of("config");
 
     let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
-    let send_address = matches.value_of("send-address").unwrap_or(SEND_ADDRESS);
+    let send_address = matches
+        .value_of("send-using-address")
+        .unwrap_or(SEND_ADDRESS);
     let public_ip = matches
         .value_of("public-ip")
         .and_then(|ip| ip.parse::<IpAddr>().ok());
@@ -74,8 +76,7 @@ async fn main() -> Result<(), CliError>
         let send_using_address = send_address.parse::<SocketAddr>()?;
         let key = Key::from_slice(key_data.as_bytes());
 
-        let socket_address = local_address
-            .parse::<SocketAddr>()?;
+        let socket_address = local_address.parse::<SocketAddr>()?;
 
         let groups = vec![Group {
             name: group.to_owned(),
@@ -113,8 +114,8 @@ async fn main() -> Result<(), CliError>
             return Ok(());
         }
         Err(err) => {
-            error!("Finished with error {}", err);
-            return Err(CliError::IoError(err));
+            error!("Finished with error {:?}", err);
+            return Err(err);
         }
     };
 }

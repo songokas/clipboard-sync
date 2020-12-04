@@ -34,7 +34,7 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
         nonce: nonce.clone(),
     };
 
-    debug!("Encrypt additional data: {:?}", add);
+    // debug!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -49,6 +49,34 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
     return Ok(Message::from_additional(&add, ciphertext));
 }
 
+pub fn encrypt_to_bytes(
+    contents: &[u8],
+    identity: &str,
+    group: &Group,
+) -> Result<Vec<u8>, EncryptionError>
+{
+    let message = encrypt(contents, identity, group)?;
+    let bytes = bincode::serialize(&message)
+        .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+    return Ok(bytes);
+}
+
+pub fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), ValidationError>
+{
+    let message: Message = bincode::deserialize(buffer)
+        .map_err(|err| ValidationError::DeserializeFailed((*err).to_string()))?;
+    let group = match groups.iter().find(|group| group.name == message.group) {
+        Some(group) => group,
+        _ => {
+            return Err(ValidationError::IncorrectGroup(format!(
+                "Group {} does not exist",
+                message.group
+            )));
+        }
+    };
+    return Ok((message, group.clone()));
+}
+
 pub fn decrypt(message: &Message, identity: &str, group: &Group)
     -> Result<Vec<u8>, EncryptionError>
 {
@@ -58,7 +86,7 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group)
         nonce: message.nonce,
     };
 
-    debug!("Decrypt additional data: {:?}", ad);
+    // debug!("Decrypt additional data: {:?}", ad);
 
     let add_bytes = bincode::serialize(&ad)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;

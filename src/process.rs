@@ -1,8 +1,5 @@
-use bincode;
 use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
-use std::io;
-use std::iter::Iterator;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -28,7 +25,7 @@ pub async fn wait_on_receive(
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
     groups: &[Group],
-) -> Result<(), io::Error>
+) -> Result<(), CliError>
 {
     let sock = UdpSocket::bind(local_address).await?;
     info!("Listen on {}", local_address);
@@ -41,9 +38,16 @@ pub async fn wait_on_receive(
         join_groups(&sock, groups, &ipv4);
     }
 
-    let mut buf = vec![0; MAX_RECEIVE_BUFFER];
+    // let mut buf = vec![0; MAX_RECEIVE_BUFFER];
     while running.load(Ordering::Relaxed) {
-        let (len, addr) = sock.recv_from(&mut buf).await?;
+        let (buf, addr) = match receive_data(&sock, MAX_RECEIVE_BUFFER, &groups).await {
+            Ok(v) => v,
+            Err(_) => {
+                continue;
+            }
+        };
+        let len = buf.len();
+
         debug!("Packet received from {} length {}", addr, len);
         let result = on_receive(&buf[..len], &addr.ip().to_string(), groups);
 
@@ -63,13 +67,14 @@ pub async fn wait_on_clipboard(
     mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
     groups: &[Group],
-) -> Result<(), io::Error>
+) -> Result<(), CliError>
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
     let mut hash_cache: HashMap<String, String> = HashMap::new();
     info!("Listen for clipboard changes");
     while running.load(Ordering::Relaxed) {
-        sleep(Duration::from_millis(500)).await;
+        //@TODO think about the events
+        sleep(Duration::from_millis(1000)).await;
         if let Ok((group_name, rhash)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
@@ -119,16 +124,20 @@ pub async fn wait_on_clipboard(
             let hash = hash(&bytes);
 
             let entry_value = match hash_cache.get(&group.name) {
-                Some(val) => val,
+                Some(val) => val.to_owned(),
                 None => {
                     hash_cache.insert(group.name.clone(), hash.clone());
-                    &hash
+                    hash.clone()
                 }
             };
-            if entry_value == &hash {
+
+            if &entry_value == &hash {
                 continue;
             }
-            debug!("Clipboard changed {}", &hash);
+
+            hash_cache.insert(group.name.clone(), hash.clone());
+
+            debug!("Clipboard changed from {} to {}", entry_value, &hash);
 
             let data = match compress(&bytes) {
                 Ok(d) => d,
@@ -154,22 +163,6 @@ fn set_clipboard(contents: &str) -> Result<(), ClipboardError>
     ctx.set_contents(contents.to_owned())
         .map_err(|err| ClipboardError::Access((*err).to_string()))?;
     return Ok(());
-}
-
-fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), ValidationError>
-{
-    let message: Message = bincode::deserialize(buffer)
-        .map_err(|err| ValidationError::DeserializeFailed((*err).to_string()))?;
-    let group = match groups.iter().find(|group| group.name == message.group) {
-        Some(group) => group,
-        _ => {
-            return Err(ValidationError::IncorrectGroup(format!(
-                "Group {} does not exist",
-                message.group
-            )));
-        }
-    };
-    return Ok((message, group.clone()));
 }
 
 fn on_receive(
@@ -217,14 +210,8 @@ async fn on_clipboard_change(buffer: &[u8], group: &Group) -> Result<usize, Clip
             obtain_local_addr(&sock)
         };
 
-        let message = encrypt(&buffer, &identity?.to_string(), group)?;
-        let bytes = bincode::serialize(&message)
-            .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-
-        sent += sock
-            .send(&bytes)
-            .await
-            .map_err(|err| ConnectionError::IoError(err))?;
+        let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
+        sent += send_data(sock, bytes, addr, group).await?;
     }
     return Ok(sent);
 }

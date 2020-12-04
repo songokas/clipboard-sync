@@ -1,0 +1,8 @@
+[Unit]
+Description=Clipboard sync across devices
+
+[Service]
+ExecStart=/usr/bin/clipboard-sync
+
+[Install]
+WantedBy=multi-user.target
