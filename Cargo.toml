@@ -30,9 +30,10 @@ version = "0.6.0"
 optional = true
 
 [features]
-default = ["frames"]
+default = ["basic", "frames", "quic"]
 quic = ["quiche"]
 frames = []
+basic = []
 
 [package.metadata.deb]
 maintainer = "Tomas Jakstas <tom.jakstas@gmail.com>"

@@ -4,6 +4,7 @@ pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:8901";
 pub const DEFAULT_GROUP: &str = "default";
 pub const DEFAULT_CLIPBOARD: &str = "clipboard";
+pub const DEFAULT_PROTOCOL: &str = "basic";
 pub const DEFAULT_ALLOWED_HOST: &str = "224.0.0.89:8900";
 pub const MAX_CHANNEL: usize = 100;
 pub const KEY_SIZE: usize = 32;

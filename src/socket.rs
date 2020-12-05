@@ -16,6 +16,7 @@ use crate::defaults::MAX_UDP_BUFFER;
 use crate::errors::ConnectionError;
 use crate::message::Group;
 use std::convert::TryInto;
+use std::io;
 
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
 
@@ -96,9 +97,45 @@ pub fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
     }
 }
 
-#[cfg(not(feature = "frames"))]
-#[cfg(not(feature = "quic"))]
+pub async fn send_data(
+    socket: UdpSocket,
+    data: Vec<u8>,
+    addr: &SocketAddr,
+    group: &Group,
+    protocol: &str,
+) -> Result<usize, ConnectionError>
+{
+    return match protocol {
+        #[cfg(feature = "frames")]
+        "frames" => send_data_frames(socket, data, addr, group).await,
+        #[cfg(feature = "quic")]
+        "quic" => send_data_quic(socket, data).await,
+        #[cfg(feature = "basic")]
+        "basic" => send_data_basic(socket, data).await,
+        _ => Err(ConnectionError::InvalidProtocol(protocol.to_owned())),
+    };
+}
+
 pub async fn receive_data(
+    socket: &UdpSocket,
+    max_len: usize,
+    groups: &[Group],
+    protocol: &str,
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+{
+    return match protocol {
+        #[cfg(feature = "frames")]
+        "frames" => receive_data_frames(socket, max_len, groups).await,
+        #[cfg(feature = "quic")]
+        "quic" => receive_data_quic(socket, max_len).await,
+        #[cfg(feature = "basic")]
+        "basic" => receive_data_basic(socket, max_len).await,
+        _ => Err(ConnectionError::InvalidProtocol(protocol.to_owned())),
+    };
+}
+
+#[cfg(feature = "basic")]
+pub async fn receive_data_basic(
     socket: &UdpSocket,
     max_len: usize,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
@@ -108,9 +145,8 @@ pub async fn receive_data(
     return Ok((data, addr));
 }
 
-#[cfg(not(feature = "frames"))]
-#[cfg(not(feature = "quic"))]
-pub async fn send_data(socket: UdpSocket, data: Vec<u8>) -> Result<usize, ConnectionError>
+#[cfg(feature = "basic")]
+pub async fn send_data_basic(socket: UdpSocket, data: Vec<u8>) -> Result<usize, ConnectionError>
 {
     return Ok(socket.send(&data).await?);
 }
@@ -125,7 +161,7 @@ pub struct Frame
 }
 
 #[cfg(feature = "frames")]
-pub async fn receive_data(
+pub async fn receive_data_frames(
     socket: &UdpSocket,
     max_len: usize,
     groups: &[Group],
@@ -216,7 +252,7 @@ async fn send_index(
 }
 
 #[cfg(feature = "frames")]
-pub async fn send_data(
+pub async fn send_data_frames(
     socket: UdpSocket,
     data: Vec<u8>,
     addr: &SocketAddr,
@@ -322,7 +358,7 @@ pub async fn send_data(
 }
 
 #[cfg(feature = "quic")]
-pub async fn receive_data(
+pub async fn receive_data_quic(
     socket: &UdpSocket,
     max_len: usize,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
@@ -332,70 +368,288 @@ pub async fn receive_data(
     config.set_max_idle_timeout(5000);
     config.verify_peer(false);
     config.set_max_udp_payload_size(MAX_DATAGRAM_SIZE as u64);
+    config.load_cert_chain_from_pem_file("/tmp/cert.crt")?;
+    config.load_priv_key_from_pem_file("/tmp/cert.key")?;
 
     let mut conn = quiche::accept(&scid, None, &mut config)?;
     let mut received = Vec::new();
-    let mut data = [0; MAX_UDP_BUFFER];
+    let mut buffer = [0; MAX_UDP_BUFFER];
+    let mut out = [0; MAX_DATAGRAM_SIZE];
+    let mut connection_received = 0;
+    let mut connection_sent = 0;
+    let mut sending_addr = None;
     loop {
-        let (read, addr) = socket.recv_from(&mut data).await?;
-
-        debug!("receive read {}", read);
-
-        let read = match conn.recv(&mut data[..read]) {
-            Ok(v) => v,
-
-            Err(quiche::Error::Done) => {
-                debug!("Finished receiving");
-                return Ok((received, addr));
+        'read_loop: loop {
+            let (read, addr) = match socket.try_recv_from(&mut buffer) {
+                Ok(n) => n,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    break 'read_loop;
+                }
+                Err(e) => {
+                    error!("Quic error occured while reading socket {}", e);
+                    return Err(ConnectionError::InvalidBuffer(format!(
+                        "Failed to read socket"
+                    )));
+                }
+            };
+            // let (read, addr) = socket.recv_from(&mut data).await?;
+            if sending_addr.is_none() {
+                sending_addr = Some(addr);
             }
 
-            Err(e) => {
-                error!("Error occured while receiving {}", e);
-                return Err(ConnectionError::Http3(e));
-            }
-        };
-        let mut copy = data[..read].to_vec();
-        received.append(&mut copy);
-        if received.len() > max_len {
+            debug!("Quic connection received {}", read);
+
+            let read = match conn.recv(&mut buffer[..read]) {
+                Ok(v) => v,
+
+                Err(quiche::Error::Done) => {
+                    debug!("Quic connection finished receiving");
+                    break 'read_loop;
+                    // return Ok((received, addr));
+                }
+
+                Err(e) => {
+                    error!("Quick error occured while receiving {}", e);
+                    return Err(ConnectionError::Http3(e));
+                }
+            };
+            connection_received += read;
+
+            // let pkt_buf = &mut data[..read];
+
+            // Parse the QUIC packet's header.
+            // let header = match quiche::Header::from_slice(
+            //     pkt_buf,
+            //     quiche::MAX_CONN_ID_LEN,
+            // ) {
+            //     Ok(v) => v,
+
+            //     Err(e) => {
+            //         error!("Parsing packet header failed: {:?}", e);
+            //         return Err(ConnectionError::Http3(e));
+            //     },
+            // };
+            // let mut copy = data[..read].to_vec();
+            // received.append(&mut copy);
+
+            // debug!("Total conn read {} received {} closed {} {:?}", read, received.len(), conn.is_closed(), conn.stats());
+            // if received.len() > max_len {
+            //     return Err(ConnectionError::InvalidBuffer(format!(
+            //         "Received more data {} than expected {}",
+            //         received.len(),
+            //         max_len,
+            //     )));
+            // }
+        }
+
+        'send_loop: loop {
+
+            let write = match conn.send(&mut out) {
+                Ok(v) => v,
+
+                Err(quiche::Error::Done) => {
+                    // debug!("Quic connection finished sending");
+                    break 'send_loop;
+                }
+
+                Err(e) => {
+                    error!("Quic error occured while sending {}", e);
+                    return Err(ConnectionError::Http3(e));
+                }
+            };
+
+            connection_sent += write;
+            match socket.try_send_to(&out[..write], sending_addr.unwrap()) {
+                Ok(s) => s,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    debug!("Quic connection socket finished sending");
+                    break 'send_loop;
+                }
+                Err(e) => {
+                    error!("Quic error occured while writing socket {}", e);
+                    return Err(ConnectionError::InvalidBuffer(format!(
+                        "Quic failed to send socket"
+                    )));
+                }
+            };
+
+        }
+
+        // debug!(
+        //     "Quick connection sent {} received {}",
+        //     connection_sent, connection_received
+        // );
+
+        if conn.is_closed() {
+            info!("connection closed, {:?}", conn.stats());
             return Err(ConnectionError::InvalidBuffer(format!(
-                "Expected data to be <= {} received {}",
-                max_len,
-                received.len()
+                "quic connection closed"
             )));
         }
+
+        if conn.is_in_early_data() || conn.is_established() {
+            debug!("Connection established {:?}", conn.stats());
+            while let Ok((read, fin)) = conn.stream_recv(0, &mut buffer) {
+                let mut copy = buffer[..read].to_vec();
+                received.append(&mut copy);
+                debug!(
+                    "Total conn read {} received {} fin {} closed {} {:?}",
+                    read,
+                    received.len(),
+                    fin,
+                    conn.is_closed(),
+                    conn.stats()
+                );
+                if fin {
+                    info!("response received in {:?}, closing...", fin);
+                    conn.close(true, 0x00, b"kthxbye").unwrap();
+                }
+            }
+        }
     }
+    return Ok((received, sending_addr.unwrap()));
 }
 
 #[cfg(feature = "quic")]
-pub async fn send_data(socket: UdpSocket, mut data: Vec<u8>) -> Result<usize, ConnectionError>
+pub async fn send_data_quic(socket: UdpSocket, mut data: Vec<u8>)
+    -> Result<usize, ConnectionError>
 {
     let scid = [0xba; 16];
     let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION)?;
     config.set_max_idle_timeout(5000);
-    config.verify_peer(false);
+    // config.verify_peer(false);
     config.set_max_udp_payload_size(MAX_DATAGRAM_SIZE as u64);
+    // config.load_cert_chain_from_pem_file("/tmp/cert.crt")?;
+    // config.load_priv_key_from_pem_file("/tmp/key.pem")?;
     // let mut conn = quiche::accept(&scid, None, &mut config)?;
     let mut conn = quiche::connect(None, &scid, &mut config)?;
 
+    let mut out = [0; MAX_DATAGRAM_SIZE];
+    let mut buffer = [0; MAX_UDP_BUFFER];
+
     // conn.on_timeout();
 
-    let mut sent = 0;
+    // sender
+    let mut connect_sent = 0;
+    // loop {
+    //     let write = match conn.send(&mut out) {
+    //         Ok(v) => v,
+
+    //         Err(quiche::Error::Done) => {
+    //             debug!("Quic connection finished");
+    //             break;
+    //         }
+
+    //         Err(e) => {
+    //             error!("Quic error occured while sending {}", e);
+    //             return Err(ConnectionError::Http3(e));
+    //         }
+    //     };
+
+    //     connect_sent += write;
+    //     socket.send(&out[..write]).await?;
+    // }
+
+    // debug!("Quick connection sent {}", connect_sent);
+
     loop {
-        let write = match conn.send(&mut data) {
-            Ok(v) => v,
+        'send_loop: loop {
+            let write = match conn.send(&mut out) {
+                Ok(v) => v,
 
-            Err(quiche::Error::Done) => {
-                debug!("Finished sending");
-                return Ok(sent);
+                Err(quiche::Error::Done) => {
+                    break 'send_loop;
+                    // debug!("done writing");
+                    // return Ok(data_sent);
+                }
+
+                Err(e) => {
+                    error!("send failed: {:?}", e);
+                    conn.close(false, 0x1, b"fail").ok();
+                    break 'send_loop;
+                }
+            };
+
+            if let Err(e) = socket.try_send(&out[..write]) {
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    debug!("send() would block");
+                    break 'send_loop;
+                }
+
+                panic!("send() failed: {:?}", e);
             }
 
-            Err(e) => {
-                error!("Error occured while sending {}", e);
-                return Err(ConnectionError::Http3(e));
-            }
-        };
+            debug!("written {}", write);
+        }
 
-        sent += write;
-        socket.send(&data[..write]).await?;
+        'read_loop: loop {
+            let len = match socket.try_recv(&mut buffer) {
+                Ok(n) => n,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    break 'read_loop;
+                }
+                Err(e) => {
+                    error!("Quic error occured while reading socket {}", e);
+                    return Err(ConnectionError::InvalidBuffer(format!(
+                        "Failed to read socket"
+                    )));
+                }
+            };
+
+            // debug!("Quic received {} bytes", len);
+
+            // Process potentially coalesced packets.
+            let read = match conn.recv(&mut buffer[..len]) {
+                Ok(v) => v,
+                Err(quiche::Error::Done) => {
+                    debug!("Quic connection finished receiving");
+                    break 'read_loop;
+                }
+                Err(e) => {
+                    error!("Quick error occured while receiving {}", e);
+                    return Err(ConnectionError::Http3(e));
+                }
+            };
+            debug!("Quick processed {} bytes", read);
+        }
+
+
+        if conn.is_closed() {
+            info!("connection closed, {:?}", conn.stats());
+            return Err(ConnectionError::InvalidBuffer(format!(
+                "quic connection closed"
+            )));
+        }
+
+        let mut data_sent = 0;
+        if conn.is_established() {
+            debug!("Connection established {:?}", conn.stats());
+
+            while let Ok(sent) = conn.stream_send(0, &mut data, true) {
+                debug!("Quic sent bytes {} on stream 0", sent);
+                data_sent += sent;
+            }
+        }
+
+        for s in conn.readable() {
+            while let Ok((read, fin)) = conn.stream_recv(s, &mut buffer) {
+                debug!("received {} bytes", read);
+
+                let stream_buf = &buffer[..read];
+
+                debug!("stream {} has {} bytes (fin? {})", s, stream_buf.len(), fin);
+
+                debug!("{}", unsafe { std::str::from_utf8_unchecked(&stream_buf) });
+
+                // The server reported that it has no more data to send, which
+                // we got the full response. Close the connection.
+                if s == 0 && fin {
+                    info!("response received in {:?}, closing...", fin);
+                    conn.close(true, 0x00, b"kthxbye").unwrap();
+                }
+            }
+        }
     }
+
+    // return Ok(data_sent);
 }

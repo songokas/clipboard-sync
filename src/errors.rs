@@ -26,6 +26,7 @@ pub enum ConnectionError
     FailedToConnect(String),
     InvalidBuffer(String),
     NoPublic(String),
+    InvalidProtocol(String),
     ReceiveError(ValidationError),
     Encryption(EncryptionError),
 }

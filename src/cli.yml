@@ -48,3 +48,7 @@ args:
         long: verbose
         help: sets the level of logging verbosity. default info
         takes_value: true
+    - protocol:
+        long: protocol
+        help: "use protocol - basic, frames, quic. default: basic"
+        takes_value: true

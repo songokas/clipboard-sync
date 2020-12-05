@@ -25,6 +25,7 @@ pub async fn wait_on_receive(
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
     groups: &[Group],
+    protocol: String,
 ) -> Result<(), CliError>
 {
     let sock = UdpSocket::bind(local_address).await?;
@@ -40,7 +41,7 @@ pub async fn wait_on_receive(
 
     // let mut buf = vec![0; MAX_RECEIVE_BUFFER];
     while running.load(Ordering::Relaxed) {
-        let (buf, addr) = match receive_data(&sock, MAX_RECEIVE_BUFFER, &groups).await {
+        let (buf, addr) = match receive_data(&sock, MAX_RECEIVE_BUFFER, &groups, &protocol).await {
             Ok(v) => v,
             Err(_) => {
                 continue;
@@ -67,6 +68,7 @@ pub async fn wait_on_clipboard(
     mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
     groups: &[Group],
+    protocol: String,
 ) -> Result<(), CliError>
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
@@ -147,7 +149,7 @@ pub async fn wait_on_clipboard(
                 }
             };
 
-            match on_clipboard_change(&data, &group).await {
+            match on_clipboard_change(&data, &group, &protocol).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             }
@@ -188,7 +190,11 @@ fn on_receive(
     return Ok((group.clipboard.clone(), hash, group.name.clone()));
 }
 
-async fn on_clipboard_change(buffer: &[u8], group: &Group) -> Result<usize, ClipboardError>
+async fn on_clipboard_change(
+    buffer: &[u8],
+    group: &Group,
+    protocol: &str,
+) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
     for addr in &group.allowed_hosts {
@@ -199,20 +205,26 @@ async fn on_clipboard_change(buffer: &[u8], group: &Group) -> Result<usize, Clip
         let sock = obtain_socket(&group.send_using_address, addr).await?;
         let remote_ip = addr.ip();
 
+        let is_private = match remote_ip {
+            IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
+            //@TODO ipv6 private in stable
+            _ => false,
+        };
+
         let identity = if remote_ip.is_multicast() {
             let local_addr = obtain_local_addr(&sock)?;
             join_group(&sock, &local_addr, &remote_ip);
             Ok(local_addr)
-        } else if remote_ip.is_global() {
+        } else if remote_ip.is_loopback() || is_private {
+            obtain_local_addr(&sock)
+        } else {
             group.public_ip.ok_or(ConnectionError::NoPublic(
                 "Group missing public ip however global routing requested".to_owned(),
             ))
-        } else {
-            obtain_local_addr(&sock)
         };
 
         let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
-        sent += send_data(sock, bytes, addr, group).await?;
+        sent += send_data(sock, bytes, addr, group, protocol).await?;
     }
     return Ok(sent);
 }

@@ -5,7 +5,7 @@ use chrono::Utc;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
-use log::debug;
+// use log::debug;
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;

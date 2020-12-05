@@ -1,4 +1,4 @@
-#![feature(ip)]
+// #![feature(ip)]
 
 use chacha20poly1305::Key;
 use log::{error, info};
@@ -48,6 +48,25 @@ async fn main() -> Result<(), CliError>
 
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
     let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
+
+    let protocol = matches.value_of("protocol").unwrap_or(DEFAULT_PROTOCOL);
+    let mut protocols = vec![];
+    if cfg!(feature = "basic") {
+        protocols.push("basic");
+    }
+    if cfg!(feature = "fames") {
+        protocols.push("fames");
+    }
+    if cfg!(feature = "quic") {
+        protocols.push("quic");
+    }
+
+    if !protocols.contains(&protocol) {
+        return Err(CliError::ArgumentError(format!(
+            "Protocol {} has not been compiled",
+            protocol
+        )));
+    }
 
     let allowed_host = matches
         .value_of("allowed-host")
@@ -105,8 +124,14 @@ async fn main() -> Result<(), CliError>
     let (tx, rx) = channel(MAX_CHANNEL);
     let groups = full_config.groups();
     let res = try_join!(
-        wait_on_receive(tx, full_config.bind_address, Arc::clone(&running), &groups),
-        wait_on_clipboard(rx, Arc::clone(&running), &groups)
+        wait_on_receive(
+            tx,
+            full_config.bind_address,
+            Arc::clone(&running),
+            &groups,
+            protocol.to_owned()
+        ),
+        wait_on_clipboard(rx, Arc::clone(&running), &groups, protocol.to_owned())
     );
     match res {
         Ok(((), ())) => {
