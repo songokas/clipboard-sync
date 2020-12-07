@@ -20,18 +20,23 @@ serde_yaml = "0.8"
 futures = "0.3"
 clap = {version = "2.27", features = ["yaml"]}
 tokio = { version = "0.3", features = ["full"] }
+tokio-test = "0.3.0"
 log = "~0.4.0"
 env_logger = "~0.7.0"
 flate2 = "1.0"
 walkdir = "2"
+dirs = "3.0"
 
-[dependencies.quiche]
-version = "0.6.0"
+[dependencies.quinn]
+version = "0.6.1"
+optional = true
+[dependencies.rcgen]
+version = "0.8.9"
 optional = true
 
 [features]
 default = ["basic", "frames", "quic"]
-quic = ["quiche"]
+quic = ["quinn", "rcgen"]
 frames = []
 basic = []
 

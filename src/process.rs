@@ -24,25 +24,34 @@ pub async fn wait_on_receive(
     channel: Sender<(String, String)>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
-    groups: &[Group],
-    protocol: String,
+    config: &FullConfig,
+    protocol: Protocol,
 ) -> Result<(), CliError>
 {
-    let sock = UdpSocket::bind(local_address).await?;
+    let endpoint = obtain_server_socket(&local_address, config)?;
+    let groups = config.groups();
     info!("Listen on {}", local_address);
-    let interface_ip = obtain_local_addr(&sock).expect("Unable to retrieve interface ip");
-    let local_interface = match interface_ip {
-        IpAddr::V4(ip) => Some(ip),
-        _ => None,
-    };
-    if let Some(ipv4) = local_interface {
-        join_groups(&sock, groups, &ipv4);
+    // let interface_ip = local_address.ip();//obtain_local_addr(&sock).expect("Unable to retrieve interface ip");
+
+    // let local_interface = match interface_ip {
+    //     IpAddr::V4(ip) => Some(ip),
+    //     _ => None,
+    // };
+    if let SocketEndpoint::Socket(sock) = endpoint {
+        join_groups(sock, groups, &ipv4); 
     }
+    // if let Some(ipv4) = local_interface {
+    //     join_groups(&sock, groups, &ipv4);
+    // }
 
     // let mut buf = vec![0; MAX_RECEIVE_BUFFER];
     while running.load(Ordering::Relaxed) {
-        let (buf, addr) = match receive_data(&sock, MAX_RECEIVE_BUFFER, &groups, &protocol).await {
+        let (buf, addr) = match receive_data(&endpoint, MAX_RECEIVE_BUFFER, &groups, protocol).await {
             Ok(v) => v,
+            Err(ConnectionError::InvalidKey(e)) | Err(ConnectionError::InvalidProtocol(e)) => {
+                error!("Unable to continue. {}", e);
+                break;
+            }
             Err(_) => {
                 continue;
             }
@@ -68,7 +77,7 @@ pub async fn wait_on_clipboard(
     mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
     groups: &[Group],
-    protocol: String,
+    protocol: Protocol,
 ) -> Result<(), CliError>
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
@@ -149,7 +158,7 @@ pub async fn wait_on_clipboard(
                 }
             };
 
-            match on_clipboard_change(&data, &group, &protocol).await {
+            match on_clipboard_change(&data, &group, protocol).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             }
@@ -193,7 +202,7 @@ fn on_receive(
 async fn on_clipboard_change(
     buffer: &[u8],
     group: &Group,
-    protocol: &str,
+    protocol: Protocol,
 ) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
@@ -202,7 +211,8 @@ async fn on_clipboard_change(
             debug!("Not sending to host {}", addr);
             continue;
         }
-        let sock = obtain_socket(&group.send_using_address, addr).await?;
+
+        let sock = obtain_client_socket(&group.send_using_address, addr, protocol).await?;
         let remote_ip = addr.ip();
 
         let is_private = match remote_ip {
@@ -212,52 +222,66 @@ async fn on_clipboard_change(
         };
 
         let identity = if remote_ip.is_multicast() {
-            let local_addr = obtain_local_addr(&sock)?;
-            join_group(&sock, &local_addr, &remote_ip);
+            let local_addr = group.send_using_address.ip();
+            if let SocketEndpoint::Socket(sock) = sock {
+                join_group(&sock, &local_addr, &remote_ip);
+            }
             Ok(local_addr)
         } else if remote_ip.is_loopback() || is_private {
-            obtain_local_addr(&sock)
+            Ok(group.send_using_address.ip())
         } else {
             group.public_ip.ok_or(ConnectionError::NoPublic(
                 "Group missing public ip however global routing requested".to_owned(),
             ))
         };
 
-        let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
-        sent += send_data(sock, bytes, addr, group, protocol).await?;
+        sent += send_data(&buffer, addr, &identity?.to_string(), group);
+
+        // let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
+        // sent += send_data(sock, bytes, addr, group, protocol).await?;
     }
     return Ok(sent);
 }
 
 #[cfg(test)]
-mod socketstest
+mod processtest
 {
-    use super::*;
+    use super::{on_clipboard_change};
+    use std::net::{IpAddr, SocketAddr};
+    use crate::message::{Group};
+    use crate::errors::{ClipboardError, ConnectionError};
+
+    macro_rules! wait {
+        ($e:expr) => {
+            tokio_test::block_on($e)
+        };
+    }
+
+    macro_rules! assert_error_type {
+        ($obj:expr, $err_type:pat) => {
+            match $obj { 
+                Err($err_type) => { assert!(true); },
+                Err(other) => { 
+                    assert!(false, format!("matching error failed {:?}", other));
+                },
+                Ok(r) => { assert!(false, format!("expected error got {:?}", r)); }
+            }
+        };
+    }
 
     #[test]
-    fn test_validate()
+    fn test_on_clipboard_change()
     {
-        let groups = vec![Group::from_name("test1"), Group::from_name("test2")];
-        let sequences: Vec<(Vec<u8>, bool)> = vec![
-            (
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
-                true,
-            ),
-            (
-                bincode::serialize(&Message::from_group("none"))
-                    .unwrap()
-                    .to_vec(),
-                false,
-            ),
-            ([3, 3, 98].to_vec(), false),
-            ([].to_vec(), false),
-        ];
+        let result = wait!(on_clipboard_change(b"test", &Group::from_name("me"), "basic"));
+        assert_eq!(result.unwrap(), 0);
 
-        for (bytes, expected) in sequences {
-            let result = validate(&bytes, &groups);
-            assert_eq!(result.is_ok(), expected);
-        }
+        let result = wait!(on_clipboard_change(b"test", &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"), "default"));
+        assert_error_type!(result, ClipboardError::ConnectionError(ConnectionError::InvalidProtocol(_)));
+
+        let result = wait!(on_clipboard_change(b"test", &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"), "basic"));
+        assert_eq!(result.unwrap(), 58);
+
+        let result = wait!(on_clipboard_change(b"test", &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"), "basic"));
+        assert_error_type!(result, ClipboardError::ConnectionError(ConnectionError::NoPublic(_)));
     }
 }

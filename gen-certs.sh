@@ -1,14 +1,16 @@
 #!/bin/bash
 set -ex
 
-# run: ./gen-certs.sh 192.168.0.153
+# run: ./gen-certs.sh 127.0.0.1
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 HOST=${1:-"clipboard-sync"}
 
-mkdir -p "$DIR/target/certs"
+EXPECTED_DIR="$HOME/.config/clipboard-sync"
 
-cd "$DIR/target/certs"
+mkdir -p "$EXPECTED_DIR"
+
+cd "$EXPECTED_DIR"
 
 openssl req -new -x509 -batch -nodes -days 10000 -keyout rootca.key -out rootca.crt
 openssl req -new -batch -nodes -sha256 -keyout cert.key -out cert.csr -subj "/C=GB/CN=$HOST"

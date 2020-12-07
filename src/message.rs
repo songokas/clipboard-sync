@@ -1,6 +1,7 @@
 use chacha20poly1305::{Key, Nonce};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
+use tokio::net::ToSocketAddrs;
 
 use crate::defaults::*;
 
@@ -69,6 +70,26 @@ pub struct AdditionalData
     pub identity: String,
 }
 
+// pub enum UnresolvedSocket
+// {
+//     socket: SocketAddr,
+//     pending: String,
+// }
+
+// impl UnresolvedSocketAddr
+// {
+//     fn from_string(s: &str) -> Self
+//     {
+//         return UnresolvedSocket::pending(s.to_owned());
+//     }
+
+//     fn from_socket(s: SocketAddr)
+//     {
+//         return UnresolvedSocket::socket(s);
+//     }
+// }
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Group
 {
@@ -98,6 +119,7 @@ impl Message
     }
 }
 
+#[cfg(test)]
 impl Group
 {
     pub fn from_name(name: &str) -> Self
@@ -107,8 +129,20 @@ impl Group
             allowed_hosts: Vec::new(),
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
             public_ip: None,
-            send_using_address: default_socket_send_address(),
-            clipboard: default_clipboard(),
+            send_using_address: "127.0.0.1:29983".parse::<SocketAddr>().unwrap(),
+            clipboard: "/tmp/_test_clip_sync".to_owned(),
         };
+    }
+
+    pub fn from_addr(name: &str, bind_addr: &str, allowed_host: &str) -> Self
+    {
+        return Group {
+            name: name.to_owned(),
+            allowed_hosts: vec![allowed_host.parse().unwrap()],
+            key: Key::from_slice(b"23232323232323232323232323232323").clone(),
+            public_ip: None,
+            send_using_address: bind_addr.parse().unwrap(),
+            clipboard: "/tmp/_test_clip_sync".to_owned(),
+        }; 
     }
 }

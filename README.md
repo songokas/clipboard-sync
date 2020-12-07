@@ -2,11 +2,17 @@
 
 synchronize your clipboards across multiple devices
 
+## Howto run
+
 ## run without config 
 
 ```
 KEY="32323232323232323232323232323232"
 clipboard-sync --key <(echo "$KEY")
+```
+
+```
+cargo run --  --key <(echo "$KEY") --allowed-host "127.0.0.1:8000" --clipboard /tmp/b --verbose debug --bind-address 127.0.0.1:9000 --send-using-address 127.0.0.1:9001
 ```
 
 check for more options 

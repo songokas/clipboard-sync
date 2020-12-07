@@ -189,4 +189,31 @@ mod encryptiontest
             assert_eq!(expected, String::from_utf8_lossy(&data).to_string());
         }
     }
+
+    #[test]
+    fn test_validate()
+    {
+        let groups = vec![Group::from_name("test1"), Group::from_name("test2")];
+        let sequences: Vec<(Vec<u8>, bool)> = vec![
+            (
+                bincode::serialize(&Message::from_group("test1"))
+                    .unwrap()
+                    .to_vec(),
+                true,
+            ),
+            (
+                bincode::serialize(&Message::from_group("none"))
+                    .unwrap()
+                    .to_vec(),
+                false,
+            ),
+            ([3, 3, 98].to_vec(), false),
+            ([].to_vec(), false),
+        ];
+
+        for (bytes, expected) in sequences {
+            let result = validate(&bytes, &groups);
+            assert_eq!(result.is_ok(), expected);
+        }
+    }
 }

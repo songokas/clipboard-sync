@@ -20,6 +20,7 @@ pub mod filesystem;
 pub mod message;
 pub mod process;
 pub mod socket;
+pub mod protocols;
 
 use crate::config::{load_groups, FullConfig};
 use crate::defaults::*;
@@ -54,8 +55,8 @@ async fn main() -> Result<(), CliError>
     if cfg!(feature = "basic") {
         protocols.push("basic");
     }
-    if cfg!(feature = "fames") {
-        protocols.push("fames");
+    if cfg!(feature = "frames") {
+        protocols.push("frames");
     }
     if cfg!(feature = "quic") {
         protocols.push("quic");
