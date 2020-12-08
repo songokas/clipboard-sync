@@ -12,6 +12,11 @@ use futures::try_join;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
+use quinn::{
+    Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, Endpoint, Incoming,
+    PrivateKey, ServerConfig, ServerConfigBuilder, TransportConfig, EndpointError, ParseError
+};
+
 pub mod config;
 pub mod defaults;
 pub mod encryption;
@@ -25,9 +30,10 @@ pub mod protocols;
 use crate::config::{load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
-use crate::filesystem::read_file_to_string;
+use crate::filesystem::{read_file,read_file_to_string};
 use crate::message::Group;
 use crate::process::{wait_on_clipboard, wait_on_receive};
+use crate::protocols::{Protocol};
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -50,58 +56,84 @@ async fn main() -> Result<(), CliError>
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
     let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
 
-    let protocol = matches.value_of("protocol").unwrap_or(DEFAULT_PROTOCOL);
-    let mut protocols = vec![];
-    if cfg!(feature = "basic") {
-        protocols.push("basic");
-    }
-    if cfg!(feature = "frames") {
-        protocols.push("frames");
-    }
-    if cfg!(feature = "quic") {
-        protocols.push("quic");
-    }
-
-    if !protocols.contains(&protocol) {
-        return Err(CliError::ArgumentError(format!(
-            "Protocol {} has not been compiled",
-            protocol
-        )));
-    }
+    let protocol = match matches.value_of("protocol") {
+        #[cfg(feature = "quic")]
+        Some(v) if v == "quic" => Protocol::Quic,
+        #[cfg(feature = "frames")]
+        Some(v) if v == "frames" => Protocol::Frames,
+        #[cfg(feature = "basic")]
+        Some(v) if v == "basic" => Protocol::Basic,
+        Some(v) => {
+            return Err(CliError::ArgumentError(format!(
+                "Protocol {} has not been compiled",
+                v
+            )));
+        },
+        None => Protocol::Basic
+    };
 
     let allowed_host = matches
         .value_of("allowed-host")
         .unwrap_or(DEFAULT_ALLOWED_HOST);
 
-    let key_data: String = match matches.value_of("key") {
+    let key_data: Option<String> = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
-            Ok(file_contents) => file_contents,
-            Err(_) => expected_key.to_owned(),
+            Ok(file_contents) => Some(file_contents),
+            Err(_) => Some(expected_key.to_owned())
         },
-        None => "".to_owned(),
+        None => None,
     };
 
-    if config_path.is_none() {
-        if key_data.len() != KEY_SIZE {
+    let private_key: Option<PrivateKey> = match matches.value_of("private-key") {
+        Some(expected_key) => match read_file(expected_key, 10_000) {
+            Ok(file_contents) => Some(PrivateKey::from_pem(&file_contents)?),
+            Err(r) => Err(r)?,
+        },
+        None if protocol.requires_public_key() && config_path.is_none() => {
             return Err(CliError::ArgumentError(format!(
-                "Please provide a valid key with length {}. Current: {}",
-                KEY_SIZE,
-                key_data.len()
-            )));
+                "Please provide a valid public key",
+            ))); 
+        },
+        None => None,
+    };
+
+    let public_key: Option<CertificateChain> = match matches.value_of("public-key") {
+        Some(expected_key) => match read_file(expected_key, 10_000) {
+            Ok(file_contents) => Some(CertificateChain::from_pem(&file_contents)?),
+            Err(r) => Err(r)?,
+        },
+        None if protocol.requires_public_key() && config_path.is_none() => {
+            return Err(CliError::ArgumentError(format!(
+                "Please provide a valid public key",
+            ))); 
+        },
+        None => None
+    };
+
+    if !protocol.requires_public_key() && config_path.is_none() {
+        match key_data {
+            Some(d) if d.len() != KEY_SIZE => {
+                return Err(CliError::ArgumentError(format!(
+                    "Please provide a valid key with length {}. Current: {}",
+                    KEY_SIZE,
+                    d.len()
+                )));
+            }
         }
     }
 
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let allowed_host_addr = allowed_host.parse::<SocketAddr>()?;
         let send_using_address = send_address.parse::<SocketAddr>()?;
-        let key = Key::from_slice(key_data.as_bytes());
+
+        let key: Option<Key> = key_data.map(|d| Key::from_slice(d.as_bytes()).clone() );
 
         let socket_address = local_address.parse::<SocketAddr>()?;
 
         let groups = vec![Group {
             name: group.to_owned(),
             allowed_hosts: vec![allowed_host_addr],
-            key: key.clone(),
+            key: key,
             public_ip,
             send_using_address,
             clipboard: clipboard_type.to_owned(),

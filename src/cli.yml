@@ -52,3 +52,11 @@ args:
         long: protocol
         help: "use protocol - basic, frames, quic. default: basic"
         takes_value: true
+    - private-key:
+        long: private-key
+        help: "path to private key for quic"
+        takes_value: true
+    - public-key:
+        long: public-key
+        help: "path to public key for quic"
+        takes_value: true

@@ -15,6 +15,8 @@ pub struct FullConfig
     pub bind_address: SocketAddr,
     pub send_using_address: Option<SocketAddr>,
     pub public_ip: Option<IpAddr>,
+    pub public_key: Option<CertificateChain>,
+    pub private_key: Option<PrivateKey>
     groups: HashMap<String, Group>,
 }
 

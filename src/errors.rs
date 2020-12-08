@@ -20,8 +20,6 @@ pub enum ValidationError
 pub enum ConnectionError
 {
     IoError(io::Error),
-    #[cfg(feature = "quic")]
-    Http3(quiche::Error),
     SocketError(std::net::AddrParseError),
     FailedToConnect(String),
     InvalidBuffer(String),
@@ -30,6 +28,7 @@ pub enum ConnectionError
     InvalidKey(String),
     ReceiveError(ValidationError),
     Encryption(EncryptionError),
+
 }
 
 #[derive(Debug)]
@@ -39,6 +38,8 @@ pub enum CliError
     ArgumentError(String),
     SocketError(std::net::AddrParseError),
     ConnectionError(ConnectionError),
+    #[cfg(feature = "quic")]
+    KeyError(quinn::ParseError)
 }
 
 #[derive(Debug)]
@@ -106,6 +107,15 @@ impl From<EncryptionError> for ConnectionError
     fn from(error: EncryptionError) -> Self
     {
         ConnectionError::Encryption(error)
+    }
+}
+
+#[cfg(feature = "quic")]
+impl From<quinn::ParseError> for CliError
+{
+    fn from(error: quinn::ParseError) -> Self
+    {
+        CliError::KeyError(error)
     }
 }
 

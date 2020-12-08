@@ -98,7 +98,7 @@ pub struct Group
     #[serde(default = "default_allowed_hosts")]
     pub allowed_hosts: Vec<SocketAddr>,
     #[serde(with = "serde_key_str")]
-    pub key: Key,
+    pub key: Option<Key>,
     pub public_ip: Option<IpAddr>,
     #[serde(default = "default_socket_send_address")]
     pub send_using_address: SocketAddr,

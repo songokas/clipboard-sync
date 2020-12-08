@@ -1,8 +1,12 @@
+use quinn::{Endpoint, Incoming};
+use tokio::net::{UdpSocket, ToSocketAddrs};
+use std::net::{SocketAddr};
+
 mod quic;
 mod basic;
 mod frames;
 
-enum SocketEndpoint
+pub enum SocketEndpoint
 {
     #[cfg(feature = "basic")]
     #[cfg(feature = "frames")]
@@ -13,14 +17,19 @@ enum SocketEndpoint
     QuickServer(Incoming)
 }
 
-enum Protocol
+pub enum Protocol
 {
-    #[cfg(feature = "basic")]
     Basic,
-    #[cfg(feature = "frames")]
     Frames,
-    #[cfg(feature = "quic")]
     Quic,
+}
+
+impl Protocol
+{
+    pub fn requires_public_key(&self) -> bool
+    {
+        return if let Self::Quic = self { true } else { false };
+    }
 }
 
 pub async fn obtain_client_socket(
