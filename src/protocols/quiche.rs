@@ -1,4 +1,3 @@
-use chrono::{DateTime, Local};
 use log::{debug, error, info, warn};
 use std::io;
 use std::net::SocketAddr;
@@ -208,6 +207,7 @@ pub async fn send_data_quic(
 {
     let scid = random(quiche::MAX_CONN_ID_LEN);
     let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION)?;
+    let identity = socket.local_addr().map(|a| a.ip().to_string())?;
 
     let config_path = dirs::config_dir().ok_or_else(|| {
         ConnectionError::InvalidKey(
@@ -249,7 +249,7 @@ pub async fn send_data_quic(
 
     let cwrite = conn.send(&mut out)?;
 
-    let enc_write = encrypt_to_bytes(&out[..cwrite], &addr.ip().to_string(), group)?;
+    let enc_write = encrypt_to_bytes(&out[..cwrite], &identity, group)?;
     while let Err(e) = socket.try_send(&enc_write) {
     // while let Err(e) = socket.try_send(&out[..cwrite]) {
         if e.kind() == std::io::ErrorKind::WouldBlock {

@@ -23,19 +23,18 @@ impl SocketEndpoint
 {
     pub fn socket(&self) -> Option<&UdpSocket>
     {
-        return if let Self::Socket(s) = self {
-            Some(s)
+        if let Self::Socket(s) = self {
+            return Some(s);
         } else {
-            None
-        };
+            return None;
+        }
     }
 
     pub fn socket_consume(self) -> Option<UdpSocket>
     {
-        return if let Self::Socket(s) = self {
-            Some(s)
-        } else {
-            None
+        return match self {
+            Self::Socket(s) => Some(s),
+            _ => None
         };
     }
 

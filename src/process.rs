@@ -3,7 +3,6 @@ use clipboard::ClipboardProvider;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 

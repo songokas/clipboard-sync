@@ -122,11 +122,11 @@ pub async fn send_data_frames(
 ) -> Result<usize, ConnectionError>
 {
     let indexes: usize = (data.len() / MAX_UDP_BUFFER) + 1;
+    let identity = socket.local_addr().map(|a| a.ip().to_string())?;
     let socket_writer = Arc::new(socket);
     let socket_reader = Arc::clone(&socket_writer);
     let groups = vec![group.clone()];
     let expected_addr = addr.clone();
-    let identity = socket_writer.local_addr().map(|a| a.ip().to_string())?;
 
     let mut sent = 0;
     let (channel_sender, mut channel_receiver) = mpsc::channel(indexes * 4);
