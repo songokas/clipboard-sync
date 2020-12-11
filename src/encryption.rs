@@ -5,7 +5,7 @@ use chrono::Utc;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
-// use log::debug;
+use log::debug;
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -39,7 +39,7 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
         nonce: nonce.clone(),
     };
 
-    // debug!("Encrypt additional data: {:?}", add);
+    debug!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -91,7 +91,7 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group)
         nonce: message.nonce,
     };
 
-    // debug!("Decrypt additional data: {:?}", ad);
+    debug!("Decrypt additional data: {:?}", ad);
 
     let add_bytes = bincode::serialize(&ad)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -103,7 +103,7 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group)
     let cipher = ChaCha20Poly1305::new(&group.key);
     return cipher
         .decrypt(&message.nonce, enc_msg)
-        .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()));
+        .map_err(|err| EncryptionError::DecryptionFailed(err.to_string()));
 }
 
 pub fn hash(bytes: &[u8]) -> String

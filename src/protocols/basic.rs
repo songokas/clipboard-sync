@@ -8,7 +8,8 @@ pub async fn receive_data_basic(
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut data = vec![0; max_len];
-    let (_, addr) = socket.recv_from(&mut data).await?;
+    let (read, addr) = socket.recv_from(&mut data).await?;
+    data.truncate(read);
     return Ok((data, addr));
 }
 

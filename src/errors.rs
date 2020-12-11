@@ -5,6 +5,7 @@ pub enum EncryptionError
 {
     InvalidMessage(String),
     EncryptionFailed(String),
+    DecryptionFailed(String),
     SerializeFailed(String),
 }
 

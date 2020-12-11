@@ -252,7 +252,7 @@ mod processtest
     use super::on_clipboard_change;
     use crate::errors::{ClipboardError, ConnectionError};
     use crate::message::Group;
-    use std::net::{IpAddr, SocketAddr};
+    use crate::socket::Protocol;
 
     macro_rules! wait {
         ($e:expr) => {
@@ -282,31 +282,21 @@ mod processtest
         let result = wait!(on_clipboard_change(
             b"test",
             &Group::from_name("me"),
-            "basic"
+            &Protocol::Basic
         ));
         assert_eq!(result.unwrap(), 0);
 
         let result = wait!(on_clipboard_change(
             b"test",
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
-            "default"
-        ));
-        assert_error_type!(
-            result,
-            ClipboardError::ConnectionError(ConnectionError::InvalidProtocol(_))
-        );
-
-        let result = wait!(on_clipboard_change(
-            b"test",
-            &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
-            "basic"
+            &Protocol::Basic
         ));
         assert_eq!(result.unwrap(), 58);
 
         let result = wait!(on_clipboard_change(
             b"test",
             &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
-            "basic"
+            &Protocol::Basic
         ));
         assert_error_type!(
             result,
