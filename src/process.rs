@@ -51,6 +51,7 @@ pub async fn wait_on_receive(
                 Ok(v) => v,
                 Err(ConnectionError::InvalidKey(e)) | Err(ConnectionError::InvalidProtocol(e)) => {
                     error!("Unable to continue. {}", e);
+                    running.store(false, Ordering::Relaxed);
                     break;
                 }
                 Err(e) => {
@@ -116,16 +117,16 @@ pub async fn wait_on_clipboard(
             } else if group.clipboard.ends_with("/") {
                 match dir_to_bytes(&group.clipboard) {
                     Ok(bytes) => bytes,
-                    Err(err) => {
-                        error!("Error reading directory. Message: {:?}", err);
+                    Err(_) => {
+                        // error!("Error reading directory. Message: {:?}", err);
                         continue;
                     }
                 }
             } else {
                 match read_file(&group.clipboard, MAX_FILE_SIZE) {
                     Ok(bytes) => bytes,
-                    Err(err) => {
-                        error!("Error reading file {}. Message: {}", &group.clipboard, err);
+                    Err(_) => {
+                        // error!("Error reading file {}. Message: {}", &group.clipboard, err);
                         continue;
                     }
                 }

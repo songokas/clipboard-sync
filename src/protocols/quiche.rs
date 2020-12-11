@@ -29,8 +29,10 @@ pub async fn receive_data_quic(
     let key_str = key_path.to_string_lossy();
     let crt_str = cert_path.to_string_lossy();
 
-    config.load_cert_chain_from_pem_file(&key_str)?;
-    config.load_priv_key_from_pem_file(&crt_str)?;
+    config.load_cert_chain_from_pem_file(&crt_str)
+        .map_err(|e| ConnectionError::InvalidKey(format!("crt not found or not valid {} {}", crt_str, e)))?;
+    config.load_priv_key_from_pem_file(&key_str)
+        .map_err(|e| ConnectionError::InvalidKey(format!("key not found or not valid {} {}", key_str, e)))?;
 
     config
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
@@ -215,7 +217,8 @@ pub async fn send_data_quic(
     let cert_path = config_path.join(format!("clipboard-sync/cert.crt"));
     let crt_str = cert_path.to_string_lossy();
 
-    config.load_verify_locations_from_file(&crt_str)?;
+    config.load_verify_locations_from_file(&crt_str)
+        .map_err(|e| ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e)))?;
 
     config
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
