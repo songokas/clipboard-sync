@@ -217,6 +217,7 @@ async fn on_clipboard_change(
 
         let endpoint = obtain_client_socket(&group.send_using_address, addr, protocol).await?;
         let remote_ip = addr.ip();
+        let local_ip = endpoint.ip();
 
         let is_private = match remote_ip {
             IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
@@ -225,20 +226,18 @@ async fn on_clipboard_change(
         };
 
         let identity = if remote_ip.is_multicast() {
-            let local_addr = group.send_using_address.ip();
+            let local_addr = local_ip.unwrap_or(group.send_using_address.ip());
             if let Some(sock) = endpoint.socket() {
                 join_group(sock, &local_addr, &remote_ip);
             }
             Ok(local_addr)
         } else if remote_ip.is_loopback() || is_private {
-            Ok(group.send_using_address.ip())
+            Ok(local_ip.unwrap_or(group.send_using_address.ip()))
         } else {
             group.public_ip.ok_or(ConnectionError::NoPublic(
                 "Group missing public ip however global routing requested".to_owned(),
             ))
         };
-
-        // sent += send_data(sock, &buffer, addr, &identity?.to_string(), group, protocol);
 
         let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
         sent += send_data(endpoint, bytes, addr, group, protocol).await?;

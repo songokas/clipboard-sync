@@ -39,6 +39,19 @@ impl SocketEndpoint
         };
     }
 
+    pub fn ip(&self) -> Option<IpAddr>
+    {
+        return match self {
+            Self::Socket(s) => {
+                return s
+                   .local_addr()
+                   .map(|s| s.ip().clone())
+                   .ok();
+            },
+            _ => None
+        };
+    }
+
     #[cfg(feature = "quinn")]
     pub fn client_consume(self) -> Option<Endpoint>
     {
