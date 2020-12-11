@@ -226,6 +226,16 @@ async fn on_clipboard_change(
         };
 
         let identity = if remote_ip.is_multicast() {
+            match protocol {
+                Protocol::Basic => (),
+                _ => {
+                    return Err(ClipboardError::ConnectionError(
+                        ConnectionError::InvalidProtocol(
+                            format!("Protocol {} does not support multicast", protocol)
+                        ))
+                    );
+                }
+            };
             let local_addr = local_ip.unwrap_or(group.send_using_address.ip());
             if let Some(sock) = endpoint.socket() {
                 join_group(sock, &local_addr, &remote_ip);

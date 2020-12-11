@@ -89,7 +89,7 @@ async fn send_index(
     index: u32,
     indexes: usize,
     data: &[u8],
-    addr: &SocketAddr,
+    identity: &str,
     group: &Group,
 ) -> Result<usize, ConnectionError>
 {
@@ -106,7 +106,7 @@ async fn send_index(
     };
     let bytes = bincode::serialize(&frame)
         .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
-    let bytes = encrypt_to_bytes(&bytes, &addr.ip().to_string(), &group)?;
+    let bytes = encrypt_to_bytes(&bytes, identity, &group)?;
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 
@@ -126,6 +126,7 @@ pub async fn send_data_frames(
     let socket_reader = Arc::clone(&socket_writer);
     let groups = vec![group.clone()];
     let expected_addr = addr.clone();
+    let identity = socket_writer.local_addr().map(|a| a.ip().to_string())?;
 
     let mut sent = 0;
     let (channel_sender, mut channel_receiver) = mpsc::channel(indexes * 4);
@@ -185,7 +186,7 @@ pub async fn send_data_frames(
     let mut i: u32 = 0;
     // first send all
     while i < indexes as u32 {
-        sent += send_index(&socket_writer, i, indexes, &data, addr, group).await?;
+        sent += send_index(&socket_writer, i, indexes, &data, &identity, group).await?;
         sent_without_confirmation.insert(i, true);
         i += 1;
         sleep(Duration::from_millis(20)).await;
@@ -206,7 +207,7 @@ pub async fn send_data_frames(
         }
 
         for (index, _) in sent_without_confirmation.iter() {
-            sent += send_index(&socket_writer, index.clone(), indexes, &data, addr, group).await?;
+            sent += send_index(&socket_writer, index.clone(), indexes, &data, &identity, group).await?;
         }
         retries -= 1;
     }

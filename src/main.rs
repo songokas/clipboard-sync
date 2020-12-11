@@ -67,9 +67,21 @@ async fn main() -> Result<(), CliError>
         None => Protocol::Basic,
     };
 
+
+    let default_host = match protocol {
+        Protocol::Basic => DEFAULT_ALLOWED_HOST,
+        _ => ""
+    };
+
     let allowed_host = matches
         .value_of("allowed-host")
-        .unwrap_or(DEFAULT_ALLOWED_HOST);
+        .unwrap_or(default_host);
+
+    if allowed_host.is_empty() {
+        return Err(CliError::ArgumentError(format!(
+            "Please provide --allowed-host 192.168.0.5 or use basic protocol",
+        ))); 
+    }
 
     let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
