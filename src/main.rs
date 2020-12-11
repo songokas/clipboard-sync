@@ -12,11 +12,6 @@ use futures::try_join;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
-use quinn::{
-    Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, Endpoint, Incoming,
-    PrivateKey, ServerConfig, ServerConfigBuilder, TransportConfig, EndpointError, ParseError
-};
-
 pub mod config;
 pub mod defaults;
 pub mod encryption;
@@ -24,16 +19,16 @@ pub mod errors;
 pub mod filesystem;
 pub mod message;
 pub mod process;
-pub mod socket;
 pub mod protocols;
+pub mod socket;
 
 use crate::config::{load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
-use crate::filesystem::{read_file,read_file_to_string};
+use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{wait_on_clipboard, wait_on_receive};
-use crate::protocols::{Protocol};
+use crate::socket::Protocol;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -68,72 +63,68 @@ async fn main() -> Result<(), CliError>
                 "Protocol {} has not been compiled",
                 v
             )));
-        },
-        None => Protocol::Basic
+        }
+        None => Protocol::Basic,
     };
 
     let allowed_host = matches
         .value_of("allowed-host")
         .unwrap_or(DEFAULT_ALLOWED_HOST);
 
-    let key_data: Option<String> = match matches.value_of("key") {
+    let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
-            Ok(file_contents) => Some(file_contents),
-            Err(_) => Some(expected_key.to_owned())
+            Ok(file_contents) => file_contents,
+            Err(_) => expected_key.to_owned(),
         },
-        None => None,
+        None => "".to_owned(),
     };
 
-    let private_key: Option<PrivateKey> = match matches.value_of("private-key") {
-        Some(expected_key) => match read_file(expected_key, 10_000) {
-            Ok(file_contents) => Some(PrivateKey::from_pem(&file_contents)?),
-            Err(r) => Err(r)?,
-        },
-        None if protocol.requires_public_key() && config_path.is_none() => {
-            return Err(CliError::ArgumentError(format!(
-                "Please provide a valid public key",
-            ))); 
-        },
-        None => None,
-    };
+    // let private_key: Option<PrivateKey> = match matches.value_of("private-key") {
+    //     Some(expected_key) => match read_file(expected_key, 10_000) {
+    //         Ok(file_contents) => Some(PrivateKey::from_pem(&file_contents)?),
+    //         Err(r) => Err(r)?,
+    //     },
+    //     None if protocol.requires_public_key() && config_path.is_none() => {
+    //         return Err(CliError::ArgumentError(format!(
+    //             "Please provide a valid public key",
+    //         )));
+    //     },
+    //     None => None,
+    // };
 
-    let public_key: Option<CertificateChain> = match matches.value_of("public-key") {
-        Some(expected_key) => match read_file(expected_key, 10_000) {
-            Ok(file_contents) => Some(CertificateChain::from_pem(&file_contents)?),
-            Err(r) => Err(r)?,
-        },
-        None if protocol.requires_public_key() && config_path.is_none() => {
-            return Err(CliError::ArgumentError(format!(
-                "Please provide a valid public key",
-            ))); 
-        },
-        None => None
-    };
+    // let public_key: Option<CertificateChain> = match matches.value_of("public-key") {
+    //     Some(expected_key) => match read_file(expected_key, 10_000) {
+    //         Ok(file_contents) => Some(CertificateChain::from_pem(&file_contents)?),
+    //         Err(r) => Err(r)?,
+    //     },
+    //     None if protocol.requires_public_key() && config_path.is_none() => {
+    //         return Err(CliError::ArgumentError(format!(
+    //             "Please provide a valid public key",
+    //         )));
+    //     },
+    //     None => None
+    // };
 
-    if !protocol.requires_public_key() && config_path.is_none() {
-        match key_data {
-            Some(d) if d.len() != KEY_SIZE => {
-                return Err(CliError::ArgumentError(format!(
-                    "Please provide a valid key with length {}. Current: {}",
-                    KEY_SIZE,
-                    d.len()
-                )));
-            }
-        }
+    if config_path.is_none() && key_data.len() != KEY_SIZE {
+        return Err(CliError::ArgumentError(format!(
+            "Please provide a valid key with length {}. Current: {}",
+            KEY_SIZE,
+            key_data.len()
+        )));
     }
 
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let allowed_host_addr = allowed_host.parse::<SocketAddr>()?;
         let send_using_address = send_address.parse::<SocketAddr>()?;
 
-        let key: Option<Key> = key_data.map(|d| Key::from_slice(d.as_bytes()).clone() );
+        let key = Key::from_slice(key_data.as_bytes());
 
         let socket_address = local_address.parse::<SocketAddr>()?;
 
         let groups = vec![Group {
             name: group.to_owned(),
             allowed_hosts: vec![allowed_host_addr],
-            key: key,
+            key: key.clone(),
             public_ip,
             send_using_address,
             clipboard: clipboard_type.to_owned(),
@@ -162,9 +153,9 @@ async fn main() -> Result<(), CliError>
             full_config.bind_address,
             Arc::clone(&running),
             &groups,
-            protocol.to_owned()
+            protocol
         ),
-        wait_on_clipboard(rx, Arc::clone(&running), &groups, protocol.to_owned())
+        wait_on_clipboard(rx, Arc::clone(&running), &groups, protocol)
     );
     match res {
         Ok(((), ())) => {

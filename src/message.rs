@@ -1,7 +1,6 @@
 use chacha20poly1305::{Key, Nonce};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
-use tokio::net::ToSocketAddrs;
 
 use crate::defaults::*;
 
@@ -70,26 +69,6 @@ pub struct AdditionalData
     pub identity: String,
 }
 
-// pub enum UnresolvedSocket
-// {
-//     socket: SocketAddr,
-//     pending: String,
-// }
-
-// impl UnresolvedSocketAddr
-// {
-//     fn from_string(s: &str) -> Self
-//     {
-//         return UnresolvedSocket::pending(s.to_owned());
-//     }
-
-//     fn from_socket(s: SocketAddr)
-//     {
-//         return UnresolvedSocket::socket(s);
-//     }
-// }
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Group
 {
@@ -98,7 +77,7 @@ pub struct Group
     #[serde(default = "default_allowed_hosts")]
     pub allowed_hosts: Vec<SocketAddr>,
     #[serde(with = "serde_key_str")]
-    pub key: Option<Key>,
+    pub key: Key,
     pub public_ip: Option<IpAddr>,
     #[serde(default = "default_socket_send_address")]
     pub send_using_address: SocketAddr,
@@ -143,6 +122,6 @@ impl Group
             public_ip: None,
             send_using_address: bind_addr.parse().unwrap(),
             clipboard: "/tmp/_test_clip_sync".to_owned(),
-        }; 
+        };
     }
 }

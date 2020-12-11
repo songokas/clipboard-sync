@@ -1,5 +1,9 @@
 bind_address: "0.0.0.0:8900"
+
 private_key: private.pem
+public_key: public.crt
+vertify_directories: verify_dir
+
 # send_using_address and public_ip are per group as well
 send_using_address: "0.0.0.0:8901"
 public_ip: "1.1.1.1"

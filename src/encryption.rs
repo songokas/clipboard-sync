@@ -15,6 +15,11 @@ use std::io::{self, Read};
 use crate::errors::*;
 use crate::message::*;
 
+pub fn random(number_of_chars: usize) -> Vec<u8>
+{
+    return (0..number_of_chars).map(|_| { rand::random::<u8>() }).collect();
+}
+
 pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message, EncryptionError>
 {
     let cipher = ChaCha20Poly1305::new(&group.key);
@@ -122,6 +127,11 @@ pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
     let mut buffer = Vec::new();
     d.read_to_end(&mut buffer)?;
     return Ok(buffer);
+}
+
+pub fn hex_dump(buf: &[u8]) -> String {
+    let vec: Vec<String> = buf.iter().map(|b| format!("{:02x}", b)).collect();
+    vec.join("")
 }
 
 #[cfg(test)]

@@ -1,27 +1,88 @@
 use log::{debug, error, info, warn};
-use std::collections::{BTreeMap, HashMap};
-use std::net::{SocketAddr};
-use tokio::net::ToSocketAddrs;
+#[cfg(feature = "quinn")]
+use quinn::{Endpoint, Incoming};
+use std::collections::HashMap;
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr};
 use tokio::net::UdpSocket;
-// #[cfg(feature = "frames")]
-// #[cfg(feature = "quic")]
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
-use rand::prelude::*;
-use quinn::{Endpoint, Incoming};
 
-#[cfg(feature = "quic")]
-use crate::defaults::MAX_DATAGRAM_SIZE;
-use crate::defaults::MAX_UDP_BUFFER;
-use crate::errors::ConnectionError;
-use crate::filesystem::read_file;
 use crate::message::Group;
-use std::convert::TryInto;
-use std::io;
-use crate::encryption::{decrypt, encrypt_to_bytes, validate};
+
+pub enum SocketEndpoint
+{
+    #[cfg(feature = "basic")]
+    #[cfg(feature = "frames")]
+    Socket(UdpSocket),
+    #[cfg(feature = "quinn")]
+    QuicClient(Endpoint),
+    #[cfg(feature = "quinn")]
+    QuicServer(Incoming),
+}
+
+impl SocketEndpoint
+{
+    pub fn socket(&self) -> Option<&UdpSocket>
+    {
+        return if let Self::Socket(s) = self {
+            Some(s)
+        } else {
+            None
+        };
+    }
+
+    pub fn socket_consume(self) -> Option<UdpSocket>
+    {
+        return if let Self::Socket(s) = self {
+            Some(s)
+        } else {
+            None
+        };
+    }
+
+    #[cfg(feature = "quinn")]
+    pub fn client_consume(self) -> Option<Endpoint>
+    {
+        return if let Self::QuicClient(s) = self {
+            Some(s)
+        } else {
+            None
+        };
+    }
+
+    #[cfg(feature = "quinn")]
+    pub fn server(&mut self) -> Option<&mut Incoming>
+    {
+        return if let Self::QuicServer(s) = self {
+            Some(s)
+        } else {
+            None
+        };
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Protocol
+{
+    Basic,
+    Frames,
+    Quic,
+}
+
+impl Protocol
+{
+    pub fn requires_public_key(&self) -> bool
+    {
+        return if let Self::Quic = self { true } else { false };
+    }
+}
+
+impl fmt::Display for Protocol
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
+        write!(f, "{}", self)
+    }
+}
 
 pub fn join_group(sock: &UdpSocket, interface_addr: &IpAddr, remote_ip: &IpAddr)
 {
@@ -80,8 +141,3 @@ pub fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
         }
     }
 }
-
-
-
-
-
