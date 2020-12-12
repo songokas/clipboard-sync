@@ -27,7 +27,7 @@ use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
 use crate::message::Group;
-use crate::process::{wait_on_clipboard, wait_on_receive};
+use crate::process::{wait_handle_receive, wait_on_clipboard};
 use crate::socket::Protocol;
 
 #[tokio::main]
@@ -67,20 +67,17 @@ async fn main() -> Result<(), CliError>
         None => Protocol::Basic,
     };
 
-
     let default_host = match protocol {
         Protocol::Basic => DEFAULT_ALLOWED_HOST,
-        _ => ""
+        _ => "",
     };
 
-    let allowed_host = matches
-        .value_of("allowed-host")
-        .unwrap_or(default_host);
+    let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
     if allowed_host.is_empty() {
         return Err(CliError::ArgumentError(format!(
             "Please provide --allowed-host 192.168.0.5 or use basic protocol",
-        ))); 
+        )));
     }
 
     let key_data: String = match matches.value_of("key") {
@@ -160,7 +157,7 @@ async fn main() -> Result<(), CliError>
     let (tx, rx) = channel(MAX_CHANNEL);
     let groups = full_config.groups();
     let res = try_join!(
-        wait_on_receive(
+        wait_handle_receive(
             tx,
             full_config.bind_address,
             Arc::clone(&running),

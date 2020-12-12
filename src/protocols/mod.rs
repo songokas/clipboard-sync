@@ -69,9 +69,7 @@ pub async fn send_data(
         Protocol::Quic => {
             send_data_quic(endpoint.socket_consume().unwrap(), data, addr, group).await
         }
-        #[cfg(feature = "basic")]
-        Protocol::Basic => basic::send_data_basic(endpoint.socket_consume().unwrap(), data).await,
-        _ => Err(ConnectionError::InvalidProtocol(protocol.to_string())),
+        Protocol::Basic => basic::send_data_basic(endpoint.socket_consume().unwrap(), data).await
     };
 }
 
@@ -91,8 +89,6 @@ pub async fn receive_data(
         Protocol::Quic => receive_data_quic(endpoint.server().unwrap(), max_len).await,
         #[cfg(feature = "quiche")]
         Protocol::Quic => receive_data_quic(endpoint.socket().unwrap(), max_len, groups).await,
-        #[cfg(feature = "basic")]
         Protocol::Basic => basic::receive_data_basic(endpoint.socket().unwrap(), max_len).await,
-        _ => Err(ConnectionError::InvalidProtocol(protocol.to_string())),
     };
 }

@@ -1,19 +1,18 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use std::io;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
-// use ring::rand::SystemRandom;
 
 use crate::defaults::MAX_UDP_BUFFER;
 use crate::defaults::{MAX_DATAGRAM_SIZE, QUIC_STREAM};
-use crate::encryption::{encrypt_to_bytes, decrypt, random, validate, hex_dump};
+use crate::encryption::{decrypt, encrypt_to_bytes, hex_dump, random, validate};
 use crate::errors::ConnectionError;
 use crate::message::Group;
 
 pub async fn receive_data_quic(
     socket: &UdpSocket,
     max_len: usize,
-    groups: &[Group]
+    groups: &[Group],
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION)?;
@@ -28,10 +27,14 @@ pub async fn receive_data_quic(
     let key_str = key_path.to_string_lossy();
     let crt_str = cert_path.to_string_lossy();
 
-    config.load_cert_chain_from_pem_file(&crt_str)
-        .map_err(|e| ConnectionError::InvalidKey(format!("crt not found or not valid {} {}", crt_str, e)))?;
-    config.load_priv_key_from_pem_file(&key_str)
-        .map_err(|e| ConnectionError::InvalidKey(format!("key not found or not valid {} {}", key_str, e)))?;
+    config
+        .load_cert_chain_from_pem_file(&crt_str)
+        .map_err(|e| {
+            ConnectionError::InvalidKey(format!("crt not found or not valid {} {}", crt_str, e))
+        })?;
+    config.load_priv_key_from_pem_file(&key_str).map_err(|e| {
+        ConnectionError::InvalidKey(format!("key not found or not valid {} {}", key_str, e))
+    })?;
 
     config
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
@@ -50,10 +53,8 @@ pub async fn receive_data_quic(
 
     let mut received = Vec::new();
     let mut buffer = [0; MAX_UDP_BUFFER];
-    // let mut out = [0; MAX_DATAGRAM_SIZE];
-    let mut connection_received = 0;
+    let mut connection_read = 0;
     let mut connection_sent = 0;
-    // let mut sending_addr = None;
 
     let (mut read, addr) = socket.recv_from(&mut buffer).await?;
     // let mut pkt_buf = &mut buffer[..read];
@@ -109,8 +110,9 @@ pub async fn receive_data_quic(
             } else {
                 skip_initial = false;
             }
+            connection_read += read;
 
-            let read = match conn.recv(&mut buffer[..read]) {
+            match conn.recv(&mut buffer[..read]) {
                 Ok(v) => v,
 
                 Err(quiche::Error::Done) => {
@@ -122,8 +124,6 @@ pub async fn receive_data_quic(
                     return Err(ConnectionError::Http3(e));
                 }
             };
-            connection_received += read;
-            // debug!("Quic socket read {} {}", read, connection_received);
         }
 
         if conn.is_in_early_data() || conn.is_established() {
@@ -174,8 +174,8 @@ pub async fn receive_data_quic(
                     return Err(ConnectionError::Http3(e));
                 }
             };
+
             connection_sent += write;
-            // debug!("Quic socket sent {} {}", write, connection_sent);
 
             match socket.try_send_to(&buffer[..write], addr) {
                 Ok(s) => s,
@@ -192,7 +192,7 @@ pub async fn receive_data_quic(
         }
 
         if conn.is_closed() {
-            debug!("ok connection closed, {:?}", conn.stats());
+            info!("close connection sent {} read {} stats {:?}", connection_sent, connection_read, conn.stats());
             return Ok((received, addr));
         }
     }
@@ -217,8 +217,11 @@ pub async fn send_data_quic(
     let cert_path = config_path.join(format!("clipboard-sync/cert.crt"));
     let crt_str = cert_path.to_string_lossy();
 
-    config.load_verify_locations_from_file(&crt_str)
-        .map_err(|e| ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e)))?;
+    config
+        .load_verify_locations_from_file(&crt_str)
+        .map_err(|e| {
+            ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e))
+        })?;
 
     config
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
@@ -251,7 +254,7 @@ pub async fn send_data_quic(
 
     let enc_write = encrypt_to_bytes(&out[..cwrite], &identity, group)?;
     while let Err(e) = socket.try_send(&enc_write) {
-    // while let Err(e) = socket.try_send(&out[..cwrite]) {
+        // while let Err(e) = socket.try_send(&out[..cwrite]) {
         if e.kind() == std::io::ErrorKind::WouldBlock {
             continue;
         }
@@ -303,7 +306,6 @@ pub async fn send_data_quic(
                     return Err(ConnectionError::Http3(e));
                 }
             };
-            // debug!("Quic socket received {} {}", cread, connection_read);
         }
 
         if conn.is_established() {
@@ -342,13 +344,11 @@ pub async fn send_data_quic(
                 )));
             }
             connection_sent += csent;
-            // debug!("Quic socket sent {} {}", csent, connection_sent);
         }
 
         if conn.is_closed() {
-            info!("ok connection closed, {:?}", conn.stats());
+            info!("close connection sent {} read {} stats {:?}", connection_sent, connection_read, conn.stats());
             return Ok(data_sent);
         }
     }
 }
-

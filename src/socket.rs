@@ -1,17 +1,15 @@
-use log::{debug, error, info, warn};
+use log::{debug, warn};
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
 use std::collections::HashMap;
 use std::fmt;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr};
 use tokio::net::UdpSocket;
 
 use crate::message::Group;
 
 pub enum SocketEndpoint
 {
-    #[cfg(feature = "basic")]
-    #[cfg(feature = "frames")]
     Socket(UdpSocket),
     #[cfg(feature = "quinn")]
     QuicClient(Endpoint),
@@ -19,56 +17,49 @@ pub enum SocketEndpoint
     QuicServer(Incoming),
 }
 
+#[allow(irrefutable_let_patterns)]
 impl SocketEndpoint
 {
     pub fn socket(&self) -> Option<&UdpSocket>
     {
         if let Self::Socket(s) = self {
             return Some(s);
-        } else {
-            return None;
         }
+        return None;
     }
 
     pub fn socket_consume(self) -> Option<UdpSocket>
     {
-        return match self {
-            Self::Socket(s) => Some(s),
-            _ => None
-        };
+        if let Self::Socket(s) = self {
+            return Some(s);
+        }
+        return None;
     }
 
     pub fn ip(&self) -> Option<IpAddr>
     {
-        return match self {
-            Self::Socket(s) => {
-                return s
-                   .local_addr()
-                   .map(|s| s.ip().clone())
-                   .ok();
-            },
-            _ => None
-        };
+        if let Self::Socket(s) = self {
+            return s.local_addr().map(|s| s.ip().clone()).ok();
+        }
+        return None;
     }
 
     #[cfg(feature = "quinn")]
     pub fn client_consume(self) -> Option<Endpoint>
     {
-        return if let Self::QuicClient(s) = self {
-            Some(s)
-        } else {
-            None
-        };
+        if let Self::QuicClient(s) = self {
+            return Some(s);
+        }
+        return None;
     }
 
     #[cfg(feature = "quinn")]
     pub fn server(&mut self) -> Option<&mut Incoming>
     {
-        return if let Self::QuicServer(s) = self {
-            Some(s)
-        } else {
-            None
-        };
+        if let Self::QuicServer(s) = self {
+            return Some(s);
+        }
+        return None;
     }
 }
 
@@ -96,58 +87,65 @@ impl fmt::Display for Protocol
     }
 }
 
-pub fn join_group(sock: &UdpSocket, interface_addr: &IpAddr, remote_ip: &IpAddr)
+pub struct Multicast
 {
-    let interface_ipv4 = match interface_addr {
-        IpAddr::V4(ipv4) => ipv4,
-        _ => {
-            warn!("Ipv6 multicast not supported");
-            return;
-        }
-    };
-
-    let op = match remote_ip {
-        IpAddr::V4(multicast_ipv4) => {
-            sock.set_multicast_loop_v4(false).unwrap_or(());
-            sock.join_multicast_v4(multicast_ipv4.clone(), interface_ipv4.clone())
-        }
-        _ => {
-            warn!("Ipv6 multicast not supported");
-            return;
-        }
-    };
-    if let Err(_) = op {
-        warn!("Unable to join multicast network");
-    } else {
-        debug!("Joined multicast {}", remote_ip);
-    }
+    cache: HashMap<IpAddr, bool>,
 }
 
-pub fn join_groups(sock: &UdpSocket, groups: &[Group], ipv4: &Ipv4Addr)
+impl Multicast
 {
-    let mut cache = HashMap::new();
-    for group in groups {
-        for addr in &group.allowed_hosts {
-            if cache.contains_key(&addr.ip()) {
-                continue;
+    pub fn new() -> Self
+    {
+        return Multicast {
+            cache: HashMap::new(),
+        };
+    }
+
+    pub fn join_group(
+        &mut self,
+        sock: &UdpSocket,
+        interface_addr: &IpAddr,
+        remote_ip: &IpAddr,
+    ) -> bool
+    {
+        if self.cache.contains_key(&interface_addr) {
+            warn!("Ipv6 multicast not supported");
+            return false;
+        }
+        let interface_ipv4 = match interface_addr {
+            IpAddr::V4(ipv4) => ipv4,
+            _ => {
+                warn!("Ipv6 multicast not supported");
+                return false;
             }
-            if addr.ip().is_multicast() {
-                let op = match addr.ip() {
-                    IpAddr::V4(ip) => {
-                        sock.set_multicast_loop_v4(false).unwrap_or(());
-                        sock.join_multicast_v4(ip, ipv4.clone())
-                    }
-                    _ => {
-                        warn!("Multicast ipv6 not supported");
-                        continue;
-                    }
-                };
-                if let Err(_) = op {
-                    warn!("Unable to join multicast {}", addr.ip());
-                    continue;
-                } else {
-                    cache.insert(addr.ip(), true);
-                    info!("Joined multicast {}", addr.ip());
+        };
+
+        let op = match remote_ip {
+            IpAddr::V4(multicast_ipv4) => {
+                sock.set_multicast_loop_v4(false).unwrap_or(());
+                sock.join_multicast_v4(multicast_ipv4.clone(), interface_ipv4.clone())
+            }
+            _ => {
+                warn!("Ipv6 multicast not supported");
+                return false;
+            }
+        };
+        if let Err(_) = op {
+            warn!("Unable to join multicast network");
+            return false;
+        } else {
+            debug!("Joined multicast {}", remote_ip);
+            self.cache.insert(remote_ip.clone(), true);
+            return true;
+        }
+    }
+
+    pub fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
+    {
+        for group in groups {
+            for addr in &group.allowed_hosts {
+                if addr.ip().is_multicast() {
+                    self.join_group(sock, local_addr, &addr.ip());
                 }
             }
         }

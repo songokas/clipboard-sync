@@ -17,7 +17,7 @@ use crate::message::*;
 
 pub fn random(number_of_chars: usize) -> Vec<u8>
 {
-    return (0..number_of_chars).map(|_| { rand::random::<u8>() }).collect();
+    return (0..number_of_chars).map(|_| rand::random::<u8>()).collect();
 }
 
 pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message, EncryptionError>
@@ -129,7 +129,8 @@ pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
     return Ok(buffer);
 }
 
-pub fn hex_dump(buf: &[u8]) -> String {
+pub fn hex_dump(buf: &[u8]) -> String
+{
     let vec: Vec<String> = buf.iter().map(|b| format!("{:02x}", b)).collect();
     vec.join("")
 }
@@ -225,5 +226,16 @@ mod encryptiontest
             let result = validate(&bytes, &groups);
             assert_eq!(result.is_ok(), expected);
         }
+    }
+
+    #[test]
+    fn test_random()
+    {
+        let r1 = random(3);
+        assert_eq!(3, r1.len());
+        let r2 = random(120);
+        assert_eq!(120, r2.len());
+        let r3 = random(3);
+        assert_ne!(r1, r3);
     }
 }

@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -207,7 +207,15 @@ pub async fn send_data_frames(
         }
 
         for (index, _) in sent_without_confirmation.iter() {
-            sent += send_index(&socket_writer, index.clone(), indexes, &data, &identity, group).await?;
+            sent += send_index(
+                &socket_writer,
+                index.clone(),
+                indexes,
+                &data,
+                &identity,
+                group,
+            )
+            .await?;
         }
         retries -= 1;
     }
