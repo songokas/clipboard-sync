@@ -14,6 +14,7 @@ pub const MAX_UDP_BUFFER: usize = 65535;
 pub const MAX_PACKET: usize = 512;
 pub const MAX_DATAGRAM_SIZE: usize = 1350;
 pub const QUIC_STREAM: u8 = 0;
+pub const CONNECTION_TIMEOUT: u64 = 2000;
 
 pub fn default_socket_send_address() -> SocketAddr
 {

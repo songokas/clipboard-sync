@@ -17,7 +17,7 @@ groups:
     clipboard: clipboard # can be clipboard, /path/to/file , /path/to/directory/
   local_network: 
     key: "32323232323232323232323232323232"
-    # allowed_hosts default to local network multicas
+    # allowed_hosts default to local network multicast
   external:
     key: "32323232323232323232323232323232"
     public_ip: "2.2.2.2"
@@ -36,5 +36,3 @@ groups:
     allowed_hosts:
       - "192.168.0.111:0" # port 0 - receive only
       - "192.168.0.112:0"
-    trusted_certs:
-      - "image/be"

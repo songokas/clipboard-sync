@@ -21,6 +21,7 @@ pub mod message;
 pub mod process;
 pub mod protocols;
 pub mod socket;
+pub mod test;
 
 use crate::config::{load_groups, FullConfig};
 use crate::defaults::*;
@@ -56,7 +57,6 @@ async fn main() -> Result<(), CliError>
         Some(v) if v == "quic" => Protocol::Quic,
         #[cfg(feature = "frames")]
         Some(v) if v == "frames" => Protocol::Frames,
-        #[cfg(feature = "basic")]
         Some(v) if v == "basic" => Protocol::Basic,
         Some(v) => {
             return Err(CliError::ArgumentError(format!(

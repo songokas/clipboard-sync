@@ -267,28 +267,7 @@ mod processtest
     use crate::errors::{ClipboardError, ConnectionError};
     use crate::message::Group;
     use crate::socket::{Protocol, Multicast};
-
-    macro_rules! wait {
-        ($e:expr) => {
-            tokio_test::block_on($e)
-        };
-    }
-
-    macro_rules! assert_error_type {
-        ($obj:expr, $err_type:pat) => {
-            match $obj {
-                Err($err_type) => {
-                    assert!(true);
-                }
-                Err(other) => {
-                    assert!(false, format!("matching error failed {:?}", other));
-                }
-                Ok(r) => {
-                    assert!(false, format!("expected error got {:?}", r));
-                }
-            }
-        };
-    }
+    use crate::{wait, assert_error_type};
 
     #[test]
     fn test_handle_clipboard_change()

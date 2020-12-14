@@ -6,10 +6,15 @@ use crate::message::Group;
 use crate::socket::{Protocol, SocketEndpoint};
 
 mod basic;
+#[cfg(feature = "frames")]
 mod frames;
-// mod quinn;
+#[cfg(feature = "quinn")]
+mod quinn;
+#[cfg(feature = "quiche")]
 mod quiche;
+
 // use self::quinn::{obtain_client_endpoint, obtain_server_endpoint, send_data_quic, receive_data_quic};
+#[cfg(feature = "quiche")]
 use self::quiche::{receive_data_quic, send_data_quic};
 
 pub async fn obtain_client_socket(

@@ -13,7 +13,6 @@ use crate::errors::ConnectionError;
 use crate::message::Group;
 use std::convert::TryInto;
 
-#[cfg(feature = "frames")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Frame
 {
@@ -22,7 +21,6 @@ pub struct Frame
     data: Vec<u8>,
 }
 
-#[cfg(feature = "frames")]
 pub async fn receive_data_frames(
     socket: &UdpSocket,
     max_len: usize,
@@ -83,41 +81,12 @@ pub async fn receive_data_frames(
     }
 }
 
-#[cfg(feature = "frames")]
-async fn send_index(
-    socket_writer: &UdpSocket,
-    index: u32,
-    indexes: usize,
-    data: &[u8],
-    identity: &str,
-    group: &Group,
-) -> Result<usize, ConnectionError>
-{
-    let max_that_fit: usize = MAX_UDP_BUFFER - 300;
-    let from = index as usize * max_that_fit;
-    let mut to = (index as usize + 1) * max_that_fit;
-    if to > data.len() {
-        to = data.len();
-    }
-    let frame = Frame {
-        index: index as u32,
-        total: indexes as u16,
-        data: data[from..to].to_vec(),
-    };
-    let bytes = bincode::serialize(&frame)
-        .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
-    let bytes = encrypt_to_bytes(&bytes, identity, &group)?;
 
-    debug!("Sent frame {} with {} bytes", index, bytes.len());
 
-    return Ok(socket_writer.send(&bytes).await?);
-}
-
-#[cfg(feature = "frames")]
 pub async fn send_data_frames(
     socket: UdpSocket,
     data: Vec<u8>,
-    addr: &SocketAddr,
+    destination_addr: &SocketAddr,
     group: &Group,
 ) -> Result<usize, ConnectionError>
 {
@@ -126,7 +95,7 @@ pub async fn send_data_frames(
     let socket_writer = Arc::new(socket);
     let socket_reader = Arc::clone(&socket_writer);
     let groups = vec![group.clone()];
-    let expected_addr = addr.clone();
+    let expected_addr = destination_addr.clone();
 
     let mut sent = 0;
     let (channel_sender, mut channel_receiver) = mpsc::channel(indexes * 4);
@@ -200,7 +169,7 @@ pub async fn send_data_frames(
         while i < 5000 && sent_without_confirmation.len() > 0 {
             if let Ok(index) = channel_receiver.try_recv() {
                 if let None = sent_without_confirmation.remove(&index) {
-                    error!("Error non exist frame index");
+                    error!("Error frame index {} does not exist", index);
                 }
             }
             i += 1;
@@ -226,4 +195,66 @@ pub async fn send_data_frames(
         )));
     }
     return Ok(sent);
+}
+
+async fn send_index(
+    socket_writer: &UdpSocket,
+    index: u32,
+    indexes: usize,
+    data: &[u8],
+    identity: &str,
+    group: &Group,
+) -> Result<usize, ConnectionError>
+{
+    let max_that_fit: usize = MAX_UDP_BUFFER - 300;
+    let from = index as usize * max_that_fit;
+    let mut to = (index as usize + 1) * max_that_fit;
+    if to > data.len() {
+        to = data.len();
+    }
+    let frame = Frame {
+        index: index as u32,
+        total: indexes as u16,
+        data: data[from..to].to_vec(),
+    };
+    let bytes = bincode::serialize(&frame)
+        .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
+    let bytes = encrypt_to_bytes(&bytes, identity, &group)?;
+
+    debug!("Sent frame {} with {} bytes", index, bytes.len());
+
+    return Ok(socket_writer.send(&bytes).await?);
+}
+
+
+#[cfg(test)]
+mod framestest
+{
+    use super::*;
+    use futures::try_join;
+
+    #[tokio::test]
+    async fn test_send_receive()
+    {
+        let local_server: SocketAddr = "127.0.0.1:9934".parse().unwrap();
+        let local_client: SocketAddr = "127.0.0.1:9935".parse().unwrap();
+        let server_sock = UdpSocket::bind(local_server).await.unwrap();
+        let client_sock = UdpSocket::bind(local_client).await.unwrap();
+        let group = Group::from_name("test1");
+        let groups = vec![group.clone()];
+
+        client_sock.connect(local_server).await.unwrap();
+
+        let data_sent = b"test1".to_vec();
+        let res = try_join!(
+            send_data_frames(client_sock, data_sent.clone(), &local_server, &group),
+            receive_data_frames(&server_sock, 100, &groups)
+        ).unwrap();
+        let data_len_sent = res.0;
+        let (data_received, addr) = res.1;
+
+        assert_eq!(local_client, addr);
+        assert_eq!(data_len_sent, 76);
+        assert_eq!(data_sent, data_received);
+    }
 }
