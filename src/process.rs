@@ -24,23 +24,25 @@ pub async fn wait_handle_receive(
     channel: Sender<(String, String)>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
-    groups: &[Group],
+    groups: Vec<Group>,
     protocol: Protocol,
-) -> Result<(), CliError>
+) -> Result<u64, CliError>
 {
     let mut endpoint = obtain_server_socket(&local_address, &protocol).await?;
     info!("Listen on {}", local_address);
     let interface_ip = endpoint.ip();
     let mut multicast = Multicast::new();
+    let mut count = 0;
 
     if let Some(local_addr) = interface_ip {
         if let Some(sock) = endpoint.socket() {
-            multicast.join_groups(sock, groups, &local_addr);
+            multicast.join_groups(sock, &groups, &local_addr).await;
         }
     }
 
     // let mut buf = vec![0; MAX_RECEIVE_BUFFER];
     while running.load(Ordering::Relaxed) {
+        count += 1;
         let (buf, addr) =
             match receive_data(&mut endpoint, MAX_RECEIVE_BUFFER, &groups, &protocol).await {
                 Ok(v) => v,
@@ -57,7 +59,7 @@ pub async fn wait_handle_receive(
         let len = buf.len();
 
         debug!("Packet received from {} length {}", addr, len);
-        let result = handle_receive(&buf[..len], &addr.ip().to_string(), groups);
+        let result = handle_receive(&buf[..len], &addr.ip().to_string(), &groups);
 
         match result {
             Ok((_, hash, group_name)) => {
@@ -68,53 +70,24 @@ pub async fn wait_handle_receive(
             Err(err) => error!("{:?}", err),
         };
     }
-    Ok(())
-}
-
-fn clipboard_group_to_bytes(clipboard: &mut ClipboardContext, group: &Group) -> Option<Vec<u8>>
-{
-    let bytes: Vec<u8> = if group.clipboard == "clipboard" {
-        let contents = match clipboard.get_contents() {
-            Ok(contents) => contents,
-            _ => {
-                warn!("Failed to retrieve contents");
-                return None;
-            }
-        };
-        contents.as_bytes().to_vec()
-    } else if group.clipboard.ends_with("/") {
-        match dir_to_bytes(&group.clipboard) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                // error!("Error reading directory. Message: {:?}", err);
-                return None;
-            }
-        }
-    } else {
-        match read_file(&group.clipboard, MAX_FILE_SIZE) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                // error!("Error reading file {}. Message: {}", &group.clipboard, err);
-                return None;
-            }
-        }
-    };
-    return Some(bytes);
+    return Ok(count);
 }
 
 pub async fn wait_on_clipboard(
     mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
-    groups: &[Group],
+    groups: Vec<Group>,
     protocol: Protocol,
-) -> Result<(), CliError>
+) -> Result<u64, CliError>
 {
     let mut clipboard: ClipboardContext = ClipboardProvider::new().unwrap();
     let mut hash_cache: HashMap<String, String> = HashMap::new();
     let mut multicast = Multicast::new();
+    let mut count = 0;
 
     info!("Listen for clipboard changes");
     while running.load(Ordering::Relaxed) {
+        count += 1;
         //@TODO think about the events
         sleep(Duration::from_millis(1000)).await;
 
@@ -132,7 +105,7 @@ pub async fn wait_on_clipboard(
             }
         }
 
-        for group in groups {
+        for group in &groups {
             let bytes = match clipboard_group_to_bytes(&mut clipboard, group) {
                 Some(b) if b.len() > 0 => b,
                 _ => continue,
@@ -170,7 +143,38 @@ pub async fn wait_on_clipboard(
             }
         }
     }
-    return Ok(());
+    return Ok(count);
+}
+
+fn clipboard_group_to_bytes(clipboard: &mut ClipboardContext, group: &Group) -> Option<Vec<u8>>
+{
+    let bytes: Vec<u8> = if group.clipboard == "clipboard" {
+        let contents = match clipboard.get_contents() {
+            Ok(contents) => contents,
+            _ => {
+                warn!("Failed to retrieve contents");
+                return None;
+            }
+        };
+        contents.as_bytes().to_vec()
+    } else if group.clipboard.ends_with("/") {
+        match dir_to_bytes(&group.clipboard) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                // error!("Error reading directory. Message: {:?}", err);
+                return None;
+            }
+        }
+    } else {
+        match read_file(&group.clipboard, MAX_FILE_SIZE) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                // error!("Error reading file {}. Message: {}", &group.clipboard, err);
+                return None;
+            }
+        }
+    };
+    return Some(bytes);
 }
 
 fn set_clipboard(contents: &str) -> Result<(), ClipboardError>
@@ -213,9 +217,17 @@ async fn handle_clipboard_change(
 ) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
-    for addr in &group.allowed_hosts {
+    for remote_host in &group.allowed_hosts {
+        let addr = match to_socket(remote_host).await {
+            Ok(a) => a,
+            Err(e) => {
+                warn!("{:?}", e);
+                continue;
+            }
+        };
+
         if addr.port() == 0 {
-            debug!("Not sending to host {}", addr);
+            debug!("Not sending to host {}", remote_host);
             continue;
         }
 
@@ -255,7 +267,7 @@ async fn handle_clipboard_change(
         };
 
         let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
-        sent += send_data(endpoint, bytes, addr, group, protocol).await?;
+        sent += send_data(endpoint, bytes, &addr, group, protocol).await?;
     }
     return Ok(sent);
 }
@@ -266,8 +278,8 @@ mod processtest
     use super::handle_clipboard_change;
     use crate::errors::{ClipboardError, ConnectionError};
     use crate::message::Group;
-    use crate::socket::{Protocol, Multicast};
-    use crate::{wait, assert_error_type};
+    use crate::socket::{Multicast, Protocol};
+    use crate::{assert_error_type, wait};
 
     #[test]
     fn test_handle_clipboard_change()

@@ -26,6 +26,7 @@ env_logger = "~0.7.0"
 flate2 = "1.0"
 walkdir = "2"
 dirs = "3.0"
+cached = "0.22.0"
 
 [dependencies.quinn]
 version = "0.6.1"

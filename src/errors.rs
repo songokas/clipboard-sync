@@ -17,6 +17,12 @@ pub enum ValidationError
     DeserializeFailed(String),
 }
 
+#[derive(Debug, Clone)]
+pub enum DnsError
+{
+    Failed(String),
+}
+
 #[derive(Debug)]
 pub enum ConnectionError
 {
@@ -52,6 +58,7 @@ pub enum CliError
     ConnectionError(ConnectionError),
     #[cfg(feature = "quinn")]
     KeyError(quinn::ParseError),
+    JoinError(tokio::task::JoinError),
 }
 
 #[derive(Debug)]

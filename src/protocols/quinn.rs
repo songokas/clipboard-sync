@@ -76,7 +76,9 @@ pub async fn obtain_server_endpoint(bind_addr: &SocketAddr) -> Result<Incoming, 
     return Ok(incoming);
 }
 
-pub async fn obtain_client_endpoint(local_addr: &SocketAddr) -> Result<SocketEndpoint, ConnectionError>
+pub async fn obtain_client_endpoint(
+    local_addr: &SocketAddr,
+) -> Result<SocketEndpoint, ConnectionError>
 {
     let config_path = dirs::config_dir().ok_or_else(|| {
         ConnectionError::InvalidKey(

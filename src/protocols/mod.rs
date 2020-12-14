@@ -8,10 +8,10 @@ use crate::socket::{Protocol, SocketEndpoint};
 mod basic;
 #[cfg(feature = "frames")]
 mod frames;
-#[cfg(feature = "quinn")]
-mod quinn;
 #[cfg(feature = "quiche")]
 mod quiche;
+#[cfg(feature = "quinn")]
+mod quinn;
 
 // use self::quinn::{obtain_client_endpoint, obtain_server_endpoint, send_data_quic, receive_data_quic};
 #[cfg(feature = "quiche")]
@@ -74,7 +74,7 @@ pub async fn send_data(
         Protocol::Quic => {
             send_data_quic(endpoint.socket_consume().unwrap(), data, addr, group).await
         }
-        Protocol::Basic => basic::send_data_basic(endpoint.socket_consume().unwrap(), data).await
+        Protocol::Basic => basic::send_data_basic(endpoint.socket_consume().unwrap(), data).await,
     };
 }
 

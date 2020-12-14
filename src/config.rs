@@ -45,7 +45,7 @@ impl FullConfig
 
 pub fn load_groups(
     file_path: &str,
-    default_host_address: SocketAddr,
+    default_host_address: &str,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -68,7 +68,7 @@ pub fn load_groups(
             }
         }
         if group.allowed_hosts.len() == 0 || group.allowed_hosts == default_allowed_hosts() {
-            group.allowed_hosts = vec![default_host_address];
+            group.allowed_hosts = vec![default_host_address.to_owned()];
         }
         if let Some(pub_ip) = full_config.public_ip {
             if group.public_ip.is_none() {
@@ -96,7 +96,7 @@ mod configtest
     #[test]
     fn test_load_groups()
     {
-        let socket_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
+        let socket_addr = "127.0.0.1:8080";
         let full_config = load_groups("config.sample.yaml", socket_addr).unwrap();
         assert_eq!(
             full_config.bind_address,
@@ -120,8 +120,8 @@ mod configtest
         );
         assert_eq!(group1.public_ip, full_config.public_ip);
         let allowed_local = vec![
-            "192.168.0.153:8900".parse::<SocketAddr>().unwrap(),
-            "192.168.0.54:20034".parse::<SocketAddr>().unwrap(),
+            "192.168.0.153:8900",
+            "192.168.0.54:20034",
         ];
         assert_eq!(group1.allowed_hosts, allowed_local);
 
@@ -146,13 +146,13 @@ mod configtest
         );
         assert_eq!(group3.public_ip, "2.2.2.2".parse::<IpAddr>().ok());
 
-        let allowed_ext = vec!["3.3.3.3:80".parse::<SocketAddr>().unwrap()];
+        let allowed_ext = vec!["3.3.3.3:80"];
         assert_eq!(group3.allowed_hosts, allowed_ext);
 
         let group4 = full_config.groups.get("receive_only_dir").unwrap();
         let allowed_receive = vec![
-            "192.168.0.111:0".parse::<SocketAddr>().unwrap(),
-            "192.168.0.112:0".parse::<SocketAddr>().unwrap(),
+            "192.168.0.111:0",
+            "192.168.0.112:0",
         ];
         assert_eq!(group4.allowed_hosts, allowed_receive);
     }

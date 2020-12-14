@@ -75,7 +75,7 @@ pub struct Group
     #[serde(default)]
     pub name: String,
     #[serde(default = "default_allowed_hosts")]
-    pub allowed_hosts: Vec<SocketAddr>,
+    pub allowed_hosts: Vec<String>,
     #[serde(with = "serde_key_str")]
     pub key: Key,
     pub public_ip: Option<IpAddr>,
@@ -117,7 +117,7 @@ impl Group
     {
         return Group {
             name: name.to_owned(),
-            allowed_hosts: vec![allowed_host.parse().unwrap()],
+            allowed_hosts: vec![allowed_host.to_owned()],
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
             public_ip: None,
             send_using_address: bind_addr.parse().unwrap(),

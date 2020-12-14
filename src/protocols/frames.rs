@@ -81,8 +81,6 @@ pub async fn receive_data_frames(
     }
 }
 
-
-
 pub async fn send_data_frames(
     socket: UdpSocket,
     data: Vec<u8>,
@@ -226,14 +224,13 @@ async fn send_index(
     return Ok(socket_writer.send(&bytes).await?);
 }
 
-
 #[cfg(test)]
 mod framestest
 {
     use super::*;
     use futures::try_join;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_send_receive()
     {
         let local_server: SocketAddr = "127.0.0.1:9934".parse().unwrap();
@@ -246,15 +243,21 @@ mod framestest
         client_sock.connect(local_server).await.unwrap();
 
         let data_sent = b"test1".to_vec();
+        let expected_data = data_sent.clone();
         let res = try_join!(
-            send_data_frames(client_sock, data_sent.clone(), &local_server, &group),
-            receive_data_frames(&server_sock, 100, &groups)
-        ).unwrap();
-        let data_len_sent = res.0;
-        let (data_received, addr) = res.1;
+            tokio::spawn(async move {
+                send_data_frames(client_sock, data_sent.clone(), &local_server, &group).await
+            }),
+            tokio::spawn(async move {
+                receive_data_frames(&server_sock, 100, &groups).await
+            })
+        )
+        .unwrap();
+        let data_len_sent = res.0.unwrap();
+        let (data_received, addr) = res.1.unwrap();
 
         assert_eq!(local_client, addr);
         assert_eq!(data_len_sent, 76);
-        assert_eq!(data_sent, data_received);
+        assert_eq!(expected_data, data_received);
     }
 }

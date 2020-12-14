@@ -123,7 +123,6 @@ async fn main() -> Result<(), CliError>
     }
 
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
-        let allowed_host_addr = allowed_host.parse::<SocketAddr>()?;
         let send_using_address = send_address.parse::<SocketAddr>()?;
 
         let key = Key::from_slice(key_data.as_bytes());
@@ -132,7 +131,7 @@ async fn main() -> Result<(), CliError>
 
         let groups = vec![Group {
             name: group.to_owned(),
-            allowed_hosts: vec![allowed_host_addr],
+            allowed_hosts: vec![allowed_host.to_owned()],
             key: key.clone(),
             public_ip,
             send_using_address,
@@ -144,8 +143,7 @@ async fn main() -> Result<(), CliError>
     };
 
     let create_groups_from_config = |config_path: &str| -> Result<FullConfig, CliError> {
-        let allowed_host_addr = allowed_host.parse::<SocketAddr>()?;
-        return load_groups(config_path, allowed_host_addr);
+        return load_groups(config_path, allowed_host);
     };
 
     let full_config = config_path
@@ -155,25 +153,25 @@ async fn main() -> Result<(), CliError>
     let running = Arc::new(AtomicBool::new(true));
 
     let (tx, rx) = channel(MAX_CHANNEL);
-    let groups = full_config.groups();
-    let res = try_join!(
-        wait_handle_receive(
-            tx,
-            full_config.bind_address,
-            Arc::clone(&running),
-            &groups,
-            protocol
-        ),
-        wait_on_clipboard(rx, Arc::clone(&running), &groups, protocol)
+
+    let receive = wait_handle_receive(
+        tx,
+        full_config.bind_address,
+        Arc::clone(&running),
+        full_config.groups(),
+        protocol,
     );
+    let send = wait_on_clipboard(rx, Arc::clone(&running), full_config.groups(), protocol);
+
+    let res = try_join!(tokio::spawn(receive), tokio::spawn(send),);
     match res {
-        Ok(((), ())) => {
-            info!("Finished running");
+        Ok((r, s)) => {
+            info!("Finished running receive count {} sent count {}", r?, s?);
             return Ok(());
         }
         Err(err) => {
             error!("Finished with error {:?}", err);
-            return Err(err);
+            return Err(CliError::JoinError(err));
         }
     };
 }

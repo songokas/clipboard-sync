@@ -1,11 +1,15 @@
+use cached::proc_macro::cached;
+use cached::TimedSizedCache;
 use log::{debug, warn};
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
 use std::collections::HashMap;
 use std::fmt;
-use std::net::{IpAddr};
+use std::net::{IpAddr, SocketAddr};
+use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 
+use crate::errors::DnsError;
 use crate::message::Group;
 
 pub enum SocketEndpoint
@@ -87,6 +91,28 @@ impl fmt::Display for Protocol
     }
 }
 
+#[cached(
+    create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
+    type = "TimedSizedCache<String, Result<SocketAddr, DnsError>>",
+    convert = r#"{ format!("{}", host) }"#
+)]
+pub async fn to_socket(host: &str) -> Result<SocketAddr, DnsError>
+{
+    let to_err = |e| {
+        DnsError::Failed(format!(
+            "Unable to retrieve ip for {}. Message: {}",
+            host, e
+        ))
+    };
+    for addr in lookup_host(host).await.map_err(to_err)? {
+        return Ok(addr);
+    }
+    return Err(DnsError::Failed(format!(
+        "Unable to retrieve ip for {}",
+        host
+    )));
+}
+
 pub struct Multicast
 {
     cache: HashMap<IpAddr, bool>,
@@ -140,10 +166,17 @@ impl Multicast
         }
     }
 
-    pub fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
+    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
     {
         for group in groups {
-            for addr in &group.allowed_hosts {
+            for remote_host in &group.allowed_hosts {
+                let addr = match to_socket(remote_host).await {
+                    Ok(a) => a,
+                    _ => {
+                        warn!("Unable to parse or retrieve address for {}", remote_host);
+                        continue;
+                    }
+                };
                 if addr.ip().is_multicast() {
                     self.join_group(sock, local_addr, &addr.ip());
                 }
@@ -151,4 +184,3 @@ impl Multicast
         }
     }
 }
-

@@ -1,12 +1,12 @@
 use log::{debug, error, info};
 use std::io;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
-use std::time::Duration;
 
 use crate::defaults::MAX_UDP_BUFFER;
-use crate::defaults::{MAX_DATAGRAM_SIZE, QUIC_STREAM, CONNECTION_TIMEOUT};
+use crate::defaults::{CONNECTION_TIMEOUT, DATA_TIMEOUT, MAX_DATAGRAM_SIZE, QUIC_STREAM};
 use crate::encryption::{decrypt, encrypt_to_bytes, hex_dump, random, validate};
 use crate::errors::ConnectionError;
 use crate::message::Group;
@@ -41,7 +41,7 @@ pub async fn send_data_quic(
         .unwrap();
 
     config.verify_peer(false);
-    config.set_max_idle_timeout(500);
+    config.set_max_idle_timeout(10000);
     config.set_max_udp_payload_size(MAX_DATAGRAM_SIZE as u64);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_bidi_local(1_000_000);
@@ -67,30 +67,24 @@ pub async fn send_data_quic(
 
     let enc_write = encrypt_to_bytes(&out[..cwrite], &identity, group)?;
 
-    while let Err(e) = socket.try_send(&enc_write) {
-        if e.kind() == std::io::ErrorKind::WouldBlock {
-            continue;
+    let mut connection_sent = match timeout(
+        Duration::from_millis(CONNECTION_TIMEOUT),
+        socket.send(&enc_write),
+    )
+    .await
+    {
+        Ok(v) => v?,
+        Err(e) => {
+            return Err(ConnectionError::FailedToConnect(format!(
+                "Failed to send initial data {}",
+                e
+            )));
         }
-        return Err(ConnectionError::FailedToConnect(format!(
-            "Failed to send initial data {}",
-            e
-        )));
-    }
-
-    // let mut connection_sent = match timeout(Duration::from_millis(CONNECTION_TIMEOUT), socket.send(&enc_write)).await {
-    //     Ok(v) => v?,
-    //     Err(e) => {
-    //         return Err(ConnectionError::FailedToConnect(format!(
-    //             "Failed to send initial data {}",
-    //             e
-    //         )));
-    //     }
-    // };
+    };
 
     debug!("Sent initial packet size {}", enc_write.len());
 
     let mut connection_read = 0;
-    let mut connection_sent = 0;
     let mut data_sent = 0;
 
     loop {
@@ -168,7 +162,12 @@ pub async fn send_data_quic(
         }
 
         if conn.is_closed() {
-            info!("Client close connection sent {} read {} stats {:?}", connection_sent, connection_read, conn.stats());
+            info!(
+                "Client close connection sent {} read {} stats {:?}",
+                connection_sent,
+                connection_read,
+                conn.stats()
+            );
             return Ok(data_sent);
         }
     }
@@ -205,7 +204,7 @@ pub async fn receive_data_quic(
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
         .unwrap();
 
-    config.set_max_idle_timeout(5000);
+    config.set_max_idle_timeout(DATA_TIMEOUT);
     config.set_max_udp_payload_size(MAX_DATAGRAM_SIZE as u64);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_bidi_local(1_000_000);
@@ -238,33 +237,24 @@ pub async fn receive_data_quic(
             )));
         }
     };
-    debug!("Initial packet with size {} received {:?}", connection_read, header);
+    debug!(
+        "Initial packet with size {} received {:?}",
+        connection_read, header
+    );
 
     let mut conn = quiche::accept(&header.scid, Some(&header.dcid), &mut config)?;
     let mut skip_initial = true;
     loop {
-
         if let Some(v) = conn.timeout() {
             if v.as_millis() == 0 {
-               conn.on_timeout();
+                conn.on_timeout();
             }
         }
 
-        // match conn.timeout() {
-        //     Some(v) => {
-        //         if v.as_millis() == 0 {
-        //             conn.on_timeout();
-        //         }
-        //     },
-        //     // None => {
-        //     //     return Err(ConnectionError::FailedToConnect(format!("Sending end finished without waiting")));
-        //     // }
-        // };
-
         'read_loop: loop {
-            let mut sock_read = 0;
+            let sock_read;
             if skip_initial {
-                let (sock_read, sock_addr) = match socket.try_recv_from(&mut buffer) {
+                let (read, sock_addr) = match socket.try_recv_from(&mut buffer) {
                     Ok(n) => n,
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                         break 'read_loop;
@@ -276,7 +266,8 @@ pub async fn receive_data_quic(
                         )));
                     }
                 };
-                connection_read += sock_read;
+                sock_read = read;
+                connection_read += read;
 
                 if addr != sock_addr {
                     return Err(ConnectionError::InvalidBuffer(format!(
@@ -284,7 +275,6 @@ pub async fn receive_data_quic(
                         sock_addr, addr
                     )));
                 }
-
             } else {
                 sock_read = connection_read;
                 skip_initial = false;
@@ -370,24 +360,26 @@ pub async fn receive_data_quic(
         }
 
         if conn.is_closed() {
-            info!("Server close connection sent {} read {} stats {:?}", connection_sent, connection_read, conn.stats());
+            info!(
+                "Server close connection sent {} read {} stats {:?}",
+                connection_sent,
+                connection_read,
+                conn.stats()
+            );
             return Ok((received, addr));
         }
     }
 }
-
 
 #[cfg(test)]
 mod quichetest
 {
     use super::*;
     use tokio::try_join;
-    use env_logger::Env;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_send_receive()
     {
-        env_logger::from_env(Env::default().default_filter_or("debug")).init();
         let local_server: SocketAddr = "127.0.0.1:9936".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:9937".parse().unwrap();
         let server_sock = UdpSocket::bind(local_server).await.unwrap();
@@ -398,15 +390,23 @@ mod quichetest
         client_sock.connect(local_server).await.unwrap();
 
         let data_sent = b"test1".to_vec();
-        let res = try_join!(
-            send_data_quic(client_sock, data_sent.clone(), &local_server, &group),
-            receive_data_quic(&server_sock, 100, &groups)
-        ).unwrap();
-        let data_len_sent = res.0;
-        let (data_received, addr) = res.1;
+        let expect_data = data_sent.clone();
 
-        assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, 76);
-        assert_eq!(data_sent, data_received);
+        let r = tokio::spawn(async move {
+            // Process each socket concurrently.
+            let (data_received, addr) =
+                receive_data_quic(&server_sock, 100, &groups).await.unwrap();
+            assert_eq!(expect_data, data_received);
+            assert_eq!(local_client, addr);
+        });
+
+        let s = tokio::spawn(async move {
+            let data_len_sent = send_data_quic(client_sock, data_sent, &local_server, &group)
+                .await
+                .unwrap();
+            assert_eq!(data_len_sent, 5);
+        });
+
+        try_join!(r, s,).unwrap();
     }
 }

@@ -15,18 +15,19 @@ pub const MAX_PACKET: usize = 512;
 pub const MAX_DATAGRAM_SIZE: usize = 1350;
 pub const QUIC_STREAM: u8 = 0;
 pub const CONNECTION_TIMEOUT: u64 = 2000;
+pub const DATA_TIMEOUT: u64 = 2000;
 
 pub fn default_socket_send_address() -> SocketAddr
 {
     return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
 }
 
-pub fn default_allowed_host() -> SocketAddr
+pub fn default_allowed_host() -> String
 {
-    return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 89)), 8900);
+    return DEFAULT_ALLOWED_HOST.to_owned();
 }
 
-pub fn default_allowed_hosts() -> Vec<SocketAddr>
+pub fn default_allowed_hosts() -> Vec<String>
 {
     return vec![default_allowed_host()];
 }
