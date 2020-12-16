@@ -2,7 +2,6 @@
 
 use chacha20poly1305::Key;
 use log::{error, info};
-use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc::channel;
 
@@ -23,7 +22,7 @@ pub mod protocols;
 pub mod socket;
 pub mod test;
 
-use crate::config::{load_groups, FullConfig};
+use crate::config::{load_groups, FullConfig, load_default_certificates};
 use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
@@ -47,38 +46,10 @@ async fn main() -> Result<(), CliError>
         .unwrap_or(SEND_ADDRESS);
     let public_ip = matches
         .value_of("public-ip")
-        .and_then(|ip| ip.parse::<IpAddr>().ok());
+        .map(|ip| ip.to_owned());
 
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
     let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
-
-    let protocol = match matches.value_of("protocol") {
-        #[cfg(feature = "quic")]
-        Some(v) if v == "quic" => Protocol::Quic,
-        #[cfg(feature = "frames")]
-        Some(v) if v == "frames" => Protocol::Frames,
-        Some(v) if v == "basic" => Protocol::Basic,
-        Some(v) => {
-            return Err(CliError::ArgumentError(format!(
-                "Protocol {} has not been compiled",
-                v
-            )));
-        }
-        None => Protocol::Basic,
-    };
-
-    let default_host = match protocol {
-        Protocol::Basic => DEFAULT_ALLOWED_HOST,
-        _ => "",
-    };
-
-    let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
-
-    if allowed_host.is_empty() {
-        return Err(CliError::ArgumentError(format!(
-            "Please provide --allowed-host 192.168.0.5 or use basic protocol",
-        )));
-    }
 
     let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
@@ -88,32 +59,6 @@ async fn main() -> Result<(), CliError>
         None => "".to_owned(),
     };
 
-    // let private_key: Option<PrivateKey> = match matches.value_of("private-key") {
-    //     Some(expected_key) => match read_file(expected_key, 10_000) {
-    //         Ok(file_contents) => Some(PrivateKey::from_pem(&file_contents)?),
-    //         Err(r) => Err(r)?,
-    //     },
-    //     None if protocol.requires_public_key() && config_path.is_none() => {
-    //         return Err(CliError::ArgumentError(format!(
-    //             "Please provide a valid public key",
-    //         )));
-    //     },
-    //     None => None,
-    // };
-
-    // let public_key: Option<CertificateChain> = match matches.value_of("public-key") {
-    //     Some(expected_key) => match read_file(expected_key, 10_000) {
-    //         Ok(file_contents) => Some(CertificateChain::from_pem(&file_contents)?),
-    //         Err(r) => Err(r)?,
-    //     },
-    //     None if protocol.requires_public_key() && config_path.is_none() => {
-    //         return Err(CliError::ArgumentError(format!(
-    //             "Please provide a valid public key",
-    //         )));
-    //     },
-    //     None => None
-    // };
-
     if config_path.is_none() && key_data.len() != KEY_SIZE {
         return Err(CliError::ArgumentError(format!(
             "Please provide a valid key with length {}. Current: {}",
@@ -122,7 +67,21 @@ async fn main() -> Result<(), CliError>
         )));
     }
 
+    let default_host = match matches.value_of("protocol") {
+        Some(v) if v == "basic" => DEFAULT_ALLOWED_HOST,
+        _ => "",
+    };
+
+    let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
+
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
+
+        if allowed_host.is_empty() {
+            return Err(CliError::ArgumentError(format!(
+                "Please provide --allowed-host 192.168.0.5 or use basic protocol",
+            )));
+        }
+
         let send_using_address = send_address.parse::<SocketAddr>()?;
 
         let key = Key::from_slice(key_data.as_bytes());
@@ -133,12 +92,12 @@ async fn main() -> Result<(), CliError>
             name: group.to_owned(),
             allowed_hosts: vec![allowed_host.to_owned()],
             key: key.clone(),
-            public_ip,
+            public_ip: public_ip.clone(),
             send_using_address,
             clipboard: clipboard_type.to_owned(),
         }];
         let full_config =
-            FullConfig::from_groups(socket_address, send_using_address, public_ip, groups);
+            FullConfig::from_groups(socket_address, send_using_address, public_ip.clone(), groups);
         Ok(full_config)
     };
 
@@ -150,6 +109,31 @@ async fn main() -> Result<(), CliError>
         .map(|config_path| create_groups_from_config(&config_path))
         .unwrap_or_else(create_groups_from_cli)?;
 
+    let protocol = match matches.value_of("protocol") {
+        #[cfg(feature = "quic")]
+        Some(v) if v == "quic" => {
+            if let Some(c) = &full_config.certificates {
+                Protocol::Quic(c.clone())
+            } else {
+                Protocol::Quic(load_default_certificates(
+                    matches.value_of("private-key"),
+                    matches.value_of("public-key"),
+                    matches.value_of("cert-verify-dir"),
+                )?)
+            }
+        },
+        #[cfg(feature = "frames")]
+        Some(v) if v == "frames" => Protocol::Frames,
+        Some(v) if v == "basic" => Protocol::Basic,
+        Some(v) => {
+            return Err(CliError::ArgumentError(format!(
+                "Protocol {} is not available",
+                v
+            )));
+        }
+        None => Protocol::Basic,
+    };
+
     let running = Arc::new(AtomicBool::new(true));
 
     let (tx, rx) = channel(MAX_CHANNEL);
@@ -158,10 +142,10 @@ async fn main() -> Result<(), CliError>
         tx,
         full_config.bind_address,
         Arc::clone(&running),
-        full_config.groups(),
-        protocol,
+        full_config.clone(),
+        protocol.clone(),
     );
-    let send = wait_on_clipboard(rx, Arc::clone(&running), full_config.groups(), protocol);
+    let send = wait_on_clipboard(rx, Arc::clone(&running), full_config.clone(), protocol.clone());
 
     let res = try_join!(tokio::spawn(receive), tokio::spawn(send),);
     match res {

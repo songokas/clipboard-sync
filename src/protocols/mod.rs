@@ -26,7 +26,7 @@ pub async fn obtain_client_socket(
     // debug!("Send to {} using {}", remote_addr, local_address);
     match protocol {
         #[cfg(feature = "quinn")]
-        Protocol::Quic => obtain_client_endpoint(local_address).await,
+        Protocol::Quic(_) => obtain_client_endpoint(local_address).await,
         _ => {
             let sock = UdpSocket::bind(local_address).await?;
             sock.connect(remote_addr).await?;
@@ -42,7 +42,7 @@ pub async fn obtain_server_socket(
 {
     match protocol {
         #[cfg(feature = "quinn")]
-        Protocol::Quic => obtain_server_endpoint(local_address)
+        Protocol::Quic(_) => obtain_server_endpoint(local_address)
             .await
             .and_then(|i| Ok(SocketEndpoint::QuicServer(i)))
             .map_err(|err| ConnectionError::EndpointError(err)),
@@ -67,12 +67,12 @@ pub async fn send_data(
             frames::send_data_frames(endpoint.socket_consume().unwrap(), data, addr, group).await
         }
         #[cfg(feature = "quinn")]
-        Protocol::Quic => {
+        Protocol::Quic(_) => {
             send_data_quic(endpoint.client_consume().unwrap(), data, addr, group).await
         }
         #[cfg(feature = "quiche")]
-        Protocol::Quic => {
-            send_data_quic(endpoint.socket_consume().unwrap(), data, addr, group).await
+        Protocol::Quic(c) => {
+            send_data_quic(endpoint.socket_consume().unwrap(), data, addr, group, c.verify_dir.clone()).await
         }
         Protocol::Basic => basic::send_data_basic(endpoint.socket_consume().unwrap(), data).await,
     };
@@ -91,9 +91,9 @@ pub async fn receive_data(
             frames::receive_data_frames(endpoint.socket().unwrap(), max_len, groups).await
         }
         #[cfg(feature = "quinn")]
-        Protocol::Quic => receive_data_quic(endpoint.server().unwrap(), max_len).await,
+        Protocol::Quic(_) => receive_data_quic(endpoint.server().unwrap(), max_len).await,
         #[cfg(feature = "quiche")]
-        Protocol::Quic => receive_data_quic(endpoint.socket().unwrap(), max_len, groups).await,
+        Protocol::Quic(c)=> receive_data_quic(endpoint.socket().unwrap(), max_len, groups, &c.private_key, &c.public_key).await,
         Protocol::Basic => basic::receive_data_basic(endpoint.socket().unwrap(), max_len).await,
     };
 }

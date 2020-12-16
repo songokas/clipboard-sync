@@ -11,6 +11,7 @@ use tokio::net::UdpSocket;
 
 use crate::errors::DnsError;
 use crate::message::Group;
+use crate::config::Certificates;
 
 pub enum SocketEndpoint
 {
@@ -67,19 +68,19 @@ impl SocketEndpoint
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Protocol
 {
     Basic,
     Frames,
-    Quic,
+    Quic(Certificates),
 }
 
 impl Protocol
 {
     pub fn requires_public_key(&self) -> bool
     {
-        return if let Self::Quic = self { true } else { false };
+        return if let Self::Quic(_) = self { true } else { false };
     }
 }
 

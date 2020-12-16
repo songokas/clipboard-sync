@@ -32,9 +32,10 @@ pub enum ConnectionError
     InvalidBuffer(String),
     NoPublic(String),
     InvalidProtocol(String),
-    InvalidKey(String),
     ReceiveError(ValidationError),
     Encryption(EncryptionError),
+    InvalidKey(String),
+    
     #[cfg(feature = "quin")]
     EndpointError(EndpointError),
     #[cfg(feature = "quin")]
@@ -59,6 +60,7 @@ pub enum CliError
     #[cfg(feature = "quinn")]
     KeyError(quinn::ParseError),
     JoinError(tokio::task::JoinError),
+    InvalidKey(String)
 }
 
 #[derive(Debug)]

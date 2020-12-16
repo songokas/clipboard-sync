@@ -19,20 +19,23 @@ use crate::filesystem::*;
 use crate::message::*;
 use crate::protocols::*;
 use crate::socket::*;
+use crate::config::FullConfig;
 
 pub async fn wait_handle_receive(
     channel: Sender<(String, String)>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
-    groups: Vec<Group>,
+    config: FullConfig,
     protocol: Protocol,
 ) -> Result<u64, CliError>
 {
     let mut endpoint = obtain_server_socket(&local_address, &protocol).await?;
-    info!("Listen on {}", local_address);
     let interface_ip = endpoint.ip();
     let mut multicast = Multicast::new();
     let mut count = 0;
+    let groups = config.groups();
+
+    info!("Listen on {}", local_address);
 
     if let Some(local_addr) = interface_ip {
         if let Some(sock) = endpoint.socket() {
@@ -40,7 +43,6 @@ pub async fn wait_handle_receive(
         }
     }
 
-    // let mut buf = vec![0; MAX_RECEIVE_BUFFER];
     while running.load(Ordering::Relaxed) {
         count += 1;
         let (buf, addr) =
@@ -76,7 +78,7 @@ pub async fn wait_handle_receive(
 pub async fn wait_on_clipboard(
     mut channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
-    groups: Vec<Group>,
+    config: FullConfig,
     protocol: Protocol,
 ) -> Result<u64, CliError>
 {
@@ -84,6 +86,7 @@ pub async fn wait_on_clipboard(
     let mut hash_cache: HashMap<String, String> = HashMap::new();
     let mut multicast = Multicast::new();
     let mut count = 0;
+    let groups = config.groups();
 
     info!("Listen for clipboard changes");
     while running.load(Ordering::Relaxed) {
@@ -257,16 +260,20 @@ async fn handle_clipboard_change(
             if let Some(sock) = endpoint.socket() {
                 multicast.join_group(sock, &local_addr, &remote_ip);
             }
-            Ok(local_addr)
+            local_addr
         } else if remote_ip.is_loopback() || is_private {
-            Ok(local_ip.unwrap_or(group.send_using_address.ip()))
+            local_ip.unwrap_or(group.send_using_address.ip())
         } else {
-            group.public_ip.ok_or(ConnectionError::NoPublic(
-                "Group missing public ip however global routing requested".to_owned(),
-            ))
+            let host = group.public_ip.as_ref()
+                .ok_or(ConnectionError::NoPublic(
+                    "Group missing public ip however global routing requested".to_owned(),
+                ))?;
+            let sock_addr = to_socket(host).await
+                .map_err(|e| ClipboardError::Invalid(format!("Unable to resolve public ip {}. Message: {:?}", host, e)))?;
+            sock_addr.ip()
         };
 
-        let bytes = encrypt_to_bytes(&buffer, &identity?.to_string(), group)?;
+        let bytes = encrypt_to_bytes(&buffer, &identity.to_string(), group)?;
         sent += send_data(endpoint, bytes, &addr, group, protocol).await?;
     }
     return Ok(sent);

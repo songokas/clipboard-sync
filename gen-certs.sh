@@ -6,7 +6,7 @@ set -ex
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 HOST=${1:-"clipboard-sync"}
 
-EXPECTED_DIR="$HOME/.config/clipboard-sync"
+EXPECTED_DIR="${EXPECTED_DIR:-$HOME/.config/clipboard-sync}"
 
 mkdir -p "$EXPECTED_DIR"
 

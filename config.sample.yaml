@@ -1,12 +1,14 @@
 bind_address: "0.0.0.0:8900"
 
-private_key: private.pem
-public_key: public.crt
-vertify_directories: verify_dir
+# optional unless using quic
+certificates:
+  private_key: tests/cert.key
+  public_key: tests/cert.crt
+  verify_dir: tests/cert-verify
 
 # send_using_address and public_ip are per group as well
 send_using_address: "0.0.0.0:8901"
-public_ip: "1.1.1.1"
+public_ip: "ifconfig.co"
 
 groups:
   specific_hosts:
@@ -23,7 +25,7 @@ groups:
     public_ip: "2.2.2.2"
     send_using_address: "0.0.0.0:9000"
     allowed_hosts:
-      - "3.3.3.3:80"
+      - "external.net:80"
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file

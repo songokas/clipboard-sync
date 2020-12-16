@@ -54,9 +54,13 @@ args:
         takes_value: true
     - private-key:
         long: private-key
-        help: "path to private key for quic"
+        help: "path to private key. quic only. default: ~/.config/clipboard-sync/cert.key"
         takes_value: true
     - public-key:
         long: public-key
-        help: "path to public key for quic"
+        help: "path to public key. quic only. default: ~/.config/clipboard-sync/cert.crt"
+        takes_value: true
+    - cert-verify-dir:
+        long: cert-verify-dir
+        help: "path to directory with server public keys. quic only. default: ~/.config/clipboard-sync/cert-verify"
         takes_value: true

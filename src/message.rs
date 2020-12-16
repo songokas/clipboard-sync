@@ -1,6 +1,6 @@
 use chacha20poly1305::{Key, Nonce};
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{SocketAddr};
 
 use crate::defaults::*;
 
@@ -78,7 +78,7 @@ pub struct Group
     pub allowed_hosts: Vec<String>,
     #[serde(with = "serde_key_str")]
     pub key: Key,
-    pub public_ip: Option<IpAddr>,
+    pub public_ip: Option<String>,
     #[serde(default = "default_socket_send_address")]
     pub send_using_address: SocketAddr,
     #[serde(default = "default_clipboard")]

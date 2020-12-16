@@ -135,6 +135,7 @@ mod filesystemtest
 
     fn dir_to_bytes_provider() -> Vec<(&'static str, Vec<u8>)>
     {
+        fs::create_dir("./tests/empty/").unwrap_or(());
         return vec![
             ("./tests/empty/", vec![]),
             (
