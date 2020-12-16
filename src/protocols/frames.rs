@@ -5,13 +5,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, timeout, Duration};
+use tokio::try_join;
 
-use crate::defaults::MAX_UDP_BUFFER;
+use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER};
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
 use crate::errors::ConnectionError;
 use crate::message::Group;
 use std::convert::TryInto;
+use std::time::Instant;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Frame
@@ -34,7 +36,21 @@ pub async fn receive_data_frames(
 
     loop {
         // this could be multiple addresses
-        let (read, addr) = socket.recv_from(&mut data).await?;
+        // let (read, addr) = socket.recv_from(&mut data).await?;
+        let (read, addr) = match timeout(
+            Duration::from_millis(CONNECTION_TIMEOUT),
+            socket.recv_from(&mut data),
+        )
+        .await
+        {
+            Ok(v) => v?,
+            Err(e) => {
+                return Err(ConnectionError::FailedToConnect(format!(
+                    "Failed to receive data {}",
+                    e
+                )));
+            }
+        };
 
         received += read;
 
@@ -81,88 +97,86 @@ pub async fn receive_data_frames(
     }
 }
 
-pub async fn send_data_frames(
-    socket: UdpSocket,
-    data: Vec<u8>,
-    destination_addr: &SocketAddr,
-    group: &Group,
+async fn confirm_received(
+    socket_reader: Arc<UdpSocket>,
+    channel_sender: mpsc::Sender<u32>,
+    expected_addr: SocketAddr,
+    indexes: usize,
+    groups: Vec<Group>,
 ) -> Result<usize, ConnectionError>
 {
-    let indexes: usize = (data.len() / MAX_UDP_BUFFER) + 1;
-    let identity = socket.local_addr().map(|a| a.ip().to_string())?;
-    let socket_writer = Arc::new(socket);
-    let socket_reader = Arc::clone(&socket_writer);
-    let groups = vec![group.clone()];
-    let expected_addr = destination_addr.clone();
+    let mut received: HashMap<u32, bool> = HashMap::new();
+    while received.len() != indexes && !channel_sender.is_closed() {
+        let mut bytes = [0; 100];
+        let received_bytes = match socket_reader.recv(&mut bytes).await {
+            Ok(_) => validate(&bytes, &groups)
+                .map_err(ConnectionError::ReceiveError)
+                .and_then(|(message, cgroup)| {
+                    decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
+                        .map_err(ConnectionError::Encryption)
+                }),
+            _ => {
+                continue;
+            }
+        };
 
-    let mut sent = 0;
-    let (channel_sender, mut channel_receiver) = mpsc::channel(indexes * 4);
+        let index_bytes = match received_bytes {
+            Ok(b) if b.len() == 4 => b.try_into(),
+            Ok(b) => {
+                warn!(
+                    "Received confirmation with incorrect data len {} {:?}",
+                    b.len(),
+                    b
+                );
+                continue;
+            }
+            Err(e) => {
+                warn!("Failed to receive confirmation: {:?}", e);
+                continue;
+            }
+        };
 
-    tokio::spawn(async move {
-        let mut received: HashMap<u32, bool> = HashMap::new();
-        while received.len() != indexes && !channel_sender.is_closed() {
-            let mut bytes = [0; 100];
-            let received_bytes = match socket_reader.recv(&mut bytes).await {
-                Ok(_) => validate(&bytes, &groups)
-                    .map_err(ConnectionError::ReceiveError)
-                    .and_then(|(message, cgroup)| {
-                        decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
-                            .map_err(ConnectionError::Encryption)
-                    }),
-                _ => {
-                    continue;
-                }
-            };
+        let index = match index_bytes {
+            Ok(b) => u32::from_be_bytes(b),
+            _ => {
+                warn!("Failed to retrieve bytes");
+                continue;
+            }
+        };
 
-            let index_bytes = match received_bytes {
-                Ok(b) if b.len() == 4 => b.try_into(),
-                Ok(b) => {
-                    warn!(
-                        "Received confirmation with incorrect data len {} {:?}",
-                        b.len(),
-                        b
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    warn!("Failed to receive confirmation: {:?}", e);
-                    continue;
-                }
-            };
+        debug!("Received frame confirmation {}", index);
 
-            let index = match index_bytes {
-                Ok(b) => u32::from_be_bytes(b),
-                _ => {
-                    warn!("Failed to retrieve bytes");
-                    continue;
-                }
-            };
-
-            debug!("Received frame confirmation {}", index);
-
-            if (index as usize) < indexes {
-                received.insert(index, true);
-                if let Err(e) = channel_sender.try_send(index) {
-                    error!("Failed to send index {} to channel {}", index, e);
-                }
+        if (index as usize) < indexes {
+            received.insert(index, true);
+            if let Err(e) = channel_sender.try_send(index) {
+                error!("Failed to send index {} to channel {}", index, e);
             }
         }
-    });
+    }
+    return Ok(received.len());
+}
 
+async fn confirm_sent(
+    socket_writer: Arc<UdpSocket>,
+    data: Vec<u8>,
+    mut channel_receiver: mpsc::Receiver<u32>,
+    identity: String,
+    indexes: usize,
+    group: Group,
+) -> Result<usize, ConnectionError>
+{
     let mut sent_without_confirmation: HashMap<u32, bool> = HashMap::new();
     let mut i: u32 = 0;
+    let mut sent = 0;
     // first send all
     while i < indexes as u32 {
-        sent += send_index(&socket_writer, i, indexes, &data, &identity, group).await?;
+        sent += send_index(&socket_writer, i, indexes, &data, &identity, &group).await?;
         sent_without_confirmation.insert(i, true);
         i += 1;
-        sleep(Duration::from_millis(20)).await;
+        sleep(Duration::from_millis(10)).await;
     }
-
-    // try for 5s
-    let mut retries: u8 = 50;
-    while sent_without_confirmation.len() > 0 && retries > 0 {
-        let mut i = 0;
+    let now = Instant::now();
+    while sent_without_confirmation.len() > 0 {
         sleep(Duration::from_millis(100)).await;
         while i < 5000 && sent_without_confirmation.len() > 0 {
             if let Ok(index) = channel_receiver.try_recv() {
@@ -180,19 +194,57 @@ pub async fn send_data_frames(
                 indexes,
                 &data,
                 &identity,
-                group,
+                &group,
             )
             .await?;
         }
-        retries -= 1;
-    }
-    channel_receiver.close();
-    if retries == 0 {
-        return Err(ConnectionError::FailedToConnect(format!(
-            "Unable to send data frames"
-        )));
+        if now.elapsed().as_millis() > CONNECTION_TIMEOUT as u128 {
+            channel_receiver.close();
+            return Err(ConnectionError::FailedToConnect(format!(
+                "Connection timeout {}. Total {} Remaining {}",
+                now.elapsed().as_millis(),
+                indexes,
+                sent_without_confirmation.len()
+            )));
+        }
     }
     return Ok(sent);
+}
+
+pub async fn send_data_frames(
+    socket: UdpSocket,
+    data: Vec<u8>,
+    destination_addr: &SocketAddr,
+    group: &Group,
+) -> Result<usize, ConnectionError>
+{
+    let indexes: usize = (data.len() / MAX_UDP_BUFFER) + 1;
+    let identity = socket.local_addr().map(|a| a.ip().to_string())?;
+    let socket_writer = Arc::new(socket);
+    let socket_reader = Arc::clone(&socket_writer);
+    let groups = vec![group.clone()];
+    let expected_addr = destination_addr.clone();
+
+    let (channel_sender, channel_receiver) = mpsc::channel(indexes * 4);
+    let res = try_join!(
+        tokio::spawn(confirm_received(
+            socket_reader,
+            channel_sender,
+            expected_addr,
+            indexes,
+            groups
+        )),
+        tokio::spawn(confirm_sent(
+            socket_writer,
+            data,
+            channel_receiver,
+            identity,
+            indexes,
+            group.clone()
+        ))
+    )
+    .map_err(ConnectionError::JoinError)?;
+    return Ok(res.1?);
 }
 
 async fn send_index(
@@ -248,9 +300,7 @@ mod framestest
             tokio::spawn(async move {
                 send_data_frames(client_sock, data_sent.clone(), &local_server, &group).await
             }),
-            tokio::spawn(async move {
-                receive_data_frames(&server_sock, 100, &groups).await
-            })
+            tokio::spawn(async move { receive_data_frames(&server_sock, 100, &groups).await })
         )
         .unwrap();
         let data_len_sent = res.0.unwrap();

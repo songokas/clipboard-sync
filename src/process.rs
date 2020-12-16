@@ -12,6 +12,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
+use crate::config::FullConfig;
 use crate::defaults::*;
 use crate::encryption::*;
 use crate::errors::*;
@@ -19,7 +20,6 @@ use crate::filesystem::*;
 use crate::message::*;
 use crate::protocols::*;
 use crate::socket::*;
-use crate::config::FullConfig;
 
 pub async fn wait_handle_receive(
     channel: Sender<(String, String)>,
@@ -264,12 +264,15 @@ async fn handle_clipboard_change(
         } else if remote_ip.is_loopback() || is_private {
             local_ip.unwrap_or(group.send_using_address.ip())
         } else {
-            let host = group.public_ip.as_ref()
-                .ok_or(ConnectionError::NoPublic(
-                    "Group missing public ip however global routing requested".to_owned(),
-                ))?;
-            let sock_addr = to_socket(host).await
-                .map_err(|e| ClipboardError::Invalid(format!("Unable to resolve public ip {}. Message: {:?}", host, e)))?;
+            let host = group.public_ip.as_ref().ok_or(ConnectionError::NoPublic(
+                "Group missing public ip however global routing requested".to_owned(),
+            ))?;
+            let sock_addr = to_socket(host).await.map_err(|e| {
+                ClipboardError::Invalid(format!(
+                    "Unable to resolve public ip {}. Message: {:?}",
+                    host, e
+                ))
+            })?;
             sock_addr.ip()
         };
 

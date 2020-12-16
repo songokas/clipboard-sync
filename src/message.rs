@@ -1,6 +1,6 @@
 use chacha20poly1305::{Key, Nonce};
 use serde::{Deserialize, Serialize};
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 
 use crate::defaults::*;
 

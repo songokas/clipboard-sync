@@ -72,7 +72,14 @@ pub async fn send_data(
         }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
-            send_data_quic(endpoint.socket_consume().unwrap(), data, addr, group, c.verify_dir.clone()).await
+            send_data_quic(
+                endpoint.socket_consume().unwrap(),
+                data,
+                addr,
+                group,
+                c.verify_dir.clone(),
+            )
+            .await
         }
         Protocol::Basic => basic::send_data_basic(endpoint.socket_consume().unwrap(), data).await,
     };
@@ -93,7 +100,16 @@ pub async fn receive_data(
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => receive_data_quic(endpoint.server().unwrap(), max_len).await,
         #[cfg(feature = "quiche")]
-        Protocol::Quic(c)=> receive_data_quic(endpoint.socket().unwrap(), max_len, groups, &c.private_key, &c.public_key).await,
+        Protocol::Quic(c) => {
+            receive_data_quic(
+                endpoint.socket().unwrap(),
+                max_len,
+                groups,
+                &c.private_key,
+                &c.public_key,
+            )
+            .await
+        }
         Protocol::Basic => basic::receive_data_basic(endpoint.socket().unwrap(), max_len).await,
     };
 }

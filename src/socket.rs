@@ -9,9 +9,9 @@ use std::net::{IpAddr, SocketAddr};
 use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 
+use crate::config::Certificates;
 use crate::errors::DnsError;
 use crate::message::Group;
-use crate::config::Certificates;
 
 pub enum SocketEndpoint
 {
@@ -80,7 +80,11 @@ impl Protocol
 {
     pub fn requires_public_key(&self) -> bool
     {
-        return if let Self::Quic(_) = self { true } else { false };
+        return if let Self::Quic(_) = self {
+            true
+        } else {
+            false
+        };
     }
 }
 

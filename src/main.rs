@@ -22,7 +22,7 @@ pub mod protocols;
 pub mod socket;
 pub mod test;
 
-use crate::config::{load_groups, FullConfig, load_default_certificates};
+use crate::config::{load_default_certificates, load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
@@ -44,9 +44,7 @@ async fn main() -> Result<(), CliError>
     let send_address = matches
         .value_of("send-using-address")
         .unwrap_or(SEND_ADDRESS);
-    let public_ip = matches
-        .value_of("public-ip")
-        .map(|ip| ip.to_owned());
+    let public_ip = matches.value_of("public-ip").map(|ip| ip.to_owned());
 
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
     let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
@@ -75,7 +73,6 @@ async fn main() -> Result<(), CliError>
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
-
         if allowed_host.is_empty() {
             return Err(CliError::ArgumentError(format!(
                 "Please provide --allowed-host 192.168.0.5 or use basic protocol",
@@ -96,8 +93,12 @@ async fn main() -> Result<(), CliError>
             send_using_address,
             clipboard: clipboard_type.to_owned(),
         }];
-        let full_config =
-            FullConfig::from_groups(socket_address, send_using_address, public_ip.clone(), groups);
+        let full_config = FullConfig::from_groups(
+            socket_address,
+            send_using_address,
+            public_ip.clone(),
+            groups,
+        );
         Ok(full_config)
     };
 
@@ -121,7 +122,7 @@ async fn main() -> Result<(), CliError>
                     matches.value_of("cert-verify-dir"),
                 )?)
             }
-        },
+        }
         #[cfg(feature = "frames")]
         Some(v) if v == "frames" => Protocol::Frames,
         Some(v) if v == "basic" => Protocol::Basic,
@@ -145,7 +146,12 @@ async fn main() -> Result<(), CliError>
         full_config.clone(),
         protocol.clone(),
     );
-    let send = wait_on_clipboard(rx, Arc::clone(&running), full_config.clone(), protocol.clone());
+    let send = wait_on_clipboard(
+        rx,
+        Arc::clone(&running),
+        full_config.clone(),
+        protocol.clone(),
+    );
 
     let res = try_join!(tokio::spawn(receive), tokio::spawn(send),);
     match res {

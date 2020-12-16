@@ -1,10 +1,11 @@
 use log::{debug, error, info};
+use quiche::{Config, Connection, Header};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
+use std::time::Instant;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
-use quiche::{Header, Connection, Config};
 
 use crate::defaults::MAX_UDP_BUFFER;
 use crate::defaults::{CONNECTION_TIMEOUT, DATA_TIMEOUT, MAX_DATAGRAM_SIZE, QUIC_STREAM};
@@ -83,8 +84,10 @@ pub async fn receive_data_quic(
     let mut config = load_server_config(private_key, public_key)?;
     let mut connection_sent = 0;
     let mut received = Vec::new();
+    let timeout = DATA_TIMEOUT as u128;
 
-    let (header, addr, mut buffer, mut connection_read) = receive_handshake(&socket, groups).await?;
+    let (header, addr, mut buffer, mut connection_read) =
+        receive_handshake(&socket, groups).await?;
 
     debug!(
         "Initial packet with size {} received {:?}",
@@ -101,6 +104,8 @@ pub async fn receive_data_quic(
             return Err(ConnectionError::Http3(e));
         }
     };
+
+    let now = Instant::now();
 
     loop {
         if let Some(v) = conn.timeout() {
@@ -133,10 +138,24 @@ pub async fn receive_data_quic(
             );
             return Ok((received, addr));
         }
+
+        if now.elapsed().as_millis() > timeout {
+            return Err(ConnectionError::FailedToConnect(format!(
+                "Connection timeout {}. Received {} Sent {}",
+                now.elapsed().as_millis(),
+                connection_read,
+                connection_sent
+            )));
+        }
     }
 }
 
-fn receive_stream(conn: &mut Connection, stream_id: u64, received: &mut Vec<u8>, max_len: usize) -> Result<(), ConnectionError>
+fn receive_stream(
+    conn: &mut Connection,
+    stream_id: u64,
+    received: &mut Vec<u8>,
+    max_len: usize,
+) -> Result<(), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
     while let Ok((read, fin)) = conn.stream_recv(stream_id, &mut buffer) {
@@ -167,7 +186,11 @@ fn receive_stream(conn: &mut Connection, stream_id: u64, received: &mut Vec<u8>,
     return Ok(());
 }
 
-async fn send_handshake(conn: &mut Connection, socket: &UdpSocket, group: &Group) -> Result<usize, ConnectionError>
+async fn send_handshake(
+    conn: &mut Connection,
+    socket: &UdpSocket,
+    group: &Group,
+) -> Result<usize, ConnectionError>
 {
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
@@ -194,7 +217,10 @@ async fn send_handshake(conn: &mut Connection, socket: &UdpSocket, group: &Group
     return Ok(connection_sent);
 }
 
-async fn receive_handshake(socket: &UdpSocket, groups: &[Group]) -> Result<(Header, SocketAddr, Vec<u8>, usize), ConnectionError>
+async fn receive_handshake(
+    socket: &UdpSocket,
+    groups: &[Group],
+) -> Result<(Header, SocketAddr, Vec<u8>, usize), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
     let (connection_read, addr) = socket.recv_from(&mut buffer).await?;
@@ -219,7 +245,11 @@ async fn receive_handshake(socket: &UdpSocket, groups: &[Group]) -> Result<(Head
     return Ok((header, addr, pkt_buf, connection_read));
 }
 
-fn receive(conn: &mut Connection, socket: &UdpSocket, expected_addr: Option<SocketAddr>) -> Result<usize, ConnectionError>
+fn receive(
+    conn: &mut Connection,
+    socket: &UdpSocket,
+    expected_addr: Option<SocketAddr>,
+) -> Result<usize, ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
     let mut connection_read = 0;
@@ -264,13 +294,15 @@ fn receive(conn: &mut Connection, socket: &UdpSocket, expected_addr: Option<Sock
     return Ok(connection_read);
 }
 
-fn send(conn: &mut Connection, socket: &UdpSocket, to_addr: Option<SocketAddr>) -> Result<usize, ConnectionError>
+fn send(
+    conn: &mut Connection,
+    socket: &UdpSocket,
+    to_addr: Option<SocketAddr>,
+) -> Result<usize, ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
     let mut connection_sent = 0;
     'send_loop: loop {
-
-
         let csent = match conn.send(&mut buffer) {
             Ok(v) => v,
 
@@ -306,14 +338,14 @@ fn send(conn: &mut Connection, socket: &UdpSocket, to_addr: Option<SocketAddr>) 
     return Ok(connection_sent);
 }
 
-fn load_config() ->  Result<Config, ConnectionError> 
+fn load_config() -> Result<Config, ConnectionError>
 {
     let mut config = Config::new(quiche::PROTOCOL_VERSION)?;
     config
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
         .unwrap();
 
-    config.set_max_idle_timeout(DATA_TIMEOUT);
+    config.set_max_idle_timeout(CONNECTION_TIMEOUT);
     config.set_max_udp_payload_size(MAX_DATAGRAM_SIZE as u64);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_bidi_local(1_000_000);
@@ -326,17 +358,16 @@ fn load_config() ->  Result<Config, ConnectionError>
     return Ok(config);
 }
 
-
 fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionError>
 {
     let mut config = load_config()?;
 
     if let Some(crt_str) = verify_path {
-    config
-        .load_verify_locations_from_file(&crt_str)
-        .map_err(|e| {
-            ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e))
-        })?;
+        config
+            .load_verify_locations_from_file(&crt_str)
+            .map_err(|e| {
+                ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e))
+            })?;
     } else {
         config.verify_peer(false);
     }
@@ -381,8 +412,15 @@ mod quichetest
 
         let r = tokio::spawn(async move {
             // Process each socket concurrently.
-            let (data_received, addr) =
-                receive_data_quic(&server_sock, 100, &groups, "tests/cert.key", "tests/cert.crt").await.unwrap();
+            let (data_received, addr) = receive_data_quic(
+                &server_sock,
+                100,
+                &groups,
+                "tests/cert.key",
+                "tests/cert.crt",
+            )
+            .await
+            .unwrap();
             assert_eq!(expect_data, data_received);
             assert_eq!(local_client, addr);
         });

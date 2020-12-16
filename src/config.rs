@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 
 use crate::defaults::{default_allowed_hosts, default_socket_send_address};
 use crate::errors::CliError;
@@ -14,7 +14,7 @@ pub struct Certificates
 {
     pub private_key: String,
     pub public_key: String,
-    pub verify_dir: Option<String>
+    pub verify_dir: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -53,14 +53,21 @@ impl FullConfig
     }
 }
 
-pub fn load_default_certificates(private_key: Option<&str>, public_key: Option<&str>, verify_dir: Option<&str>) -> Result<Certificates, CliError>
+pub fn load_default_certificates(
+    private_key: Option<&str>,
+    public_key: Option<&str>,
+    verify_dir: Option<&str>,
+) -> Result<Certificates, CliError>
 {
     let config_path = || {
-        dirs::config_dir().map(|p| p.join("clipboard-sync")).ok_or_else(|| {
-            CliError::InvalidKey(
-                "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config".to_owned(),
-            )
-        })
+        dirs::config_dir()
+            .map(|p| p.join("clipboard-sync"))
+            .ok_or_else(|| {
+                CliError::InvalidKey(
+                    "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config"
+                        .to_owned(),
+                )
+            })
     };
 
     let key_str: String = match private_key {
@@ -94,14 +101,11 @@ pub fn load_default_certificates(private_key: Option<&str>, public_key: Option<&
     return Ok(Certificates {
         private_key: key_str,
         public_key: crt_str,
-        verify_dir: verify_str
+        verify_dir: verify_str,
     });
 }
 
-pub fn load_groups(
-    file_path: &str,
-    default_host_address: &str,
-) -> Result<FullConfig, CliError>
+pub fn load_groups(file_path: &str, default_host_address: &str) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
 
@@ -162,10 +166,7 @@ mod configtest
             full_config.send_using_address,
             Some("0.0.0.0:8901".parse::<SocketAddr>().unwrap())
         );
-        assert_eq!(
-            full_config.public_ip,
-            Some("ifconfig.co".to_owned())
-        );
+        assert_eq!(full_config.public_ip, Some("ifconfig.co".to_owned()));
 
         assert_eq!(
             full_config.certificates,
@@ -174,7 +175,7 @@ mod configtest
                 public_key: "tests/cert.crt".to_owned(),
                 verify_dir: Some("tests/cert-verify".to_owned()),
             })
-        ); 
+        );
 
         let group1 = full_config.groups.get("specific_hosts").unwrap();
 
@@ -184,10 +185,7 @@ mod configtest
             full_config.send_using_address.unwrap()
         );
         assert_eq!(group1.public_ip, full_config.public_ip);
-        let allowed_local = vec![
-            "192.168.0.153:8900",
-            "192.168.0.54:20034",
-        ];
+        let allowed_local = vec!["192.168.0.153:8900", "192.168.0.54:20034"];
         assert_eq!(group1.allowed_hosts, allowed_local);
 
         let group2 = full_config.groups.get("local_network").unwrap();
@@ -215,12 +213,7 @@ mod configtest
         assert_eq!(group3.allowed_hosts, allowed_ext);
 
         let group4 = full_config.groups.get("receive_only_dir").unwrap();
-        let allowed_receive = vec![
-            "192.168.0.111:0",
-            "192.168.0.112:0",
-        ];
+        let allowed_receive = vec!["192.168.0.111:0", "192.168.0.112:0"];
         assert_eq!(group4.allowed_hosts, allowed_receive);
-
-
     }
 }
