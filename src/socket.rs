@@ -72,7 +72,9 @@ impl SocketEndpoint
 pub enum Protocol
 {
     Basic,
+    #[cfg(feature = "frames")]
     Frames,
+    #[cfg(feature = "quic")]
     Quic(Certificates),
 }
 
@@ -80,11 +82,15 @@ impl Protocol
 {
     pub fn requires_public_key(&self) -> bool
     {
-        return if let Self::Quic(_) = self {
-            true
-        } else {
-            false
-        };
+        #[cfg(feature = "quic")]
+        {
+            return if let Self::Quic(_) = self {
+                true
+            } else {
+                false
+            };
+        }
+        return false;
     }
 }
 

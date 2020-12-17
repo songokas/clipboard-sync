@@ -36,6 +36,7 @@ async fn main() -> Result<(), CliError>
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbose").unwrap_or("info");
+
     env_logger::from_env(Env::default().default_filter_or(verbosity)).init();
 
     let config_path = matches.value_of("config");
@@ -59,7 +60,7 @@ async fn main() -> Result<(), CliError>
 
     if config_path.is_none() && key_data.len() != KEY_SIZE {
         return Err(CliError::ArgumentError(format!(
-            "Please provide a valid key with length {}. Current: {}",
+            "Please provide a valid key with length {}. Current: {}. clipboard-sync --help",
             KEY_SIZE,
             key_data.len()
         )));
@@ -67,7 +68,8 @@ async fn main() -> Result<(), CliError>
 
     let default_host = match matches.value_of("protocol") {
         Some(v) if v == "basic" => DEFAULT_ALLOWED_HOST,
-        _ => "",
+        Some(_) => "",
+        _ => DEFAULT_ALLOWED_HOST,
     };
 
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
