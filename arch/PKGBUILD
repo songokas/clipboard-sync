@@ -1,0 +1,25 @@
+# Maintainer: Tomas Jakstas <tom.jakstas@gmail.com>
+pkgname=clipboard-sync
+pkgver=0.1.0
+pkgrel=1
+# makedepends=('cargo' 'rust')
+provides=('clipboard-sync')
+arch=('i686' 'x86_64' 'armv6h' 'armv7h')
+pkgdesc="Secure clipboard sync across your devices"
+url="https://github.com/songokas/clipboard-sync"
+source=("$pkgname-$pkgver::git+https://github.com/songokas/clipboard-sync")
+license=('MIT')
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    cargo build --release
+    return 0
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm644 "debian/service" "$pkgdir/var/lib/systemd/user/clipboard-sync.service"
+    install -Dm644 "README.md" "$pkgdir/usr/share/doc/${pkgname}/README.md"
+}

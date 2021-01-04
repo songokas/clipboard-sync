@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use tokio::net::{ToSocketAddrs, UdpSocket};
+use tokio::time::Duration;
 
 use crate::errors::ConnectionError;
 use crate::message::Group;
@@ -58,10 +59,9 @@ pub async fn send_data(
     data: Vec<u8>,
     addr: &SocketAddr,
     group: &Group,
-    protocol: &Protocol,
 ) -> Result<usize, ConnectionError>
 {
-    return match protocol {
+    return match &group.protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
             frames::send_data_frames(endpoint.socket_consume().unwrap(), data, addr, group).await
@@ -90,15 +90,16 @@ pub async fn receive_data(
     max_len: usize,
     groups: &[Group],
     protocol: &Protocol,
+    timeout: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
-            frames::receive_data_frames(endpoint.socket().unwrap(), max_len, groups).await
+            frames::receive_data_frames(endpoint.socket().unwrap(), max_len, groups, timeout).await
         }
         #[cfg(feature = "quinn")]
-        Protocol::Quic(_) => receive_data_quic(endpoint.server().unwrap(), max_len).await,
+        Protocol::Quic(_) => receive_data_quic(endpoint.server().unwrap(), max_len, timeout).await,
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
             receive_data_quic(
@@ -107,9 +108,12 @@ pub async fn receive_data(
                 groups,
                 &c.private_key,
                 &c.public_key,
+                timeout,
             )
             .await
         }
-        Protocol::Basic => basic::receive_data_basic(endpoint.socket().unwrap(), max_len).await,
+        Protocol::Basic => {
+            basic::receive_data_basic(endpoint.socket().unwrap(), max_len, timeout).await
+        }
     };
 }

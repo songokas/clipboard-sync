@@ -1,19 +1,20 @@
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{sleep, Duration};
 use tokio::try_join;
 
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER};
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
 use crate::errors::ConnectionError;
 use crate::message::Group;
-use std::convert::TryInto;
-use std::time::Instant;
+use crate::socket::receive_from_timeout;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Frame
@@ -27,30 +28,20 @@ pub async fn receive_data_frames(
     socket: &UdpSocket,
     max_len: usize,
     groups: &[Group],
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut received_frames: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
     let mut data = [0; MAX_UDP_BUFFER];
     let mut received = 0;
     let mut last_addr: Option<SocketAddr> = None;
+    let timeout_callback_with_time = |d: Duration| {
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout_callback(d);
+    };
 
     loop {
-        // this could be multiple addresses
-        // let (read, addr) = socket.recv_from(&mut data).await?;
-        let (read, addr) = match timeout(
-            Duration::from_millis(CONNECTION_TIMEOUT),
-            socket.recv_from(&mut data),
-        )
-        .await
-        {
-            Ok(v) => v?,
-            Err(e) => {
-                return Err(ConnectionError::FailedToConnect(format!(
-                    "Failed to receive data {}",
-                    e
-                )));
-            }
-        };
+        let (read, addr) =
+            receive_from_timeout(socket, &mut data, timeout_callback_with_time).await?;
 
         received += read;
 
@@ -300,7 +291,12 @@ mod framestest
             tokio::spawn(async move {
                 send_data_frames(client_sock, data_sent.clone(), &local_server, &group).await
             }),
-            tokio::spawn(async move { receive_data_frames(&server_sock, 100, &groups).await })
+            tokio::spawn(async move {
+                receive_data_frames(&server_sock, 100, &groups, |d: Duration| {
+                    d > Duration::from_millis(2000)
+                })
+                .await
+            })
         )
         .unwrap();
         let data_len_sent = res.0.unwrap();

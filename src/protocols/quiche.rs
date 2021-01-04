@@ -12,6 +12,7 @@ use crate::defaults::{CONNECTION_TIMEOUT, DATA_TIMEOUT, MAX_DATAGRAM_SIZE, QUIC_
 use crate::encryption::{decrypt, encrypt_to_bytes, hex_dump, random, validate};
 use crate::errors::ConnectionError;
 use crate::message::Group;
+use crate::socket::receive_from_timeout;
 
 pub async fn send_data_quic(
     socket: UdpSocket,
@@ -79,6 +80,7 @@ pub async fn receive_data_quic(
     groups: &[Group],
     private_key: &str,
     public_key: &str,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut config = load_server_config(private_key, public_key)?;
@@ -87,7 +89,7 @@ pub async fn receive_data_quic(
     let timeout = DATA_TIMEOUT as u128;
 
     let (header, addr, mut buffer, mut connection_read) =
-        receive_handshake(&socket, groups).await?;
+        receive_handshake(&socket, groups, timeout_callback).await?;
 
     debug!(
         "Initial packet with size {} received {:?}",
@@ -220,11 +222,11 @@ async fn send_handshake(
 async fn receive_handshake(
     socket: &UdpSocket,
     groups: &[Group],
+    timeout: impl Fn(Duration) -> bool,
 ) -> Result<(Header, SocketAddr, Vec<u8>, usize), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
-    let (connection_read, addr) = socket.recv_from(&mut buffer).await?;
-    // let mut pkt_buf = &mut buffer[..read];
+    let (connection_read, addr) = receive_from_timeout(socket, &mut buffer, timeout).await?;
     let pkt_buf_read = &buffer[..connection_read];
 
     // we dont need to retry with token if the first handshake is correct
@@ -380,7 +382,10 @@ fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, Connect
     config
         .load_cert_chain_from_pem_file(cert_path)
         .map_err(|e| {
-            ConnectionError::InvalidKey(format!("crt not found or not valid {} {}", cert_path, e))
+            ConnectionError::InvalidKey(format!(
+                "certificate not found or not valid {} {}",
+                cert_path, e
+            ))
         })?;
     config.load_priv_key_from_pem_file(key_path).map_err(|e| {
         ConnectionError::InvalidKey(format!("key not found or not valid {} {}", key_path, e))
@@ -418,6 +423,7 @@ mod quichetest
                 &groups,
                 "tests/cert.key",
                 "tests/cert.crt",
+                |d: Duration| d > Duration::from_millis(2000),
             )
             .await
             .unwrap();

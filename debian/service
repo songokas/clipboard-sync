@@ -1,8 +1,10 @@
 [Unit]
-Description=Clipboard sync across devices
+Description=Secure clipboard sync across devices
 
 [Service]
-ExecStart=/usr/bin/clipboard-sync
+ExecStart=/usr/bin/clipboard-sync --config %h/.config/clipboard-sync/config.yml
+
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

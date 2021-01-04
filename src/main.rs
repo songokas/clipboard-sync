@@ -1,4 +1,5 @@
 // #![feature(ip)]
+#![allow(dead_code)]
 
 use chacha20poly1305::Key;
 use log::{error, info};
@@ -6,23 +7,27 @@ use std::sync::Arc;
 use tokio::sync::mpsc::channel;
 
 use clap::{load_yaml, App};
+#[cfg(feature = "clipboard")]
+use clipboard::ClipboardProvider;
 use env_logger::Env;
-use futures::try_join;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
-pub mod config;
-pub mod defaults;
-pub mod encryption;
-pub mod errors;
-pub mod filesystem;
-pub mod message;
-pub mod process;
-pub mod protocols;
-pub mod socket;
-pub mod test;
+mod channel_clipboard;
+mod config;
+mod defaults;
+mod empty_clipboard;
+mod encryption;
+mod errors;
+mod filesystem;
+mod message;
+mod process;
+mod protocols;
+mod socket;
+mod test;
 
-use crate::config::{load_default_certificates, load_groups, FullConfig};
+use crate::config::load_default_certificates;
+use crate::config::{load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
@@ -42,6 +47,7 @@ async fn main() -> Result<(), CliError>
     let config_path = matches.value_of("config");
 
     let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
+
     let send_address = matches
         .value_of("send-using-address")
         .unwrap_or(SEND_ADDRESS);
@@ -66,6 +72,14 @@ async fn main() -> Result<(), CliError>
         )));
     }
 
+    let private_key = matches.value_of("private-key");
+    let public_key = matches.value_of("public-key");
+    let cert_dir = matches.value_of("cert-verify-dir");
+
+    let load_certs = move || {
+        return load_default_certificates(private_key, public_key, cert_dir);
+    };
+
     let default_host = match matches.value_of("protocol") {
         Some(v) if v == "basic" => DEFAULT_ALLOWED_HOST,
         Some(_) => "",
@@ -87,6 +101,8 @@ async fn main() -> Result<(), CliError>
 
         let socket_address = local_address.parse::<SocketAddr>()?;
 
+        let cli_protocol = Protocol::from(matches.value_of("protocol"), load_certs)?;
+
         let groups = vec![Group {
             name: group.to_owned(),
             allowed_hosts: vec![allowed_host.to_owned()],
@@ -94,75 +110,77 @@ async fn main() -> Result<(), CliError>
             public_ip: public_ip.clone(),
             send_using_address,
             clipboard: clipboard_type.to_owned(),
+            protocol: cli_protocol.clone(),
         }];
-        let full_config = FullConfig::from_groups(
+
+        let full_config = FullConfig::from_protocol_groups(
+            cli_protocol,
             socket_address,
-            send_using_address,
-            public_ip.clone(),
             groups,
+            MAX_RECEIVE_BUFFER,
         );
         Ok(full_config)
     };
 
     let create_groups_from_config = |config_path: &str| -> Result<FullConfig, CliError> {
-        return load_groups(config_path, allowed_host);
+        return load_groups(config_path, allowed_host, load_certs);
     };
 
     let full_config = config_path
         .map(|config_path| create_groups_from_config(&config_path))
         .unwrap_or_else(create_groups_from_cli)?;
 
-    let protocol = match matches.value_of("protocol") {
-        #[cfg(feature = "quic")]
-        Some(v) if v == "quic" => {
-            if let Some(c) = &full_config.certificates {
-                Protocol::Quic(c.clone())
-            } else {
-                Protocol::Quic(load_default_certificates(
-                    matches.value_of("private-key"),
-                    matches.value_of("public-key"),
-                    matches.value_of("cert-verify-dir"),
-                )?)
-            }
-        }
-        #[cfg(feature = "frames")]
-        Some(v) if v == "frames" => Protocol::Frames,
-        Some(v) if v == "basic" => Protocol::Basic,
-        Some(v) => {
-            return Err(CliError::ArgumentError(format!(
-                "Protocol {} is not available",
-                v
-            )));
-        }
-        None => Protocol::Basic,
-    };
-
     let running = Arc::new(AtomicBool::new(true));
 
     let (tx, rx) = channel(MAX_CHANNEL);
+    let atx = Arc::new(tx);
 
-    let receive = wait_handle_receive(
-        tx,
-        full_config.bind_address,
-        Arc::clone(&running),
-        full_config.clone(),
-        protocol.clone(),
-    );
+    let (stat_sender, _) = channel(MAX_CHANNEL);
+
+    let stat_sender = Arc::new(stat_sender);
+
+    let mut handles = Vec::new();
+    for (protocol, bind_address) in &full_config.bind_addresses {
+        let clipboard = Clipboard::new().unwrap();
+        let receive = wait_handle_receive(
+            clipboard,
+            Arc::clone(&atx),
+            bind_address.clone(),
+            Arc::clone(&running),
+            full_config.clone(),
+            protocol.clone(),
+            Arc::clone(&stat_sender),
+        );
+        handles.push(tokio::spawn(receive));
+    }
+
+    let clipboard = Clipboard::new().unwrap();
     let send = wait_on_clipboard(
+        clipboard,
         rx,
         Arc::clone(&running),
         full_config.clone(),
-        protocol.clone(),
+        Arc::clone(&stat_sender),
     );
 
-    let res = try_join!(tokio::spawn(receive), tokio::spawn(send),);
-    match res {
-        Ok((r, s)) => {
-            info!("Finished running receive count {} sent count {}", r?, s?);
+    handles.push(tokio::spawn(send));
+    let result = futures::future::try_join_all(handles).await;
+    match result {
+        Ok(items) => {
+            for res in items {
+                match res {
+                    Ok(c) => {
+                        info!("count {}", c);
+                    }
+                    Err(e) => {
+                        error!("error: {:?}", e)
+                    }
+                }
+            }
             return Ok(());
         }
         Err(err) => {
-            error!("Finished with error {:?}", err);
+            error!("{}", err);
             return Err(CliError::JoinError(err));
         }
     };

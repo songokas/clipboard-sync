@@ -5,12 +5,16 @@ use log::{debug, warn};
 use quinn::{Endpoint, Incoming};
 use std::collections::HashMap;
 use std::fmt;
+use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::time::Instant;
 use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
+use tokio::time::{timeout, Duration};
 
+// #[cfg(feature = "quic")]
 use crate::config::Certificates;
-use crate::errors::DnsError;
+use crate::errors::{CliError, DnsError};
 use crate::message::Group;
 
 pub enum SocketEndpoint
@@ -68,7 +72,7 @@ impl SocketEndpoint
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Protocol
 {
     Basic,
@@ -83,14 +87,36 @@ impl Protocol
     pub fn requires_public_key(&self) -> bool
     {
         #[cfg(feature = "quic")]
-        {
-            return if let Self::Quic(_) = self {
-                true
-            } else {
-                false
-            };
+        if let Self::Quic(_) = self {
+            return true;
         }
         return false;
+    }
+
+    #[allow(unused_variables)]
+    pub fn from(
+        protocol_opt: Option<&str>,
+        certs_callback: impl Fn() -> Result<Certificates, CliError>,
+    ) -> Result<Protocol, CliError>
+    {
+        let protocol = match protocol_opt {
+            #[cfg(feature = "quic")]
+            Some(v) if v == "quic" => {
+                let c = certs_callback()?;
+                Protocol::Quic(c.clone())
+            }
+            #[cfg(feature = "frames")]
+            Some(v) if v == "frames" => Protocol::Frames,
+            Some(v) if v == "basic" => Protocol::Basic,
+            Some(v) => {
+                return Err(CliError::ArgumentError(format!(
+                    "Protocol {} is not available",
+                    v
+                )));
+            }
+            None => Protocol::Basic,
+        };
+        return Ok(protocol);
     }
 }
 
@@ -98,7 +124,13 @@ impl fmt::Display for Protocol
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
     {
-        write!(f, "{}", self)
+        return match self {
+            #[cfg(feature = "quic")]
+            Self::Quic(_) => write!(f, "quic"),
+            #[cfg(feature = "frames")]
+            Self::Frames => write!(f, "frames"),
+            Self::Basic => write!(f, "basic"),
+        };
     }
 }
 
@@ -146,8 +178,7 @@ impl Multicast
     ) -> bool
     {
         if self.cache.contains_key(&interface_addr) {
-            warn!("Ipv6 multicast not supported");
-            return false;
+            return true;
         }
         let interface_ipv4 = match interface_addr {
             IpAddr::V4(ipv4) => ipv4,
@@ -193,5 +224,29 @@ impl Multicast
                 }
             }
         }
+    }
+}
+
+pub async fn receive_from_timeout(
+    socket: &UdpSocket,
+    buf: &mut [u8],
+    timeout_callback: impl Fn(Duration) -> bool,
+) -> io::Result<(usize, SocketAddr)>
+{
+    let timeout_duration = Duration::from_millis(50);
+    let now = Instant::now();
+    loop {
+        match timeout(timeout_duration, socket.recv_from(buf)).await {
+            Ok(v) => return v,
+            Err(_) => {
+                if timeout_callback(now.elapsed()) {
+                    return io::Result::Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!("socket read timeout {}", now.elapsed().as_millis()),
+                    ));
+                }
+                continue;
+            }
+        };
     }
 }

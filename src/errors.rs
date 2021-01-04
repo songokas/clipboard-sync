@@ -36,6 +36,7 @@ pub enum ConnectionError
     Encryption(EncryptionError),
     InvalidKey(String),
     JoinError(tokio::task::JoinError),
+    DnsError(DnsError),
 
     #[cfg(feature = "quin")]
     EndpointError(EndpointError),
@@ -222,6 +223,14 @@ impl From<ValidationError> for ConnectionError
     fn from(error: ValidationError) -> Self
     {
         ConnectionError::ReceiveError(error)
+    }
+}
+
+impl From<DnsError> for ConnectionError
+{
+    fn from(error: DnsError) -> Self
+    {
+        ConnectionError::DnsError(error)
     }
 }
 

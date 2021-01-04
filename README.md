@@ -1,10 +1,24 @@
 ## Clipboard sync
 
-synchronize your clipboards across multiple devices
+securely synchronize your clipboards across multiple devices
+
+## Install
+
+* debian[](download)
+* rpm [](download)
+* arch [](download)
+* android [](dowload)
+* windows [](download)
+
+from source
+
+```
+cargo install --root="~/bin/" --git=https://github.com/songokas/clipboard-sync
+```
 
 ## Howto run
 
-## run without config 
+### run without config 
 
 ```
 KEY="32323232323232323232323232323232"
@@ -64,3 +78,10 @@ groups:
       - "192.168.0.111:0" # port 0 - receive only
       - "192.168.0.112:0"
 ```
+
+
+
+
+
+
+

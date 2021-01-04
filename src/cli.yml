@@ -1,5 +1,5 @@
 name: clipboard-sync
-version: "0.0.1"
+version: "0.1.0"
 author: Tomas Jakstas <tom.jakstas@gmail.com>
 about: sync clipboard across devices securely
 args:
@@ -45,7 +45,7 @@ args:
         takes_value: true
     - verbose:
         short: v
-        long: verbose
+        long: verbosity
         help: sets the level of logging verbosity. default info
         takes_value: true
     - protocol:

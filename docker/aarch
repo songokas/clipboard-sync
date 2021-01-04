@@ -1,0 +1,5 @@
+FROM rustembedded/cross:aarch64-unknown-linux-gnu-0.2.1
+RUN dpkg --add-architecture arm64 \
+    && apt-get update \
+    && apt-get install --assume-yes python3 \
+    libxcb1-dev:arm64 libxcb-xfixes0-dev:arm64 libxcb-shape0-dev:arm64 libxcb-render-util0-dev:arm64
