@@ -241,7 +241,7 @@ pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
         })?;
 
     if !config_dir.exists() {
-        fs::create_dir(config_dir.clone())?;
+        fs::create_dir_all(config_dir.clone())?;
     }
 
     let path = config_dir.join("config.yml");

@@ -2,7 +2,8 @@
 pkgname=clipboard-sync
 pkgver=0.1.0
 pkgrel=1
-# makedepends=('cargo' 'rust')
+makedepends=('cargo' 'rust' 'xcb-util' 'git' 'python3')
+depends=('libxcb>=1.13.1')
 provides=('clipboard-sync')
 arch=('i686' 'x86_64' 'armv6h' 'armv7h')
 pkgdesc="Secure clipboard sync across your devices"
@@ -22,4 +23,5 @@ package() {
     install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
     install -Dm644 "debian/service" "$pkgdir/usr/lib/systemd/user/clipboard-sync.service"
     install -Dm644 "README.md" "$pkgdir/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
