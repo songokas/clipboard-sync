@@ -6,7 +6,7 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use log::debug;
-use rand::prelude::*;
+use rand::{distributions::Alphanumeric, Rng};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::io::prelude::*;
@@ -18,6 +18,15 @@ use crate::message::*;
 pub fn random(number_of_chars: usize) -> Vec<u8>
 {
     return (0..number_of_chars).map(|_| rand::random::<u8>()).collect();
+}
+
+pub fn random_alphanumeric(number_of_chars: usize) -> String
+{
+    return rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(number_of_chars)
+        .map(char::from)
+        .collect();
 }
 
 pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message, EncryptionError>
@@ -39,7 +48,7 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
         nonce: nonce.clone(),
     };
 
-    debug!("Encrypt additional data: {:?}", add);
+    // debug!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -235,7 +244,27 @@ mod encryptiontest
         assert_eq!(3, r1.len());
         let r2 = random(120);
         assert_eq!(120, r2.len());
-        let r3 = random(3);
-        assert_ne!(r1, r3);
+        let r3 = random(0);
+        assert_eq!(0, r3.len());
+        let r4 = random(3);
+        assert_ne!(r1, r4);
+    }
+
+    #[test]
+    fn test_random_alphanumeric()
+    {
+        let r1 = random_alphanumeric(3);
+        assert_eq!(3, r1.len());
+        let r2 = random_alphanumeric(120);
+        assert_eq!(120, r2.len());
+        let r3 = random_alphanumeric(0);
+        assert_eq!(0, r3.len());
+        let r4 = random_alphanumeric(3);
+        assert_ne!(r1, r4);
+        let r5 = r2
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+        assert_eq!(r2, r5);
     }
 }

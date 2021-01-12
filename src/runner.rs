@@ -122,8 +122,13 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         protocol: protocol.clone(),
     };
     let groups = vec![group];
-    let full_config =
-        FullConfig::from_protocol_groups(protocol, socket_address, groups, MAX_RECEIVE_BUFFER);
+    let full_config = FullConfig::from_protocol_groups(
+        protocol,
+        socket_address,
+        groups,
+        MAX_RECEIVE_BUFFER,
+        false,
+    );
 
     return Ok(full_config);
 }
@@ -256,6 +261,7 @@ impl Runner
             full_config.clone(),
             protocol.clone(),
             Arc::clone(&stat_sender),
+            false,
         );
 
         let send = wait_on_clipboard(
@@ -264,6 +270,7 @@ impl Runner
             Arc::clone(&running),
             full_config.clone(),
             Arc::clone(&stat_sender),
+            false,
         );
 
         return Runner {

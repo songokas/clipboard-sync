@@ -20,6 +20,6 @@ build() {
 package() {
     cd "$pkgname-$pkgver"
     install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
-    install -Dm644 "debian/service" "$pkgdir/var/lib/systemd/user/clipboard-sync.service"
+    install -Dm644 "debian/service" "$pkgdir/usr/lib/systemd/user/clipboard-sync.service"
     install -Dm644 "README.md" "$pkgdir/usr/share/doc/${pkgname}/README.md"
 }

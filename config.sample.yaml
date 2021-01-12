@@ -10,7 +10,14 @@ certificates:
 
 # send_using_address and public_ip are per group as well
 send_using_address: "0.0.0.0:8901"
-public_ip: "ifconfig.co"
+
+public_ip: "my-public-ip"
+
+# max bytes to receive per connection
+max_receive_buffer: 10485760
+
+# whether to send initial clipboard when application starts
+send_clipboard_on_startup: false
 
 groups:
   specific_hosts:

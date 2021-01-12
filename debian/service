@@ -2,8 +2,7 @@
 Description=Secure clipboard sync across devices
 
 [Service]
-ExecStart=/usr/bin/clipboard-sync --config %h/.config/clipboard-sync/config.yml
-
+ExecStart=/usr/bin/clipboard-sync --autogenerate
 NoNewPrivileges=true
 
 [Install]

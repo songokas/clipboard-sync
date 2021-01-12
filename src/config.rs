@@ -1,14 +1,19 @@
 use indexmap::IndexMap;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
+use crate::defaults::KEY_SIZE;
 use crate::defaults::{
     default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, MAX_RECEIVE_BUFFER,
 };
+use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
+use crate::filesystem::write_file;
 use crate::message::{ConfigGroup, Group};
 use crate::socket::Protocol;
 
@@ -37,6 +42,7 @@ pub struct FullConfig
     pub bind_addresses: IndexMap<Protocol, SocketAddr>,
     pub groups: Vec<Group>,
     pub max_receive_buffer: usize,
+    pub send_clipboard_on_startup: bool,
 }
 
 impl FullConfig
@@ -46,6 +52,7 @@ impl FullConfig
         bind_address: SocketAddr,
         groups: Vec<Group>,
         max_receive_buffer: usize,
+        send_clipboard_on_startup: bool,
     ) -> Self
     {
         let mut bind_addresses: IndexMap<Protocol, SocketAddr> = IndexMap::new();
@@ -54,6 +61,7 @@ impl FullConfig
             bind_addresses,
             groups,
             max_receive_buffer,
+            send_clipboard_on_startup,
         };
     }
 
@@ -61,12 +69,14 @@ impl FullConfig
         bind_addresses: IndexMap<Protocol, SocketAddr>,
         groups: Vec<Group>,
         max_receive_buffer: usize,
+        send_clipboard_on_startup: bool,
     ) -> Self
     {
         return FullConfig {
             bind_addresses,
             groups,
             max_receive_buffer,
+            send_clipboard_on_startup,
         };
     }
 
@@ -138,6 +148,7 @@ pub fn load_groups(
     file_path: &str,
     default_host_address: &str,
     load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
+    send_clipboard_on_startup: bool,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -210,8 +221,41 @@ pub fn load_groups(
 
     let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
     let bind_addresses = create_bind_addresses(&user_config.bind_addresses, load_certs)?;
-    let full_config = FullConfig::from_config(bind_addresses, groups, max_receive_buffer);
+    let full_config = FullConfig::from_config(
+        bind_addresses,
+        groups,
+        max_receive_buffer,
+        send_clipboard_on_startup,
+    );
     return Ok(full_config);
+}
+
+pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
+{
+    let config_dir = dirs::config_dir()
+        .map(|p| p.join(dir_name))
+        .ok_or_else(|| {
+            CliError::ArgumentError(
+                "Unable to generate configuration. Use --config option instead".to_owned(),
+            )
+        })?;
+
+    if !config_dir.exists() {
+        fs::create_dir(config_dir.clone())?;
+    }
+
+    let path = config_dir.join("config.yml");
+
+    if path.exists() {
+        return Ok(path);
+    }
+
+    let str_contents = format!(
+        "groups:\n   default:\n      key: {} \n",
+        random_alphanumeric(KEY_SIZE)
+    );
+    write_file(&path, str_contents.as_bytes(), 0o600)?;
+    return Ok(path);
 }
 
 fn create_bind_addresses(
@@ -257,9 +301,12 @@ mod configtest
         };
 
         let socket_addr = "127.0.0.1:8080";
-        let full_config = load_groups("tests/config.sample.yaml", socket_addr, || {
-            Err(CliError::InvalidKey("test no key".to_owned()))
-        })
+        let full_config = load_groups(
+            "tests/config.sample.yaml",
+            socket_addr,
+            || Err(CliError::InvalidKey("test no key".to_owned())),
+            false,
+        )
         .unwrap();
 
         let mut hash = IndexMap::new();
@@ -320,5 +367,15 @@ mod configtest
         let group4 = &full_config.groups[5];
         let allowed_receive = vec!["192.168.0.111:0", "192.168.0.112:0"];
         assert_eq!(group4.allowed_hosts, allowed_receive);
+    }
+
+    #[test]
+    fn test_generate_config()
+    {
+        let random_dir = "_random_clipbboard_sync_test_dir";
+        let result = generate_config(random_dir).unwrap();
+        assert!(result.ends_with("config.yml"));
+        fs::remove_file(result.clone()).unwrap();
+        fs::remove_dir(result.parent().unwrap()).unwrap();
     }
 }

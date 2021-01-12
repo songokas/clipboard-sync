@@ -31,7 +31,8 @@ cached = "0.22"
 jni = "0.18"
 lazy_static = "1.4"
 indexmap = { version = "1.6", features = ["serde-1"] }
-err-derive = "0.3.0"
+# @TODO
+# err-derive = "0.3.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.9"

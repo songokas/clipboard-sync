@@ -130,15 +130,7 @@ pub async fn receive_data_quic(
             ..
         } = inc.await?;
 
-        debug!(
-            "connection {:?}",
-            connection.remote_address(),
-            // connection
-            // .handshake_data()
-            // .unwrap()
-            // .protocol
-            // .map_or_else(|| "<none>".into(), |x| String::from_utf8_lossy(&x).into_owned())
-        );
+        debug!("connection {:?}", connection.remote_address(),);
 
         while let Some(stream) = uni_streams.next().await {
             let stream = match stream {
@@ -158,15 +150,4 @@ pub async fn receive_data_quic(
     return Err(ConnectionError::InvalidBuffer(format!(
         "Failed to receive data"
     )));
-
-    // let mut send = connection
-    // .open_uni()
-    // .await
-    // .map_err(|e| debug!("failed to open stream: {}", e))?;
-
-    // let resp = connection
-    //     .read_to_end(max_len)
-    //     .await
-    //     .map_err(|e| anyhow!("failed to read response: {}", e))?;
-    // return Ok((resp, "127.0.0.1:8000".parse()?));
 }

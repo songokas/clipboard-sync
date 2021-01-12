@@ -373,7 +373,6 @@ dependencies = [
  "clipboard",
  "dirs",
  "env_logger",
- "err-derive 0.3.0",
  "flate2",
  "futures",
  "indexmap",
@@ -611,20 +610,6 @@ name = "err-derive"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22deed3a8124cff5fa835713fa105621e43bbdc46690c3a6b68328a012d350d4"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn",
- "synstructure",
-]
-
-[[package]]
-name = "err-derive"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcc7f65832b62ed38939f98966824eb6294911c3629b0e9a262bfb80836d9686"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1331,7 +1316,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88de58d76d8f82fb28e5c89302119c102bb5b9ce57b034186b559b63ba147a0f"
 dependencies = [
  "bytes 0.5.6",
- "err-derive 0.2.4",
+ "err-derive",
  "futures",
  "libc",
  "mio 0.6.23",
@@ -1350,7 +1335,7 @@ checksum = "f0ea0a358c179c6b7af34805c675d1664a9c6a234a7acd7efdbb32d2f39d3d2a"
 dependencies = [
  "bytes 0.5.6",
  "ct-logs",
- "err-derive 0.2.4",
+ "err-derive",
  "rand",
  "ring",
  "rustls",

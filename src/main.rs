@@ -27,7 +27,7 @@ mod socket;
 mod test;
 
 use crate::config::load_default_certificates;
-use crate::config::{load_groups, FullConfig};
+use crate::config::{generate_config, load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
@@ -44,7 +44,26 @@ async fn main() -> Result<(), CliError>
 
     env_logger::from_env(Env::default().default_filter_or(verbosity)).init();
 
-    let config_path = matches.value_of("config");
+    let config_path: Option<String> = match matches.value_of("config") {
+        Some(p) => Some(p.to_owned()),
+        None => {
+            if matches.is_present("autogenerate") {
+                match generate_config("clipboard-sync") {
+                    Ok(p) => {
+                        let path = p.to_string_lossy().to_string();
+                        info!("Configuration autogeneration {}", path);
+                        Some(path)
+                    }
+                    Err(e) => {
+                        error!("Unable to generate config {:?}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        }
+    };
 
     let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
 
@@ -118,12 +137,18 @@ async fn main() -> Result<(), CliError>
             socket_address,
             groups,
             MAX_RECEIVE_BUFFER,
+            !matches.is_present("ignore-initial-clipboard"),
         );
         Ok(full_config)
     };
 
     let create_groups_from_config = |config_path: &str| -> Result<FullConfig, CliError> {
-        return load_groups(config_path, allowed_host, load_certs);
+        return load_groups(
+            config_path,
+            allowed_host,
+            load_certs,
+            !matches.is_present("ignore-initial-clipboard"),
+        );
     };
 
     let full_config = config_path
@@ -136,34 +161,45 @@ async fn main() -> Result<(), CliError>
     let atx = Arc::new(tx);
 
     let (stat_sender, _) = channel(MAX_CHANNEL);
-
     let stat_sender = Arc::new(stat_sender);
 
+    let send_once = matches.is_present("send-once");
+    let receive_once = matches.is_present("receive-once");
+    let launch_receiver = receive_once || !send_once;
+    let launch_sender = send_once || !receive_once;
+
     let mut handles = Vec::new();
-    for (protocol, bind_address) in &full_config.bind_addresses {
-        let clipboard = Clipboard::new().unwrap();
-        let receive = wait_handle_receive(
-            clipboard,
-            Arc::clone(&atx),
-            bind_address.clone(),
-            Arc::clone(&running),
-            full_config.clone(),
-            protocol.clone(),
-            Arc::clone(&stat_sender),
-        );
-        handles.push(tokio::spawn(receive));
+
+    if launch_receiver {
+        for (protocol, bind_address) in &full_config.bind_addresses {
+            let clipboard = Clipboard::new().unwrap();
+            let receive = wait_handle_receive(
+                clipboard,
+                Arc::clone(&atx),
+                bind_address.clone(),
+                Arc::clone(&running),
+                full_config.clone(),
+                protocol.clone(),
+                Arc::clone(&stat_sender),
+                receive_once,
+            );
+            handles.push(tokio::spawn(receive));
+        }
     }
 
-    let clipboard = Clipboard::new().unwrap();
-    let send = wait_on_clipboard(
-        clipboard,
-        rx,
-        Arc::clone(&running),
-        full_config.clone(),
-        Arc::clone(&stat_sender),
-    );
+    if launch_sender {
+        let clipboard = Clipboard::new().unwrap();
+        let send = wait_on_clipboard(
+            clipboard,
+            rx,
+            Arc::clone(&running),
+            full_config.clone(),
+            Arc::clone(&stat_sender),
+            send_once,
+        );
+        handles.push(tokio::spawn(send));
+    }
 
-    handles.push(tokio::spawn(send));
     let result = futures::future::try_join_all(handles).await;
     match result {
         Ok(items) => {

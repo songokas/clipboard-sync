@@ -29,6 +29,7 @@ pub async fn wait_handle_receive(
     config: FullConfig,
     protocol: Protocol,
     status_channel: Arc<Sender<(u64, u64)>>,
+    receive_once: bool,
 ) -> Result<u64, CliError>
 {
     let mut endpoint = obtain_server_socket(&local_address, &protocol).await?;
@@ -91,6 +92,11 @@ pub async fn wait_handle_receive(
         if let Err(e) = status_channel.try_send((0, count)) {
             debug!("Unable to send status count {}", e);
         }
+
+        if receive_once {
+            running.store(false, Ordering::Relaxed);
+            break;
+        }
     }
     return Ok(count);
 }
@@ -101,6 +107,7 @@ pub async fn wait_on_clipboard(
     running: Arc<AtomicBool>,
     config: FullConfig,
     status_channel: Arc<Sender<(u64, u64)>>,
+    send_once: bool,
 ) -> Result<u64, CliError>
 {
     let mut hash_cache: HashMap<String, String> = HashMap::new();
@@ -110,16 +117,6 @@ pub async fn wait_on_clipboard(
     info!("Listen for clipboard changes");
 
     while running.load(Ordering::Relaxed) {
-        //@TODO think about the events
-        let mut wait_count = 20;
-        while wait_count > 0 {
-            sleep(Duration::from_millis(50)).await;
-            if !running.load(Ordering::Relaxed) {
-                return Ok(count);
-            }
-            wait_count -= 1;
-        }
-
         while let Ok((group_name, rhash)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
@@ -145,9 +142,12 @@ pub async fn wait_on_clipboard(
             let entry_value = match hash_cache.get(&group.name) {
                 Some(val) => val.to_owned(),
                 None => {
-                    String::from("")
-                    // hash_cache.insert(group.name.clone(), hash.clone());
-                    // hash.clone()
+                    if config.send_clipboard_on_startup {
+                        String::from("")
+                    } else {
+                        hash_cache.insert(group.name.clone(), hash.clone());
+                        hash.clone()
+                    }
                 }
             };
 
@@ -178,6 +178,20 @@ pub async fn wait_on_clipboard(
             if let Err(e) = status_channel.try_send((count, 0)) {
                 debug!("Unable to send status count {}", e);
             }
+        }
+        if send_once {
+            running.store(false, Ordering::Relaxed);
+            break;
+        }
+
+        //@TODO think about the events
+        let mut wait_count = 20;
+        while wait_count > 0 {
+            sleep(Duration::from_millis(50)).await;
+            if !running.load(Ordering::Relaxed) {
+                return Ok(count);
+            }
+            wait_count -= 1;
         }
     }
     return Ok(count);
@@ -415,6 +429,7 @@ mod processtest
             local_address,
             vec![group.clone()],
             100,
+            true,
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
@@ -427,6 +442,7 @@ mod processtest
             config.clone(),
             protocol,
             Arc::clone(&sender),
+            false,
         ));
         let s = tokio::spawn(wait_on_clipboard(
             clipboardr,
@@ -434,6 +450,7 @@ mod processtest
             Arc::clone(&running),
             config,
             Arc::clone(&sender),
+            false,
         ));
         let t: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let mut clipboard = Clipboard::new().unwrap();
@@ -469,6 +486,7 @@ mod processtest
             local_address,
             vec![group.clone()],
             100,
+            false,
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
@@ -481,6 +499,7 @@ mod processtest
             config,
             protocol,
             sender,
+            false,
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let sent = send_clipboard("test1".to_string(), &group).await;
@@ -533,13 +552,6 @@ mod processtest
         let res = clipboard_group_to_bytes(&mut clipboard, &group);
         assert_eq!(res, None);
     }
-    // #[test]
-    // fn test_handle_receive () { }
-
-    // #[test]
-    // fn test_write_to () { }
-    // #[test]
-    // fn test_handle_clipboard_change () { }
 
     fn identity_provider() -> Vec<(IpAddr, IpAddr, Option<IpAddr>, Group)>
     {

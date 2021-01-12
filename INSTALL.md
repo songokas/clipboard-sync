@@ -26,6 +26,15 @@ deps:
 * rpm
 * ~/.rpmmacros
 
+
+```
+#~/.rpmmacros
+%_signature gpg
+%_gpg_path /home/{user}/.gnupg
+%_gpg_name gpg name
+%__gpg /usr/bin/gpg
+```
+
 ```
 sudo rpm --import RPM-GPG-KEY-tomasj
 cargo install cargo-rpm

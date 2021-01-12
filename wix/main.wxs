@@ -152,21 +152,13 @@
 
           </Component>
 
-          <Component Id="config.yml" Guid="*" Win64='$(var.Win64)'>
-
-            <File Id="config.yml" Source="wix\config.yml" KeyPath="yes"/>
-
-          </Component>
-
         </Directory>
-
-
 
         <Directory Id="DesktopFolder" Name="Desktop">
 
           <Component Id="ApplicationShortcutDesktop" Guid="*" Win64='$(var.Win64)'>
 
-            <Shortcut Id="ApplicationDesktopShortcut" Name="clipboard-sync" Description="Run with config" Target="[APPLICATIONFOLDER]\bin\clipboard-sync.exe" Arguments="--config config.yml" WorkingDirectory="APPLICATIONFOLDER"/>
+            <Shortcut Id="ApplicationDesktopShortcut" Name="clipboard-sync" Description="Run with config" Target="[APPLICATIONFOLDER]\bin\clipboard-sync.exe" Arguments="--autogenerate" WorkingDirectory="APPLICATIONFOLDER"/>
 
             <RemoveFolder Id="DesktopFolder" On="uninstall"/>
 
@@ -176,24 +168,13 @@
 
         </Directory>
 
-
-
       </Directory>
-
-
-
-
 
     </Directory>
 
-
-
     <Feature Id='Binaries' Title='Application' Description='Installs all binaries and the license.' Level='1' ConfigurableDirectory='APPLICATIONFOLDER' AllowAdvertise='no' Display='expand' Absent='disallow'>
 
-
-
       <ComponentRef Id="ApplicationShortcutDesktop" />
-      <ComponentRef Id="config.yml" />
       <ComponentRef Id="README.md" />
 
       <!--

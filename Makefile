@@ -66,7 +66,8 @@ pkg:
 
 windows:
 	cross build --target x86_64-pc-windows-gnu --release
-	#cross build --target i686-pc-windows-gnu --release
+	# @TODO more undefined references to `_Unwind_Resume' follow
+	# cross build --target i686-pc-windows-gnu --release
 
 # runs on widows only
 msi:

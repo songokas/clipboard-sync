@@ -2,8 +2,11 @@ use bincode;
 use log::warn;
 use std::fs;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io;
 use std::io::prelude::*;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -19,6 +22,18 @@ pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Vec<u8>, io
     let size_read = f.read(&mut buffer)?;
     buffer.resize_with(size_read, Default::default);
     return Ok(buffer);
+}
+
+#[allow(unused_variables)]
+pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>, mode: u32) -> io::Result<()>
+{
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+
+    #[cfg(target_os = "linux")]
+    opts.mode(mode);
+
+    opts.open(path.as_ref())?.write_all(contents.as_ref())
 }
 
 pub fn read_file_to_string<P: AsRef<Path>>(path: P, max_size: usize) -> Result<String, io::Error>

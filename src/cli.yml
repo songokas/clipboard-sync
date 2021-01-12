@@ -1,7 +1,7 @@
 name: clipboard-sync
 version: "0.1.0"
 author: Tomas Jakstas <tom.jakstas@gmail.com>
-about: sync clipboard across devices securely
+about: secure clipboard sync across your devices
 args:
     - config:
         short: c
@@ -64,3 +64,19 @@ args:
         long: cert-verify-dir
         help: "path to directory with server public keys. quic only. default: ~/.config/clipboard-sync/cert-verify"
         takes_value: true
+    - autogenerate:
+        long: autogenerate
+        help: "auto generate configuration/use configuration from the default path  ~/.config/clipboard-sync/config.yml"
+        takes_value: false
+    - send-once:
+        long: send-once
+        help: send clipboard once and quit
+        takes_value: false
+    - receive-once:
+        long: receive-once
+        help: receive once and quit
+        takes_value: false
+    - ignore-initial-clipboard:
+        long: ignore-initial-clipboard
+        help: do not send initial clipboard when application starts
+        takes_value: false
