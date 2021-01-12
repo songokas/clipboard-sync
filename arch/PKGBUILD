@@ -3,7 +3,7 @@ pkgname=clipboard-sync
 pkgver=0.1.0
 pkgrel=1
 makedepends=('cargo' 'rust' 'xcb-util' 'git' 'python3')
-depends=('libxcb>=1.13.1')
+depends=('libxcb>=1.13.1' 'gcc-libs>=10.2')
 provides=('clipboard-sync')
 arch=('i686' 'x86_64' 'armv6h' 'armv7h')
 pkgdesc="Secure clipboard sync across your devices"
