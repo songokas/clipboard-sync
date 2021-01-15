@@ -219,8 +219,10 @@ pub async fn stop() -> bool
     if (*guard).len() > 0 {
         let runner = (*guard).remove(0);
         // std::mem::drop(guard);
-        runner.stop().await.unwrap();
-        return true;
+        return match runner.stop().await {
+            Ok(_) => true,
+            Err(_) => false,
+        };
     }
     return false;
 }

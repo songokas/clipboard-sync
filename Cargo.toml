@@ -40,6 +40,10 @@ android_logger = "0.9"
 [build-dependencies]
 cargo-deb = "1.28"
 
+[dev-dependencies]
+assert_cmd = "1.0"
+predicates = "1.0"
+
 [lib]
 crate-type = ["lib", "cdylib"]
 

@@ -108,19 +108,21 @@ async fn main() -> Result<(), CliError>
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
+        let cli_protocol = Protocol::from(matches.value_of("protocol"), load_certs)?;
+
         if allowed_host.is_empty() {
             return Err(CliError::ArgumentError(format!(
-                "Please provide --allowed-host 192.168.0.5 or use basic protocol",
+                "Please provide --allowed-host or use basic protocol",
             )));
         }
 
-        let send_using_address = send_address.parse::<SocketAddr>()?;
+        let send_using_address = send_address.parse::<SocketAddr>()
+            .map_err(|_| CliError::ArgumentError(format!("Invalid send-using-address provided {}", send_address)))?;
 
         let key = Key::from_slice(key_data.as_bytes());
 
-        let socket_address = local_address.parse::<SocketAddr>()?;
-
-        let cli_protocol = Protocol::from(matches.value_of("protocol"), load_certs)?;
+        let socket_address = local_address.parse::<SocketAddr>()
+            .map_err(|_| CliError::ArgumentError(format!("Invalid bind address provided {}", local_address)))?;
 
         let groups = vec![Group {
             name: group.to_owned(),

@@ -56,7 +56,7 @@ pub async fn receive_data_frames(
             last_addr = Some(addr);
         }
 
-        if last_addr.unwrap() != addr {
+        if last_addr.expect("No previous socket address exist") != addr {
             return Err(ConnectionError::InvalidBuffer(
                 "Received data from different address".to_owned(),
             ));

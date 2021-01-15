@@ -103,7 +103,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
     let key = Key::clone_from_slice(config.key.as_bytes());
 
     let send_using_address = default_socket_send_address();
-    let socket_address = BIND_ADDRESS.parse::<SocketAddr>().unwrap();
+    let socket_address = BIND_ADDRESS.parse::<SocketAddr>().expect("Incorrect default bind address");
 
     let protocol = match config.protocol.as_ref() {
         "basic" => Protocol::Basic,
