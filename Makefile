@@ -62,7 +62,7 @@ pkg:
 # pkg-in-vagrant:
 # 	vagrant up arch
 # 	vagrant ssh arch
-# 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* dist/
+# 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 
 windows:
 	cross build --target x86_64-pc-windows-gnu --release
@@ -72,7 +72,6 @@ windows:
 # runs on widows only
 msi:
 	cargo wix
-	cargo wix sign
 
 android:
 	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(HEADLESS_OPTIONS);)
@@ -106,14 +105,16 @@ sign-windows:
 		-ts http://timestamp.digicert.com \
 		-add-msi-dse
 
-
-release: deb rpm strip sign
+distdir:
 	mkdir -p dist
+
+release: distdir dist deb strip rpm sign
 	cp target/*/debian/clipboard-sync* dist/
 	cp target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/* dist/
 	cp target/i686-unknown-linux-gnu/release/rpmbuild/RPMS/i686/* dist/
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-amd64-binary
 	cp target/i686-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-i686-binary
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless dist/clipboard-sync-amd64-headless-binary
+	@cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
 	
-.PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows
+.PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows distdir
