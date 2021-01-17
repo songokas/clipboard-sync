@@ -21,7 +21,7 @@ sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/0.1.
 ### Arch
 
 ```
-sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys keyid 175129AEEC57B0EB \
+sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
   && sudo pacman-key --lsign-key 175129AEEC57B0EB \
   && wget -q https://github.com/songokas/clipboard-sync/releases/download/0.1.1/clipboard-sync-0.1.1-1-x86_64.pkg.tar.zst.sig \
   && wget -q https://github.com/songokas/clipboard-sync/releases/download/0.1.1/clipboard-sync-0.1.1-1-x86_64.pkg.tar.zst \
