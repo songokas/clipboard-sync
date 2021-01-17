@@ -11,7 +11,7 @@ Group: Applications/System
 Source0: %{name}-%{version}.tar.gz
 URL: https://github.com/songokas/clipboard-sync
 
-Requires: libc6 >= 2.28, libxcb-render0 >= 1.13.1, libxcb-shape0 >= 1.13.1, libxcb1 >= 1.13.1, libxcb-xfixes0 >= 1.13.1
+Requires: xcb-util
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
 

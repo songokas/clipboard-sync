@@ -89,14 +89,16 @@ test:
 	cargo test
 	cargo test --features quic
 
-sign: sign-windows
-	@rpm --addsign target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/clipboard-sync-$(VERSION)-1.x86_64.rpm
-	@rpm --addsign target/i686-unknown-linux-gnu/release/rpmbuild/RPMS/i686/clipboard-sync-$(VERSION)-1.i686.rpm
+sign: sign-windows sign-rpm
 
 	@dpkg-sig -s builder target/x86_64-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)_amd64.deb
 	@dpkg-sig -s builder target/i686-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)_i386.deb
 	@dpkg-sig -s builder target/aarch64-unknown-linux-gnu/debian/clipboard-sync-aarch64_$(VERSION)_arm64.deb
 	@dpkg-sig -s builder target/armv7-unknown-linux-gnueabihf/debian/clipboard-sync-headless_$(VERSION)_armhf.deb
+
+sign-rpm:
+	@rpm --addsign target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/clipboard-sync-$(VERSION)-1.x86_64.rpm
+	@rpm --addsign target/i686-unknown-linux-gnu/release/rpmbuild/RPMS/i686/clipboard-sync-$(VERSION)-1.i686.rpm
 
 sign-windows:
 	osslsigncode sign -certs $(CERT_PATH) -key $(KEY_PATH) \
@@ -117,4 +119,4 @@ release: distdir dist deb strip rpm sign
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless dist/clipboard-sync-amd64-headless-binary
 	@cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
 	
-.PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows distdir
+.PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows distdir sign-rpm
