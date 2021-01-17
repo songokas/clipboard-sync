@@ -9,7 +9,7 @@ GROUP_ID ?= $(shell id -g)
 LIB_NAME = libclipboard_sync.so
 CERT_PATH ?= $(HOME)/.ssh/app-sign-cert.pem
 KEY_PATH ?= $(HOME)/.ssh/app-sign-key.pem
-VERSION = 0.1.0
+VERSION = 0.1.1
 
 define docker_build
 	docker run \

@@ -174,7 +174,7 @@ async fn main() -> Result<(), CliError>
 
     if launch_receiver {
         for (protocol, bind_address) in &full_config.bind_addresses {
-            let clipboard = Clipboard::new().expect("Unable to initialize clipboard. Possibly missing xcb libraries");
+            let clipboard = Clipboard::new().expect("Unable to initialize clipboard. Possibly missing xcb libraries or no x server");
             let receive = wait_handle_receive(
                 clipboard,
                 Arc::clone(&atx),
@@ -190,7 +190,7 @@ async fn main() -> Result<(), CliError>
     }
 
     if launch_sender {
-        let clipboard = Clipboard::new().expect("Unable to initialize clipboard. Possibly missing xcb libraries");
+        let clipboard = Clipboard::new().expect("Unable to initialize clipboard. Possibly missing xcb libraries or no x server");
         let send = wait_on_clipboard(
             clipboard,
             rx,
