@@ -15,7 +15,7 @@ wget https://github.com/songokas/clipboard-sync/releases/download/0.1.1/clipboar
 
 ```
 sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/0.1.1/.rpm/RPM-GPG-KEY-tomasj \
-  && sudo rpm -i https://github.com/songokas/clipboard-sync/releases/download/0.1.1/clipboard-sync-0.1.1-1.x86_64.rpm
+  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/0.1.1/clipboard-sync-0.1.1-1.x86_64.rpm
 ```
 
 ### Arch
