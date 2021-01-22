@@ -7,16 +7,14 @@ use std::sync::Arc;
 use tokio::sync::mpsc::channel;
 
 use clap::{load_yaml, App};
-#[cfg(feature = "clipboard")]
-use clipboard::ClipboardProvider;
 use env_logger::Env;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
+use std::io::Write;
 
-mod channel_clipboard;
+mod clipboards;
 mod config;
 mod defaults;
-mod empty_clipboard;
 mod encryption;
 mod errors;
 mod filesystem;
@@ -34,13 +32,14 @@ use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{wait_handle_receive, wait_on_clipboard};
 use crate::socket::Protocol;
+use crate::clipboards::Clipboard;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
 {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
-    let verbosity = matches.value_of("verbose").unwrap_or("info");
+    let verbosity = matches.value_of("verbosity").unwrap_or("info");
 
     env_logger::from_env(Env::default().default_filter_or(verbosity)).init();
 

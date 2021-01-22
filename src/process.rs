@@ -4,14 +4,14 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
-#[cfg(feature = "clipboard")]
-use clipboard::ClipboardProvider;
+
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
+use crate::clipboards::Clipboard;
 use crate::config::FullConfig;
 use crate::defaults::*;
 use crate::encryption::*;
@@ -234,6 +234,8 @@ fn clipboard_group_to_bytes(clipboard: &mut Clipboard, group: &Group) -> Option<
                 return None;
             }
         };
+        // @TODO invesgitage if could access clipboard format
+        // debug!("Clipboard {}", contents);
         contents.as_bytes().to_vec()
     } else if group.clipboard.ends_with("/") {
         match dir_to_bytes(&group.clipboard) {
@@ -295,8 +297,10 @@ async fn handle_clipboard_change(
     multicast: &mut Multicast,
 ) -> Result<usize, ClipboardError>
 {
+
     let mut sent = 0;
     for remote_host in &group.allowed_hosts {
+
         let addr = match to_socket(remote_host).await {
             Ok(a) => a,
             Err(e) => {
@@ -305,13 +309,14 @@ async fn handle_clipboard_change(
             }
         };
 
+
         if addr.port() == 0 {
             debug!("Not sending to host {}", remote_host);
             continue;
         }
         let remote_ip = addr.ip();
         let endpoint =
-            obtain_client_socket(&group.send_using_address, addr, &group.protocol).await?;
+            obtain_client_socket(&group.send_using_address, &addr, &group.protocol).await?;
 
         let identity = retrieve_identity(&remote_ip, endpoint.ip(), group).await?;
         let bytes = encrypt_to_bytes(&buffer, &identity.to_string(), group)?;

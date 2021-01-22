@@ -43,7 +43,7 @@ args:
         long: public-ip
         help: "override public ip when sent outside local network"
         takes_value: true
-    - verbose:
+    - verbosity:
         short: v
         long: verbosity
         help: sets the level of logging verbosity. default info

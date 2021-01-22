@@ -1,0 +1,9 @@
+groups:
+  specific_hosts:
+    key: "32323232323232323232323232323232"
+    allowed_hosts:
+    clipboard: clipboard
+  local_network: 
+    key: "323232323232323232323232323232"
+    protocol: frames
+  

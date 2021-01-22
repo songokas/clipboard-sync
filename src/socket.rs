@@ -12,7 +12,6 @@ use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
-// #[cfg(feature = "quic")]
 use crate::config::Certificates;
 use crate::errors::{CliError, DnsError};
 use crate::message::Group;
@@ -199,7 +198,7 @@ impl Multicast
             }
         };
         if let Err(_) = op {
-            warn!("Unable to join multicast network");
+            warn!("Unable to join multicast network {}", remote_ip);
             return false;
         } else {
             debug!("Joined multicast {}", remote_ip);

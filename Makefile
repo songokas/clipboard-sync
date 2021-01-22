@@ -59,10 +59,11 @@ pkg:
 	@cp arch/PKGBUILD target/pkgbuild
 	cd target/pkgbuild && makepkg -s --force --sign
 
-# pkg-in-vagrant:
-# 	vagrant up arch
-# 	vagrant ssh arch
-# 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
+pkg-in-vagrant:
+	vagrant up arch
+	vagrant rsync arch
+	vagrant ssh arch --command "cd /vagrant && make pkg"
+	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 
 windows:
 	cross build --target x86_64-pc-windows-gnu --release
@@ -118,5 +119,6 @@ release: distdir dist deb strip rpm sign
 	cp target/i686-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-i686-binary
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless dist/clipboard-sync-amd64-headless-binary
 	@cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
+	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 	
 .PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows distdir sign-rpm

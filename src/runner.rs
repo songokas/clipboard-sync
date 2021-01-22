@@ -9,18 +9,17 @@ use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
 
 use chacha20poly1305::Key;
-#[cfg(feature = "clipboard")]
-use clipboard::ClipboardProvider;
 use futures::try_join;
 use log::{debug, error, info};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 #[cfg(target_os = "android")]
-use crate::channel_clipboard::ChannelClipboardContext;
+use crate::clipboards::channel_clipboard::ChannelClipboardContext;
 use crate::config::FullConfig;
+use crate::clipboards::Clipboard;
 use crate::defaults::{
-    default_socket_send_address, Clipboard, BIND_ADDRESS, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL,
+    default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL,
     MAX_RECEIVE_BUFFER,
 };
 use crate::errors::CliError;

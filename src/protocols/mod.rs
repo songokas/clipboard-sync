@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use tokio::net::{ToSocketAddrs, UdpSocket};
+use tokio::net::{UdpSocket};
 use tokio::time::Duration;
 
 use crate::errors::ConnectionError;
@@ -20,7 +20,7 @@ use self::quiche::{receive_data_quic, send_data_quic};
 
 pub async fn obtain_client_socket(
     local_address: &SocketAddr,
-    remote_addr: impl ToSocketAddrs,
+    remote_addr: &SocketAddr,
     protocol: &Protocol,
 ) -> Result<SocketEndpoint, ConnectionError>
 {
@@ -29,8 +29,12 @@ pub async fn obtain_client_socket(
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => obtain_client_endpoint(local_address).await,
         _ => {
-            let sock = UdpSocket::bind(local_address).await?;
-            sock.connect(remote_addr).await?;
+            let sock = UdpSocket::bind(local_address).await
+                .map_err(|e| ConnectionError::FailedToConnect(format!("Unable to bind local address {} {}", local_address, e)))?;
+            sock.connect(remote_addr).await
+                .map_err(|e| ConnectionError::FailedToConnect(
+                    format!("Unable to connect local address {} to remote address {} {}", local_address, remote_addr, e)
+                ))?;
             return Ok(SocketEndpoint::Socket(sock));
         }
     }

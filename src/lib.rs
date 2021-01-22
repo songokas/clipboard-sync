@@ -12,10 +12,9 @@ use lazy_static::lazy_static;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
-mod channel_clipboard;
+mod clipboards;
 mod config;
 mod defaults;
-mod empty_clipboard;
 mod encryption;
 mod errors;
 mod filesystem;

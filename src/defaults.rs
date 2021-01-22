@@ -1,7 +1,3 @@
-#[cfg(all(not(feature = "clipboard"), not(target_os = "android")))]
-use crate::empty_clipboard::EmptyClipboardContext;
-#[cfg(all(feature = "clipboard", not(target_os = "android")))]
-use clipboard::ClipboardContext;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
@@ -21,8 +17,6 @@ pub const QUIC_STREAM: u8 = 0;
 pub const CONNECTION_TIMEOUT: u64 = 2000;
 pub const DATA_TIMEOUT: u64 = 5000;
 
-#[cfg(target_os = "android")]
-use crate::channel_clipboard::ChannelClipboardContext;
 
 pub fn default_socket_send_address() -> SocketAddr
 {
@@ -43,10 +37,3 @@ pub fn default_clipboard() -> String
 {
     return DEFAULT_CLIPBOARD.to_owned();
 }
-
-#[cfg(target_os = "android")]
-pub type Clipboard = ChannelClipboardContext;
-#[cfg(all(feature = "clipboard", not(target_os = "android")))]
-pub type Clipboard = ClipboardContext;
-#[cfg(all(not(feature = "clipboard"), not(target_os = "android")))]
-pub type Clipboard = EmptyClipboardContext;

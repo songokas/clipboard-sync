@@ -1,8 +1,9 @@
 use chacha20poly1305::{Key, Nonce};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use std::net::SocketAddr;
 
 use crate::socket::Protocol;
+use crate::defaults::KEY_SIZE;
 
 mod serde_key_str
 {
@@ -17,7 +18,10 @@ mod serde_key_str
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Key, D::Error>
     {
         let str_data: String = Deserialize::deserialize(deserializer)?;
-        Ok(Key::from_slice(&str_data.as_bytes()).clone())
+        if str_data.len() != KEY_SIZE {
+            return Err(de::Error::custom(format!("Key size must be {} provided {} value {}", KEY_SIZE, str_data.len(), str_data)));
+        }
+        return Ok(Key::from_slice(&str_data.as_bytes()).clone());
     }
 }
 

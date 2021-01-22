@@ -51,6 +51,8 @@ cargo install --root="~/bin/" --git=https://github.com/songokas/clipboard-sync
 
 run with default config:
 
+group name and key must be the same across your devices
+
 ```
 clipboard-sync --autogenerate
 ```
@@ -58,13 +60,13 @@ clipboard-sync --autogenerate
 run with key:
 
 ```
-KEY="32323232323232323232323232323232"
-clipboard-sync --key <(echo "$KEY")
+clipboard-sync --key 32323232323232323232323232323232
 ```
 
 run with multiple options:
 
 ```
+KEY="32323232323232323232323232323232"
 clipboard-sync --key <(echo "$KEY") --allowed-host "127.0.0.1:8000" --clipboard /tmp/b --verbosity debug --bind-address 127.0.0.1:9000 --send-using-address 127.0.0.1:9001
 ```
 
@@ -117,7 +119,7 @@ max_receive_buffer: 10485760
 send_clipboard_on_startup: false
 
 groups:
-  specific_hosts:
+  specific_hosts: # group name
     key: "32323232323232323232323232323232"
     allowed_hosts:
       - "192.168.0.153:8900"

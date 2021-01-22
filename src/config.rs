@@ -378,4 +378,21 @@ mod configtest
         fs::remove_file(result.clone()).unwrap();
         fs::remove_dir(result.parent().unwrap()).unwrap();
     }
+
+    #[test]
+    fn test_load_bad_config()
+    {
+        let socket_addr = "127.0.0.1:8080";
+        let full_config = load_groups(
+            "tests/config.failure.yaml",
+            socket_addr,
+            || Err(CliError::InvalidKey("test no key".to_owned())),
+            false,
+        );
+
+        match full_config {
+            Ok(_) => assert!(false, "Error expected"),
+            Err(_) => assert!(true)
+        };
+    }
 }
