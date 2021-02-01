@@ -3,8 +3,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:8901";
 pub const DEFAULT_GROUP: &str = "default";
-pub const DEFAULT_CLIPBOARD: &str = "clipboard";
+pub const CLIPBOARD_NAME: &str = "clipboard";
+pub const DEFAULT_CLIPBOARD: &str = CLIPBOARD_NAME;
 pub const DEFAULT_PROTOCOL: &str = "basic";
+pub const PACKAGE_NAME: &str = "clipboard-sync";
 pub const DEFAULT_ALLOWED_HOST: &str = "224.0.0.89:8900";
 pub const MAX_CHANNEL: usize = 100;
 pub const KEY_SIZE: usize = 32;
@@ -16,7 +18,7 @@ pub const MAX_DATAGRAM_SIZE: usize = 1350;
 pub const QUIC_STREAM: u8 = 0;
 pub const CONNECTION_TIMEOUT: u64 = 2000;
 pub const DATA_TIMEOUT: u64 = 5000;
-
+pub const RECEIVE_ONCE_WAIT: u64 = 45; //seconds
 
 pub fn default_socket_send_address() -> SocketAddr
 {

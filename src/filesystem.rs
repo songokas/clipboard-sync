@@ -88,10 +88,50 @@ pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
     return Ok(add_bytes);
 }
 
+pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError>
+{
+    let mut hash = DirStructure::new();
+    for file in files {
+        let normalized_path = file.strip_prefix("file://").unwrap_or(file);
+        let file_path = Path::new(&normalized_path);
+        let file_name = match file_path.file_name() {
+            Some(f) => {
+                if let Some(s) = f.to_str() {
+                    s.to_owned()
+                } else {
+                    continue;
+                }
+            }
+            None => {
+                warn!("Ignoring file {}", file_path.display());
+                continue;
+            }
+        };
+        let data = match read_file(&file_path, MAX_FILE_SIZE) {
+            Ok(d) => d,
+            Err(err) => {
+                warn!(
+                    "Unable to read file {} Message: {}",
+                    file_path.display(),
+                    err.to_string()
+                );
+                continue;
+            }
+        };
+        hash.push((file_name, data));
+    }
+    if hash.is_empty() {
+        return Ok(vec![]);
+    }
+    let add_bytes = bincode::serialize(&hash)
+        .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+    return Ok(add_bytes);
+}
+
 pub fn bytes_to_dir(directory: &str, data: Vec<u8>, from: &str) -> Result<Vec<PathBuf>, io::Error>
 {
     if !Path::new(directory).exists() {
-        fs::create_dir(directory)?;
+        fs::create_dir_all(directory)?;
     }
 
     let mut files_created = vec![];
@@ -204,7 +244,7 @@ mod filesystemtest
             );
         }
         assert_eq!(
-            false,
+            true,
             bytes_to_dir("/tmp/all/deep/a", vec![3], "unknown").is_ok()
         );
     }

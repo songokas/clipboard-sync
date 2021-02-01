@@ -136,22 +136,22 @@ impl fmt::Display for Protocol
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
     type = "TimedSizedCache<String, Result<SocketAddr, DnsError>>",
-    convert = r#"{ format!("{}", host) }"#
+    convert = r#"{ format!("{}", host.as_ref()) }"#
 )]
-pub async fn to_socket(host: &str) -> Result<SocketAddr, DnsError>
+pub async fn to_socket(host: impl AsRef<str>) -> Result<SocketAddr, DnsError>
 {
     let to_err = |e| {
         DnsError::Failed(format!(
             "Unable to retrieve ip for {}. Message: {}",
-            host, e
+            host.as_ref(), e
         ))
     };
-    for addr in lookup_host(host).await.map_err(to_err)? {
+    for addr in lookup_host(host.as_ref()).await.map_err(to_err)? {
         return Ok(addr);
     }
     return Err(DnsError::Failed(format!(
         "Unable to retrieve ip for {}",
-        host
+        host.as_ref()
     )));
 }
 
@@ -176,7 +176,7 @@ impl Multicast
         remote_ip: &IpAddr,
     ) -> bool
     {
-        if self.cache.contains_key(&interface_addr) {
+        if self.cache.contains_key(&remote_ip) {
             return true;
         }
         let interface_ipv4 = match interface_addr {
@@ -248,4 +248,17 @@ pub async fn receive_from_timeout(
             }
         };
     }
+}
+
+pub async fn to_visible_ip(local_ip: Option<IpAddr>, group: &Group) -> IpAddr
+{
+    if let Some(host) = &group.visible_ip {
+        if let Ok(sock_addr) = to_socket(format!("{}:0", host)).await {
+            return sock_addr.ip();
+        }
+    }
+    if let Some(ip) = local_ip {
+        return ip;
+    }
+    return group.send_using_address.ip();
 }

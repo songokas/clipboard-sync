@@ -1,5 +1,5 @@
 name: clipboard-sync
-version: "0.1.1"
+version: "1.0.0"
 author: Tomas Jakstas <tom.jakstas@gmail.com>
 about: secure clipboard sync across your devices
 args:
@@ -38,10 +38,10 @@ args:
         long: key
         help: "encryption key 32 chars long"
         takes_value: true
-    - public-ip:
+    - visible-ip:
         short: u
-        long: public-ip
-        help: "override public ip when sent outside local network"
+        long: visible-ip
+        help: "override ip visible to the receiver"
         takes_value: true
     - verbosity:
         short: v

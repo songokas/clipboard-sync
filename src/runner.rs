@@ -16,11 +16,11 @@ use std::sync::atomic::Ordering;
 
 #[cfg(target_os = "android")]
 use crate::clipboards::channel_clipboard::ChannelClipboardContext;
-use crate::config::FullConfig;
 use crate::clipboards::Clipboard;
+use crate::config::FullConfig;
 use crate::defaults::{
     default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL,
-    MAX_RECEIVE_BUFFER,
+    MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
 };
 use crate::errors::CliError;
 use crate::message::Group;
@@ -102,7 +102,9 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
     let key = Key::clone_from_slice(config.key.as_bytes());
 
     let send_using_address = default_socket_send_address();
-    let socket_address = BIND_ADDRESS.parse::<SocketAddr>().expect("Incorrect default bind address");
+    let socket_address = BIND_ADDRESS
+        .parse::<SocketAddr>()
+        .expect("Incorrect default bind address");
 
     let protocol = match config.protocol.as_ref() {
         "basic" => Protocol::Basic,
@@ -115,7 +117,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         name: config.group,
         allowed_hosts: config.hosts,
         key: key,
-        public_ip: None,
+        visible_ip: None,
         send_using_address,
         clipboard: String::from(DEFAULT_CLIPBOARD),
         protocol: protocol.clone(),
@@ -126,6 +128,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         socket_address,
         groups,
         MAX_RECEIVE_BUFFER,
+        RECEIVE_ONCE_WAIT,
         false,
     );
 

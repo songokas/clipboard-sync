@@ -1,6 +1,7 @@
 bind_addresses:
   # protocol: local socket address
   basic: "0.0.0.0:8900"
+  frames: "0.0.0.0:8901"
 
 # optional unless using quic
 certificates:
@@ -8,16 +9,19 @@ certificates:
   public_key: tests/cert.crt
   verify_dir: tests/cert-verify
 
-# send_using_address and public_ip are per group as well
+# send_using_address and visible_ip are per group as well
 send_using_address: "0.0.0.0:8901"
 
-public_ip: "my-public-ip"
+visible_ip: "my-public-ip"
 
 # max bytes to receive per connection
 max_receive_buffer: 10485760
 
 # whether to send initial clipboard when application starts
 send_clipboard_on_startup: false
+
+# if receiving once how many seconds to wait
+receive_once_wait: 20
 
 groups:
   specific_hosts:
@@ -31,7 +35,7 @@ groups:
     # allowed_hosts default to local network multicast
   external:
     key: "32323232323232323232323232323232"
-    public_ip: "2.2.2.2"
+    visible_ip: "2.2.2.2"
     send_using_address: "0.0.0.0:9000"
     allowed_hosts:
       - "external.net:80"
@@ -47,3 +51,4 @@ groups:
     allowed_hosts:
       - "192.168.0.111:0" # port 0 - receive only
       - "192.168.0.112:0"
+    protocol: frames

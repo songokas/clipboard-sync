@@ -13,7 +13,7 @@ use tokio::try_join;
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER};
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
 use crate::errors::ConnectionError;
-use crate::message::Group;
+use crate::message::{Group, MessageType};
 use crate::socket::receive_from_timeout;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -75,7 +75,12 @@ pub async fn receive_data_frames(
 
         received_frames.insert(frame.index, frame.data);
 
-        let bytes = encrypt_to_bytes(&frame.index.to_be_bytes(), &addr.ip().to_string(), &group)?;
+        let bytes = encrypt_to_bytes(
+            &frame.index.to_be_bytes(),
+            &addr.ip().to_string(),
+            &group,
+            &MessageType::Frame,
+        )?;
         socket.send_to(&bytes, addr).await?;
 
         if frame.total as usize == received_frames.len() {
@@ -260,7 +265,7 @@ async fn send_index(
     };
     let bytes = bincode::serialize(&frame)
         .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
-    let bytes = encrypt_to_bytes(&bytes, identity, &group)?;
+    let bytes = encrypt_to_bytes(&bytes, identity, &group, &MessageType::Frame)?;
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 
@@ -303,7 +308,7 @@ mod framestest
         let (data_received, addr) = res.1.unwrap();
 
         assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, 76);
+        assert_eq!(data_len_sent, 80);
         assert_eq!(expected_data, data_received);
     }
 }

@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use tokio::net::{UdpSocket};
+use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
 use crate::errors::ConnectionError;
@@ -29,12 +29,18 @@ pub async fn obtain_client_socket(
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => obtain_client_endpoint(local_address).await,
         _ => {
-            let sock = UdpSocket::bind(local_address).await
-                .map_err(|e| ConnectionError::FailedToConnect(format!("Unable to bind local address {} {}", local_address, e)))?;
-            sock.connect(remote_addr).await
-                .map_err(|e| ConnectionError::FailedToConnect(
-                    format!("Unable to connect local address {} to remote address {} {}", local_address, remote_addr, e)
-                ))?;
+            let sock = UdpSocket::bind(local_address).await.map_err(|e| {
+                ConnectionError::FailedToConnect(format!(
+                    "Unable to bind local address {} {}",
+                    local_address, e
+                ))
+            })?;
+            sock.connect(remote_addr).await.map_err(|e| {
+                ConnectionError::FailedToConnect(format!(
+                    "Unable to connect local address {} to remote address {} {}",
+                    local_address, remote_addr, e
+                ))
+            })?;
             return Ok(SocketEndpoint::Socket(sock));
         }
     }
@@ -69,25 +75,39 @@ pub async fn send_data(
         #[cfg(feature = "frames")]
         Protocol::Frames => {
             frames::send_data_frames(
-                endpoint.socket_consume().ok_or(ConnectionError::InvalidProtocol("Frames protocol socket expected".to_owned()))?,
+                endpoint
+                    .socket_consume()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Frames protocol socket expected".to_owned(),
+                    ))?,
                 data,
                 addr,
-                group
-            ).await
+                group,
+            )
+            .await
         }
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => {
             send_data_quic(
-                endpoint.client_consume().ok_or(ConnectionError::InvalidProtocol("Quic protocol client expected".to_owned()))?,
+                endpoint
+                    .client_consume()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Quic protocol client expected".to_owned(),
+                    ))?,
                 data,
                 addr,
-                group
-            ).await
+                group,
+            )
+            .await
         }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
             send_data_quic(
-                endpoint.socket_consume().ok_or(ConnectionError::InvalidProtocol("Quic protocol socket expected".to_owned()))?,
+                endpoint
+                    .socket_consume()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Quic protocol socket expected".to_owned(),
+                    ))?,
                 data,
                 addr,
                 group,
@@ -95,10 +115,17 @@ pub async fn send_data(
             )
             .await
         }
-        Protocol::Basic => basic::send_data_basic(
-            endpoint.socket_consume().ok_or(ConnectionError::InvalidProtocol("Basic protocol socket expected".to_owned()))?,
-            data
-        ).await,
+        Protocol::Basic => {
+            basic::send_data_basic(
+                endpoint
+                    .socket_consume()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Basic protocol socket expected".to_owned(),
+                    ))?,
+                data,
+            )
+            .await
+        }
     };
 }
 
@@ -114,22 +141,32 @@ pub async fn receive_data(
         #[cfg(feature = "frames")]
         Protocol::Frames => {
             frames::receive_data_frames(
-                endpoint.socket().ok_or(ConnectionError::InvalidProtocol("Frames protocol socket expected".to_owned()))?,
+                endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
+                    "Frames protocol socket expected".to_owned(),
+                ))?,
                 max_len,
                 groups,
-                timeout
-            ).await
+                timeout,
+            )
+            .await
         }
         #[cfg(feature = "quinn")]
-        Protocol::Quic(_) => receive_data_quic(
-            endpoint.server().ok_or(ConnectionError::InvalidProtocol("Quic protocol server expected".to_owned()))?,
-            max_len,
-            timeout
-        ).await,
+        Protocol::Quic(_) => {
+            receive_data_quic(
+                endpoint.server().ok_or(ConnectionError::InvalidProtocol(
+                    "Quic protocol server expected".to_owned(),
+                ))?,
+                max_len,
+                timeout,
+            )
+            .await
+        }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
             receive_data_quic(
-                endpoint.socket().ok_or(ConnectionError::InvalidProtocol("Quic protocol socket expected".to_owned()))?,
+                endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
+                    "Quic protocol socket expected".to_owned(),
+                ))?,
                 max_len,
                 groups,
                 &c.private_key,
@@ -140,10 +177,13 @@ pub async fn receive_data(
         }
         Protocol::Basic => {
             basic::receive_data_basic(
-                endpoint.socket().ok_or(ConnectionError::InvalidProtocol("Basic protocol socket expected".to_owned()))?,
+                endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
+                    "Basic protocol socket expected".to_owned(),
+                ))?,
                 max_len,
-                timeout
-            ).await
+                timeout,
+            )
+            .await
         }
     };
 }

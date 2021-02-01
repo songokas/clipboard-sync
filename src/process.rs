@@ -4,14 +4,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
-
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
-use crate::clipboards::Clipboard;
+use crate::clipboards::{Clipboard, ClipboardType};
 use crate::config::FullConfig;
 use crate::defaults::*;
 use crate::encryption::*;
@@ -82,19 +81,21 @@ pub async fn wait_handle_receive(
         let result = handle_receive(&buf[..len], &addr.ip().to_string(), &groups, &mut clipboard);
 
         match result {
-            Ok((_, hash, group_name)) => {
+            Ok((hash, group_name)) => {
                 if let Err(msg) = channel.try_send((group_name, hash)) {
                     warn!("Unable to update current hash {}", msg);
                 }
             }
             Err(err) => error!("{:?}", err),
         };
-        if let Err(e) = status_channel.try_send((0, count)) {
-            debug!("Unable to send status count {}", e);
+        if let Err(_) = status_channel.try_send((0, count)) {
+            // debug!("Unable to send status count {}", e);
         }
 
         if receive_once {
             running.store(false, Ordering::Relaxed);
+            info!("Waiting for {} seconds", config.receive_once_wait);
+            sleep(Duration::from_secs(config.receive_once_wait)).await;
             break;
         }
     }
@@ -132,12 +133,14 @@ pub async fn wait_on_clipboard(
         }
 
         for group in &groups {
-            let bytes = match clipboard_group_to_bytes(&mut clipboard, group) {
-                Some(b) if b.len() > 0 => b,
+            let (hash, message_type, bytes) = match clipboard_group_to_bytes(
+                &mut clipboard,
+                group,
+                hash_cache.get(&group.name),
+            ) {
+                Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
                 _ => continue,
             };
-
-            let hash = hash(&bytes);
 
             let entry_value = match hash_cache.get(&group.name) {
                 Some(val) => val.to_owned(),
@@ -169,14 +172,13 @@ pub async fn wait_on_clipboard(
 
             count += 1;
 
-            let mut multicast = Multicast::new();
-            match handle_clipboard_change(&data, &group, &mut multicast).await {
+            match handle_clipboard_change(&data, &message_type, &group).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             };
 
-            if let Err(e) = status_channel.try_send((count, 0)) {
-                debug!("Unable to send status count {}", e);
+            if let Err(_) = status_channel.try_send((count, 0)) {
+                // debug!("Unable to send status count {}", e);
             }
         }
         if send_once {
@@ -199,7 +201,7 @@ pub async fn wait_on_clipboard(
 
 pub async fn send_clipboard(contents: String, group: &Group) -> Result<usize, String>
 {
-    let mut multicast = Multicast::new();
+    let message_type = MessageType::Text;
     let bytes = contents.as_bytes();
     let data = match compress(&bytes) {
         Ok(d) => d,
@@ -211,7 +213,7 @@ pub async fn send_clipboard(contents: String, group: &Group) -> Result<usize, St
         }
     };
 
-    let sent = match handle_clipboard_change(&data, &group, &mut multicast).await {
+    let sent = match handle_clipboard_change(&data, &message_type, &group).await {
         Ok(sent) => {
             debug!("Sent bytes {}", sent);
             sent
@@ -224,35 +226,50 @@ pub async fn send_clipboard(contents: String, group: &Group) -> Result<usize, St
     return Ok(sent);
 }
 
-fn clipboard_group_to_bytes(clipboard: &mut Clipboard, group: &Group) -> Option<Vec<u8>>
+fn clipboard_group_to_bytes(
+    clipboard: &mut Clipboard,
+    group: &Group,
+    existing_hash: Option<&String>,
+) -> Option<(String, MessageType, Vec<u8>)>
 {
-    let bytes: Vec<u8> = if group.clipboard == "clipboard" {
-        let contents = match clipboard.get_contents() {
-            Ok(contents) => contents,
+    if group.clipboard == CLIPBOARD_NAME {
+        let files = clipboard.get_target_contents(ClipboardType::Files);
+        match files {
+            Ok(data) if data.len() > 0 => {
+                let hash = hash(&data);
+                if let Some(h) = existing_hash {
+                    if h == &hash {
+                        return None;
+                    }
+                }
+                let clipboard_contents = String::from_utf8(data).ok()?;
+                // debug!("Send file clipboard {}", clipboard_contents);
+                let files: Vec<&str> = clipboard_contents.lines().collect();
+                return Some((hash, MessageType::Files, files_to_bytes(files).ok()?));
+            }
             _ => {
-                warn!("Failed to retrieve contents");
-                return None;
+                match clipboard.get_target_contents(ClipboardType::Text) {
+                    Ok(contents) => return Some((hash(&contents), MessageType::Text, contents)),
+                    _ => {
+                        warn!("Failed to retrieve contents");
+                        return None;
+                    }
+                };
             }
-        };
-        // @TODO invesgitage if could access clipboard format
-        // debug!("Clipboard {}", contents);
-        contents.as_bytes().to_vec()
+        }
     } else if group.clipboard.ends_with("/") {
+        //@TODO do not read directory every time
         match dir_to_bytes(&group.clipboard) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                return None;
-            }
-        }
+            Ok(bytes) => return Some((hash(&bytes), MessageType::Directory, bytes)),
+            Err(_) => return None,
+        };
     } else {
+        //@TODO do not read file every time
         match read_file(&group.clipboard, MAX_FILE_SIZE) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                return None;
-            }
-        }
-    };
-    return Some(bytes);
+            Ok(bytes) => return Some((hash(&bytes), MessageType::File, bytes)),
+            Err(_) => return None,
+        };
+    }
 }
 
 fn handle_receive(
@@ -260,47 +277,83 @@ fn handle_receive(
     identity: &str,
     groups: &[Group],
     clipboard: &mut Clipboard,
-) -> Result<(String, String, String), ClipboardError>
+) -> Result<(String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups)?;
     let bytes = decrypt(&message, identity, &group)?;
     let data = uncompress(bytes)?;
-    return write_to(clipboard, &group, data, identity);
+    return write_to(clipboard, &group, data, &message.message_type, identity);
 }
 
 fn write_to(
     clipboard: &mut Clipboard,
     group: &Group,
     data: Vec<u8>,
+    message_type: &MessageType,
     identity: &str,
-) -> Result<(String, String, String), ClipboardError>
+) -> Result<(String, String), ClipboardError>
 {
-    let hash = hash(&data);
-    if group.clipboard == "clipboard" {
-        let contents: String = String::from_utf8(data)
-            .map_err(|e| ClipboardError::Invalid(format!("Not a valid utf8 string {}", e)))?;
-        clipboard
-            .set_contents(contents.to_owned())
-            .map_err(|err| ClipboardError::Access((*err).to_string()))?;
-        return Ok((contents, hash, group.name.clone()));
+
+    if group.clipboard == CLIPBOARD_NAME {
+        match message_type {
+            MessageType::Files => {
+                let config_path = dirs::config_dir()
+                    .map(|p| p.join(PACKAGE_NAME))
+                    .map(|p| p.join("data"))
+                    .map(|p| p.join(identity))
+                    .map(|path| path.to_string_lossy().to_string())
+                    .ok_or_else(|| {
+                        ClipboardError::Invalid("Unable to retrieve configuration path".to_owned())
+                    })?;
+                let files_created = bytes_to_dir(&config_path, data, identity)?;
+                let file_content = files_created
+                    .iter()
+                    .map(|p| format!("file://{}", p.to_str().unwrap()))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                // let text_content = files_created
+                //     .iter()
+                //     .map(|p| format!("{}", p.to_str().unwrap()))
+                //     .collect::<Vec<String>>()
+                //     .join("\n");
+                let cut_content = [String::from("cut"), file_content.clone()].join("\n");
+                let mut clipboard_list = HashMap::new();
+                //@TODO multiple targets does not work
+                // clipboard_list.insert(ClipboardType::Text, text_content.as_bytes());
+                // clipboard_list.insert(ClipboardType::Files, file_content.as_bytes());
+                clipboard_list.insert(ClipboardType::CutFiles, cut_content.as_bytes());
+                clipboard
+                    .set_multiple_targets(clipboard_list)
+                    .map_err(|err| ClipboardError::Access((*err).to_string()))?;
+                let hash = hash(&file_content.as_bytes());
+                return Ok((hash, group.name.clone()));
+            }
+            _ => {
+                let hash = hash(&data);
+                clipboard
+                    .set_target_contents(ClipboardType::Text, &data)
+                    .map_err(|err| ClipboardError::Access((*err).to_string()))?;
+                return Ok((hash, group.name.clone()));
+            }
+        };
     } else if group.clipboard.ends_with("/") {
+        let hash = hash(&data);
         bytes_to_dir(&group.clipboard, data, identity)?;
-        return Ok((group.clipboard.clone(), hash, group.name.clone()));
+        return Ok((hash, group.name.clone()));
     }
+    let hash = hash(&data);
     fs::write(&group.clipboard, data)?;
-    return Ok((group.clipboard.clone(), hash, group.name.clone()));
+    return Ok((hash, group.name.clone()));
 }
 
 async fn handle_clipboard_change(
     buffer: &[u8],
+    message_type: &MessageType,
     group: &Group,
-    multicast: &mut Multicast,
 ) -> Result<usize, ClipboardError>
 {
-
     let mut sent = 0;
     for remote_host in &group.allowed_hosts {
-
         let addr = match to_socket(remote_host).await {
             Ok(a) => a,
             Err(e) => {
@@ -308,7 +361,6 @@ async fn handle_clipboard_change(
                 continue;
             }
         };
-
 
         if addr.port() == 0 {
             debug!("Not sending to host {}", remote_host);
@@ -319,13 +371,14 @@ async fn handle_clipboard_change(
             obtain_client_socket(&group.send_using_address, &addr, &group.protocol).await?;
 
         let identity = retrieve_identity(&remote_ip, endpoint.ip(), group).await?;
-        let bytes = encrypt_to_bytes(&buffer, &identity.to_string(), group)?;
+        let bytes = encrypt_to_bytes(&buffer, &identity.to_string(), group, message_type)?;
 
         if remote_ip.is_multicast() {
             if let Some(sock) = endpoint.socket() {
-                multicast.join_group(sock, &identity, &remote_ip);
+                sock.set_multicast_loop_v4(false).unwrap_or(());
             }
         }
+
         sent += send_data(endpoint, bytes, &addr, group).await?;
     }
     return Ok(sent);
@@ -353,15 +406,14 @@ async fn retrieve_identity(
                 )));
             }
         };
-        let local_addr = local_ip.unwrap_or(group.send_using_address.ip());
-        local_addr
+        to_visible_ip(local_ip, group).await
     } else if remote_ip.is_loopback() || is_private {
-        local_ip.unwrap_or(group.send_using_address.ip())
+        to_visible_ip(local_ip, group).await
     } else {
-        let host = group.public_ip.as_ref().ok_or(ConnectionError::NoPublic(
+        let host = group.visible_ip.as_ref().ok_or(ConnectionError::NoPublic(
             "Group missing public ip however global routing requested".to_owned(),
         ))?;
-        let sock_addr = to_socket(host).await?;
+        let sock_addr = to_socket(format!("{}:0", host)).await?;
         sock_addr.ip()
     };
     return Ok(identity);
@@ -373,7 +425,6 @@ mod processtest
     use super::*;
     use crate::errors::{ClipboardError, ConnectionError};
     use crate::message::Group;
-    use crate::socket::Multicast;
     use crate::{assert_error_type, wait};
     use tokio::sync::mpsc::channel;
     use tokio::task::JoinHandle;
@@ -382,32 +433,31 @@ mod processtest
     #[test]
     fn test_handle_clipboard_change()
     {
-        let mut multicast = Multicast::new();
         let result = wait!(handle_clipboard_change(
             b"test",
+            &MessageType::Text,
             &Group::from_name("me"),
-            &mut multicast,
         ));
         assert_eq!(result.unwrap(), 0);
 
         let result = wait!(handle_clipboard_change(
             b"test",
+            &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
-            &mut multicast,
         ));
-        assert_eq!(result.unwrap(), 58);
+        assert_eq!(result.unwrap(), 62);
 
         let result = wait!(handle_clipboard_change(
             b"test",
+            &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:0"),
-            &mut multicast,
         ));
         assert_eq!(result.unwrap(), 0);
 
         let result = wait!(handle_clipboard_change(
             b"test",
+            &MessageType::Text,
             &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
-            &mut multicast,
         ));
         assert_error_type!(
             result,
@@ -434,6 +484,7 @@ mod processtest
             local_address,
             vec![group.clone()],
             100,
+            20,
             true,
         );
         let protocol = Protocol::Basic;
@@ -459,7 +510,14 @@ mod processtest
         ));
         let t: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let mut clipboard = Clipboard::new().unwrap();
-            write_to(&mut clipboard, &group, "test1".as_bytes().to_vec(), "empty").unwrap();
+            write_to(
+                &mut clipboard,
+                &group,
+                "test1".as_bytes().to_vec(),
+                &MessageType::Text,
+                "empty",
+            )
+            .unwrap();
             sleep(Duration::from_millis(1100)).await;
             srunning.store(false, Ordering::Relaxed);
             sleep(Duration::from_millis(100)).await;
@@ -491,6 +549,7 @@ mod processtest
             local_address,
             vec![group.clone()],
             100,
+            20,
             false,
         );
         let protocol = Protocol::Basic;
@@ -508,7 +567,7 @@ mod processtest
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let sent = send_clipboard("test1".to_string(), &group).await;
-            assert_eq!(70, sent.unwrap());
+            assert_eq!(74, sent.unwrap());
             srunning.store(false, Ordering::Relaxed);
             sleep(Duration::from_millis(100)).await;
             Ok(())
@@ -518,8 +577,6 @@ mod processtest
             Err(e) => panic!(e),
         };
     }
-    // #[test]
-    // fn test_send_clipboard () { }
 
     #[test]
     fn test_clipboard_group_to_bytes()
@@ -528,33 +585,53 @@ mod processtest
         let mut group = Group::from_name("test1");
 
         group.clipboard = "tests/test-dir/a".to_owned();
-        let res = clipboard_group_to_bytes(&mut clipboard, &group);
-        assert_eq!(res, Some(vec![97]));
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        assert_eq!(
+            res,
+            Some((
+                "4644417185603328019".to_owned(),
+                MessageType::File,
+                vec![97]
+            ))
+        );
 
-        group.clipboard = "clipboard".to_owned();
+        group.clipboard = CLIPBOARD_NAME.to_owned();
 
-        clipboard.set_contents("test1".to_owned()).unwrap();
+        clipboard
+            .set_target_contents(ClipboardType::Text, b"test1")
+            .unwrap();
 
-        let res = clipboard_group_to_bytes(&mut clipboard, &group);
-        assert_eq!(res, Some(vec![116, 101, 115, 116, 49]));
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        assert_eq!(
+            res,
+            Some((
+                "17623087596200270265".to_owned(),
+                MessageType::Text,
+                vec![116, 101, 115, 116, 49]
+            ))
+        );
 
         group.clipboard = "tests/test-dir/".to_owned();
 
-        let res = clipboard_group_to_bytes(&mut clipboard, &group);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
         assert_eq!(
             res,
-            Some(vec![
-                2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 97, 1, 0, 0, 0, 0, 0, 0, 0, 97, 1,
-                0, 0, 0, 0, 0, 0, 0, 98, 1, 0, 0, 0, 0, 0, 0, 0, 98
-            ])
+            Some((
+                "12908774274447230140".to_owned(),
+                MessageType::Directory,
+                vec![
+                    2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 97, 1, 0, 0, 0, 0, 0, 0, 0, 97,
+                    1, 0, 0, 0, 0, 0, 0, 0, 98, 1, 0, 0, 0, 0, 0, 0, 0, 98
+                ]
+            ))
         );
 
         group.clipboard = "tests/test-dir".to_owned();
-        let res = clipboard_group_to_bytes(&mut clipboard, &group);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
         assert_eq!(res, None);
 
         group.clipboard = "tests/non-existing".to_owned();
-        let res = clipboard_group_to_bytes(&mut clipboard, &group);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
         assert_eq!(res, None);
     }
 
@@ -607,7 +684,7 @@ mod processtest
                 "8.8.8.8".parse().unwrap(),
                 "1.1.1.1".parse().unwrap(),
                 Some("127.0.0.1".parse().unwrap()),
-                Group::from_public("test4", "8.8.8.8:8898"),
+                Group::from_public("test4", "8.8.8.8"),
             ),
         ];
     }
@@ -627,7 +704,7 @@ mod processtest
         let r1 = (
             "1.1.1.1".parse().unwrap(),
             Some("127.0.0.1".parse().unwrap()),
-            Group::from_public("test1", "8.8.8.8"),
+            Group::from_public("test1", "8.8.8.8.3"),
         );
         let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
         assert_error_type!(res, ConnectionError::DnsError(_));

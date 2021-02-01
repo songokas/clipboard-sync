@@ -1,9 +1,9 @@
 use chacha20poly1305::{Key, Nonce};
-use serde::{Deserialize, Serialize, de};
+use serde::{de, Deserialize, Serialize};
 use std::net::SocketAddr;
 
-use crate::socket::Protocol;
 use crate::defaults::KEY_SIZE;
+use crate::socket::Protocol;
 
 mod serde_key_str
 {
@@ -19,7 +19,12 @@ mod serde_key_str
     {
         let str_data: String = Deserialize::deserialize(deserializer)?;
         if str_data.len() != KEY_SIZE {
-            return Err(de::Error::custom(format!("Key size must be {} provided {} value {}", KEY_SIZE, str_data.len(), str_data)));
+            return Err(de::Error::custom(format!(
+                "Key size must be {} provided {} value {}",
+                KEY_SIZE,
+                str_data.len(),
+                str_data
+            )));
         }
         return Ok(Key::from_slice(&str_data.as_bytes()).clone());
     }
@@ -42,6 +47,17 @@ mod serde_nonce
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum MessageType
+{
+    Text,
+    File,
+    Files,
+    Directory,
+    Frame,
+    Handshake,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message
 {
@@ -49,28 +65,15 @@ pub struct Message
     pub nonce: Nonce,
     pub group: String,
     pub text: Vec<u8>,
-}
-
-impl Message
-{
-    pub fn from_additional(ad: &AdditionalData, text: Vec<u8>) -> Self
-    {
-        return Message {
-            nonce: ad.nonce.clone(),
-            group: ad.group.clone(),
-            text,
-        };
-    }
+    pub message_type: MessageType,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AdditionalData
 {
-    // not needed remove
-    #[serde(with = "serde_nonce")]
-    pub nonce: Nonce,
     pub group: String,
     pub identity: String,
+    pub message_type: MessageType,
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +82,7 @@ pub struct Group
     pub name: String,
     pub allowed_hosts: Vec<String>,
     pub key: Key,
-    pub public_ip: Option<String>,
+    pub visible_ip: Option<String>,
     pub send_using_address: SocketAddr,
     pub clipboard: String,
     pub protocol: Protocol,
@@ -91,7 +94,7 @@ pub struct ConfigGroup
     pub allowed_hosts: Option<Vec<String>>,
     #[serde(with = "serde_key_str")]
     pub key: Key,
-    pub public_ip: Option<String>,
+    pub visible_ip: Option<String>,
     pub send_using_address: Option<SocketAddr>,
     pub clipboard: Option<String>,
     pub protocol: Option<String>,
@@ -106,6 +109,7 @@ impl Message
             nonce: Nonce::from_slice(b"123456789101").clone(),
             group: name.to_owned(),
             text: [1, 2, 4].to_vec(),
+            message_type: MessageType::Text,
         };
     }
 }
@@ -119,7 +123,7 @@ impl Group
             name: name.to_owned(),
             allowed_hosts: Vec::new(),
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
-            public_ip: None,
+            visible_ip: None,
             send_using_address: "127.0.0.1:2993".parse::<SocketAddr>().unwrap(),
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
@@ -132,17 +136,17 @@ impl Group
             name: name.to_owned(),
             allowed_hosts: vec![allowed_host.to_owned()],
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
-            public_ip: None,
+            visible_ip: None,
             send_using_address: send_address.parse().unwrap(),
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
         };
     }
 
-    pub fn from_public(name: &str, public_ip: &str) -> Self
+    pub fn from_public(name: &str, visible_ip: &str) -> Self
     {
         let mut group = Group::from_name(name);
-        group.public_ip = Some(public_ip.to_owned());
+        group.visible_ip = Some(visible_ip.to_owned());
         return group;
     }
 }

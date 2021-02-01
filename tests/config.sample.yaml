@@ -9,7 +9,7 @@ certificates:
   verify_dir: tests/cert-verify
 
 send_using_address: "127.0.0.1:8901"
-public_ip: "ifconfig.co"
+visible_ip: "ifconfig.co"
 
 groups:
   specific_hosts:
@@ -23,7 +23,7 @@ groups:
     protocol: frames
   external:
     key: "32323232323232323232323232323232"
-    public_ip: "2.2.2.2"
+    visible_ip: "2.2.2.2"
     send_using_address: "127.0.0.1:9000"
     allowed_hosts:
       - "external.net:80"

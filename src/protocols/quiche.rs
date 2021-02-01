@@ -11,7 +11,7 @@ use crate::defaults::MAX_UDP_BUFFER;
 use crate::defaults::{CONNECTION_TIMEOUT, DATA_TIMEOUT, MAX_DATAGRAM_SIZE, QUIC_STREAM};
 use crate::encryption::{decrypt, encrypt_to_bytes, hex_dump, random, validate};
 use crate::errors::ConnectionError;
-use crate::message::Group;
+use crate::message::{Group, MessageType};
 use crate::socket::receive_from_timeout;
 
 pub async fn send_data_quic(
@@ -200,7 +200,7 @@ async fn send_handshake(
 
     let cwrite = conn.send(&mut out)?;
 
-    let enc_write = encrypt_to_bytes(&out[..cwrite], &identity, group)?;
+    let enc_write = encrypt_to_bytes(&out[..cwrite], &identity, group, &MessageType::Handshake)?;
 
     let connection_sent = match timeout(
         Duration::from_millis(CONNECTION_TIMEOUT),

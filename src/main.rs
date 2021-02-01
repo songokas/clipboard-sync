@@ -10,7 +10,7 @@ use clap::{load_yaml, App};
 use env_logger::Env;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
-use std::io::Write;
+// use std::io::Write;
 
 mod clipboards;
 mod config;
@@ -24,6 +24,7 @@ mod protocols;
 mod socket;
 mod test;
 
+use crate::clipboards::Clipboard;
 use crate::config::load_default_certificates;
 use crate::config::{generate_config, load_groups, FullConfig};
 use crate::defaults::*;
@@ -32,7 +33,6 @@ use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{wait_handle_receive, wait_on_clipboard};
 use crate::socket::Protocol;
-use crate::clipboards::Clipboard;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -69,7 +69,7 @@ async fn main() -> Result<(), CliError>
     let send_address = matches
         .value_of("send-using-address")
         .unwrap_or(SEND_ADDRESS);
-    let public_ip = matches.value_of("public-ip").map(|ip| ip.to_owned());
+    let visible_ip = matches.value_of("visible-ip").map(|ip| ip.to_owned());
 
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
     let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
@@ -115,19 +115,24 @@ async fn main() -> Result<(), CliError>
             )));
         }
 
-        let send_using_address = send_address.parse::<SocketAddr>()
-            .map_err(|_| CliError::ArgumentError(format!("Invalid send-using-address provided {}", send_address)))?;
+        let send_using_address = send_address.parse::<SocketAddr>().map_err(|_| {
+            CliError::ArgumentError(format!(
+                "Invalid send-using-address provided {}",
+                send_address
+            ))
+        })?;
 
         let key = Key::from_slice(key_data.as_bytes());
 
-        let socket_address = local_address.parse::<SocketAddr>()
-            .map_err(|_| CliError::ArgumentError(format!("Invalid bind address provided {}", local_address)))?;
+        let socket_address = local_address.parse::<SocketAddr>().map_err(|_| {
+            CliError::ArgumentError(format!("Invalid bind address provided {}", local_address))
+        })?;
 
         let groups = vec![Group {
             name: group.to_owned(),
             allowed_hosts: vec![allowed_host.to_owned()],
             key: key.clone(),
-            public_ip: public_ip.clone(),
+            visible_ip: visible_ip.clone(),
             send_using_address,
             clipboard: clipboard_type.to_owned(),
             protocol: cli_protocol.clone(),
@@ -138,6 +143,7 @@ async fn main() -> Result<(), CliError>
             socket_address,
             groups,
             MAX_RECEIVE_BUFFER,
+            RECEIVE_ONCE_WAIT,
             !matches.is_present("ignore-initial-clipboard"),
         );
         Ok(full_config)
@@ -146,7 +152,12 @@ async fn main() -> Result<(), CliError>
     let create_groups_from_config = |config_path: &str| -> Result<FullConfig, CliError> {
         return load_groups(
             config_path,
-            allowed_host,
+            if allowed_host.is_empty() {
+                DEFAULT_ALLOWED_HOST
+            } else {
+                allowed_host
+            },
+            matches.value_of("protocol"),
             load_certs,
             !matches.is_present("ignore-initial-clipboard"),
         );
@@ -173,7 +184,9 @@ async fn main() -> Result<(), CliError>
 
     if launch_receiver {
         for (protocol, bind_address) in &full_config.bind_addresses {
-            let clipboard = Clipboard::new().expect("Unable to initialize clipboard. Possibly missing xcb libraries or no x server");
+            let clipboard = Clipboard::new().expect(
+                "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
+            );
             let receive = wait_handle_receive(
                 clipboard,
                 Arc::clone(&atx),
@@ -189,7 +202,9 @@ async fn main() -> Result<(), CliError>
     }
 
     if launch_sender {
-        let clipboard = Clipboard::new().expect("Unable to initialize clipboard. Possibly missing xcb libraries or no x server");
+        let clipboard = Clipboard::new().expect(
+            "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
+        );
         let send = wait_on_clipboard(
             clipboard,
             rx,

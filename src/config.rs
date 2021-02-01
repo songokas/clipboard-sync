@@ -7,9 +7,9 @@ use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use crate::defaults::KEY_SIZE;
 use crate::defaults::{
-    default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, MAX_RECEIVE_BUFFER,
+    default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER,
+    PACKAGE_NAME, RECEIVE_ONCE_WAIT,
 };
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
@@ -30,9 +30,10 @@ pub struct UserConfig
 {
     pub bind_addresses: Option<IndexMap<String, SocketAddr>>,
     pub send_using_address: Option<SocketAddr>,
-    pub public_ip: Option<String>,
+    pub visible_ip: Option<String>,
     pub certificates: Option<Certificates>,
     pub max_receive_buffer: Option<usize>,
+    pub receive_once_wait: Option<u64>,
     pub groups: IndexMap<String, ConfigGroup>,
 }
 
@@ -42,6 +43,7 @@ pub struct FullConfig
     pub bind_addresses: IndexMap<Protocol, SocketAddr>,
     pub groups: Vec<Group>,
     pub max_receive_buffer: usize,
+    pub receive_once_wait: u64,
     pub send_clipboard_on_startup: bool,
 }
 
@@ -52,6 +54,7 @@ impl FullConfig
         bind_address: SocketAddr,
         groups: Vec<Group>,
         max_receive_buffer: usize,
+        receive_once_wait: u64,
         send_clipboard_on_startup: bool,
     ) -> Self
     {
@@ -61,6 +64,7 @@ impl FullConfig
             bind_addresses,
             groups,
             max_receive_buffer,
+            receive_once_wait,
             send_clipboard_on_startup,
         };
     }
@@ -69,6 +73,7 @@ impl FullConfig
         bind_addresses: IndexMap<Protocol, SocketAddr>,
         groups: Vec<Group>,
         max_receive_buffer: usize,
+        receive_once_wait: u64,
         send_clipboard_on_startup: bool,
     ) -> Self
     {
@@ -76,6 +81,7 @@ impl FullConfig
             bind_addresses,
             groups,
             max_receive_buffer,
+            receive_once_wait,
             send_clipboard_on_startup,
         };
     }
@@ -100,7 +106,7 @@ pub fn load_default_certificates(
 {
     let config_path = || {
         dirs::config_dir()
-            .map(|p| p.join("clipboard-sync"))
+            .map(|p| p.join(PACKAGE_NAME))
             .ok_or_else(|| {
                 CliError::InvalidKey(
                     "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config"
@@ -147,6 +153,7 @@ pub fn load_default_certificates(
 pub fn load_groups(
     file_path: &str,
     default_host_address: &str,
+    default_protocol: Option<&str>,
     load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
     send_clipboard_on_startup: bool,
 ) -> Result<FullConfig, CliError>
@@ -193,15 +200,15 @@ pub fn load_groups(
             vec![String::from(default_host_address)]
         };
 
-        let public_ip = if let Some(pub_ip) = &group.public_ip {
+        let visible_ip = if let Some(pub_ip) = &group.visible_ip {
             Some(pub_ip.clone())
-        } else if let Some(pub_ip) = &user_config.public_ip {
+        } else if let Some(pub_ip) = &user_config.visible_ip {
             Some(pub_ip.clone())
         } else {
             None
         };
 
-        let c_proto = group.protocol.as_deref();
+        let c_proto = group.protocol.as_deref().or(default_protocol);
 
         let protocol = Protocol::from(c_proto, load_certs)?;
 
@@ -209,7 +216,7 @@ pub fn load_groups(
             name,
             allowed_hosts,
             key: group.key,
-            public_ip,
+            visible_ip,
             send_using_address,
             clipboard: group
                 .clipboard
@@ -220,11 +227,14 @@ pub fn load_groups(
     }
 
     let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
+    let receive_once_wait = user_config.receive_once_wait.unwrap_or(RECEIVE_ONCE_WAIT);
+    // log::debug!("{:?}", user_config);
     let bind_addresses = create_bind_addresses(&user_config.bind_addresses, load_certs)?;
     let full_config = FullConfig::from_config(
         bind_addresses,
         groups,
         max_receive_buffer,
+        receive_once_wait,
         send_clipboard_on_startup,
     );
     return Ok(full_config);
@@ -304,6 +314,7 @@ mod configtest
         let full_config = load_groups(
             "tests/config.sample.yaml",
             socket_addr,
+            None,
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
         )
@@ -331,7 +342,7 @@ mod configtest
             group1.send_using_address,
             "127.0.0.1:8901".parse::<SocketAddr>().unwrap()
         );
-        assert_eq!(group1.public_ip, Some("ifconfig.co".to_owned()));
+        assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
         let allowed_local = vec!["192.168.0.153:8900", "192.168.0.54:20034"];
         assert_eq!(group1.allowed_hosts, allowed_local);
@@ -345,7 +356,7 @@ mod configtest
             group2.send_using_address,
             "127.0.0.1:8901".parse::<SocketAddr>().unwrap()
         );
-        assert_eq!(group1.public_ip, Some("ifconfig.co".to_owned()));
+        assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
         let allowed_hosts = vec![socket_addr];
         assert_eq!(group2.allowed_hosts, allowed_hosts);
@@ -359,7 +370,7 @@ mod configtest
             group3.send_using_address,
             "127.0.0.1:9000".parse::<SocketAddr>().unwrap()
         );
-        assert_eq!(group3.public_ip, Some("2.2.2.2".to_owned()));
+        assert_eq!(group3.visible_ip, Some("2.2.2.2".to_owned()));
 
         let allowed_ext = vec!["external.net:80"];
         assert_eq!(group3.allowed_hosts, allowed_ext);
@@ -386,13 +397,14 @@ mod configtest
         let full_config = load_groups(
             "tests/config.failure.yaml",
             socket_addr,
+            None,
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
         );
 
         match full_config {
             Ok(_) => assert!(false, "Error expected"),
-            Err(_) => assert!(true)
+            Err(_) => assert!(true),
         };
     }
 }

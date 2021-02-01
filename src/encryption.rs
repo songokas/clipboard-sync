@@ -5,7 +5,6 @@ use chrono::Utc;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
-use log::debug;
 use rand::{distributions::Alphanumeric, Rng};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -29,7 +28,12 @@ pub fn random_alphanumeric(number_of_chars: usize) -> String
         .collect();
 }
 
-pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message, EncryptionError>
+pub fn encrypt(
+    contents: &[u8],
+    identity: &str,
+    group: &Group,
+    message_type: &MessageType,
+) -> Result<Message, EncryptionError>
 {
     let cipher = ChaCha20Poly1305::new(&group.key);
 
@@ -45,10 +49,10 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
     let add = AdditionalData {
         identity: identity.to_owned(),
         group: group.name.clone(),
-        nonce: nonce.clone(),
+        message_type: message_type.clone(),
     };
 
-    // debug!("Encrypt additional data: {:?}", add);
+    // log::debug!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -60,16 +64,22 @@ pub fn encrypt(contents: &[u8], identity: &str, group: &Group) -> Result<Message
     let ciphertext = cipher
         .encrypt(nonce, msg)
         .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()))?;
-    return Ok(Message::from_additional(&add, ciphertext));
+    return Ok(Message {
+        nonce: nonce.clone(),
+        group: group.name.clone(),
+        text: ciphertext,
+        message_type: message_type.clone(),
+    });
 }
 
 pub fn encrypt_to_bytes(
     contents: &[u8],
     identity: &str,
     group: &Group,
+    message_type: &MessageType,
 ) -> Result<Vec<u8>, EncryptionError>
 {
-    let message = encrypt(contents, identity, group)?;
+    let message = encrypt(contents, identity, group, message_type)?;
     let bytes = bincode::serialize(&message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     return Ok(bytes);
@@ -97,10 +107,10 @@ pub fn decrypt(message: &Message, identity: &str, group: &Group)
     let ad = AdditionalData {
         identity: identity.to_owned(),
         group: group.name.clone(),
-        nonce: message.nonce,
+        message_type: message.message_type.clone(),
     };
 
-    debug!("Decrypt additional data: {:?}", ad);
+    // debug!("Decrypt additional data: {:?}", ad);
 
     let add_bytes = bincode::serialize(&ad)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -162,7 +172,7 @@ mod encryptiontest
         ];
 
         for (expected, bytes, identity1, group1, identity2, group2) in sequences {
-            let msg = encrypt(&bytes, identity1, group1);
+            let msg = encrypt(&bytes, identity1, group1, &MessageType::Text);
             let data = decrypt(&msg.unwrap(), identity2, group2);
             if expected {
                 assert_eq!(bytes, data.unwrap());
