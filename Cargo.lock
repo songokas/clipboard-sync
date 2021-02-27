@@ -361,7 +361,7 @@ dependencies = [
 [[package]]
 name = "clipboard"
 version = "0.5.0"
-source = "git+https://github.com/songokas/rust-clipboard.git?branch=multiple-targets#e955ed2ea9d5c9a3db060e83604a3b1590b6511a"
+source = "git+https://github.com/songokas/rust-clipboard.git?branch=multiple-targets#4e7fae2d5edd6c74c2ec390f1e5992c7db40e7cd"
 dependencies = [
  "clipboard-win",
  "objc",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "clipboard-sync"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "android_logger",
  "assert_cmd",
@@ -2145,7 +2145,7 @@ dependencies = [
 [[package]]
 name = "x11-clipboard"
 version = "0.5.1"
-source = "git+https://github.com/songokas/x11-clipboard.git?branch=multiple-targets#aaad0935f0496e16a4aa71c1df974fcd17e63f92"
+source = "git+https://github.com/songokas/x11-clipboard.git?branch=multiple-targets#db4e956e42ca02b18988edc61f68c4f24e81b466"
 dependencies = [
  "xcb",
 ]

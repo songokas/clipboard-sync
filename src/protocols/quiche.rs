@@ -401,10 +401,10 @@ mod quichetest
     use tokio::try_join;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_send_receive()
+    async fn test_send_receive_quic()
     {
-        let local_server: SocketAddr = "127.0.0.1:9936".parse().unwrap();
-        let local_client: SocketAddr = "127.0.0.1:9937".parse().unwrap();
+        let local_server: SocketAddr = "127.0.0.1:9956".parse().unwrap();
+        let local_client: SocketAddr = "127.0.0.1:9957".parse().unwrap();
         let server_sock = UdpSocket::bind(local_server).await.unwrap();
         let client_sock = UdpSocket::bind(local_client).await.unwrap();
         let group = Group::from_name("test1");
@@ -412,14 +412,15 @@ mod quichetest
 
         client_sock.connect(local_server).await.unwrap();
 
-        let data_sent = b"test1".to_vec();
+        let data_len = 10*1024*1024;
+        let data_sent = random(data_len);
         let expect_data = data_sent.clone();
 
         let r = tokio::spawn(async move {
             // Process each socket concurrently.
             let (data_received, addr) = receive_data_quic(
                 &server_sock,
-                100,
+                data_len + 20000,
                 &groups,
                 "tests/cert.key",
                 "tests/cert.crt",
@@ -435,7 +436,7 @@ mod quichetest
             let data_len_sent = send_data_quic(client_sock, data_sent, &local_server, &group, None)
                 .await
                 .unwrap();
-            assert_eq!(data_len_sent, 5);
+            assert_eq!(data_len_sent, data_len);
         });
 
         try_join!(r, s,).unwrap();

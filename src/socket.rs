@@ -179,22 +179,24 @@ impl Multicast
         if self.cache.contains_key(&remote_ip) {
             return true;
         }
-        let interface_ipv4 = match interface_addr {
-            IpAddr::V4(ipv4) => ipv4,
-            _ => {
-                warn!("Ipv6 multicast not supported");
-                return false;
-            }
-        };
-
         let op = match remote_ip {
             IpAddr::V4(multicast_ipv4) => {
-                sock.set_multicast_loop_v4(false).unwrap_or(());
-                sock.join_multicast_v4(multicast_ipv4.clone(), interface_ipv4.clone())
-            }
-            _ => {
-                warn!("Ipv6 multicast not supported");
-                return false;
+                if let IpAddr::V4(ipv4) = interface_addr {
+                    sock.set_multicast_loop_v4(false).unwrap_or(());
+                    sock.join_multicast_v4(multicast_ipv4.clone(), ipv4.clone())
+                } else {
+                    Err(
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("invalid ipv4 address {}", interface_addr)
+                        ),
+                    )
+                }
+
+            },
+            IpAddr::V6(multicast_ipv6) => {
+                sock.set_multicast_loop_v6(false).unwrap_or(());
+                sock.join_multicast_v6(multicast_ipv6, 0)
             }
         };
         if let Err(_) = op {

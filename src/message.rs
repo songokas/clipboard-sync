@@ -10,12 +10,15 @@ mod serde_key_str
     use super::*;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(key: &Key, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S: Serializer>(key: &Option<Key>, serializer: S) -> Result<S::Ok, S::Error>
     {
-        serializer.serialize_str(&String::from_utf8_lossy(key))
+        match key {
+            Some(v) => serializer.serialize_str(&String::from_utf8_lossy(v)),
+            None => serializer.serialize_none(),
+        }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Key, D::Error>
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Key>, D::Error>
     {
         let str_data: String = Deserialize::deserialize(deserializer)?;
         if str_data.len() != KEY_SIZE {
@@ -26,7 +29,7 @@ mod serde_key_str
                 str_data
             )));
         }
-        return Ok(Key::from_slice(&str_data.as_bytes()).clone());
+        return Ok(Some(Key::from_slice(&str_data.as_bytes()).clone()));
     }
 }
 
@@ -92,8 +95,8 @@ pub struct Group
 pub struct ConfigGroup
 {
     pub allowed_hosts: Option<Vec<String>>,
-    #[serde(with = "serde_key_str")]
-    pub key: Key,
+    #[serde(default, with = "serde_key_str")]
+    pub key: Option<Key>,
     pub visible_ip: Option<String>,
     pub send_using_address: Option<SocketAddr>,
     pub clipboard: Option<String>,

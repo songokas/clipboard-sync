@@ -13,13 +13,13 @@ file copying is supported as well (linux only)
 ### Deb
 
 ```
-wget https://github.com/songokas/clipboard-sync/releases/download/1.0.0/clipboard-sync_1.0.0_amd64.deb && sudo apt install ./clipboard-sync_1.0.0_amd64.deb
+wget https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync_1.1.0_amd64.deb && sudo apt install ./clipboard-sync_1.1.0_amd64.deb
 ```
 ### RRM
 
 ```
-sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/1.0.0/.rpm/RPM-GPG-KEY-tomasj \
-  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/1.0.0/clipboard-sync-1.0.0-1.x86_64.rpm
+sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/1.1.0/.rpm/RPM-GPG-KEY-tomasj \
+  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1.x86_64.rpm
 ```
 
 ### Arch
@@ -27,23 +27,23 @@ sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/1.0.
 ```
 sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
   && sudo pacman-key --lsign-key 175129AEEC57B0EB \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.0.0/clipboard-sync-1.0.0-1-x86_64.pkg.tar.zst.sig \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.0.0/clipboard-sync-1.0.0-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U clipboard-sync-1.0.0-1-x86_64.pkg.tar.zst
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst.sig \
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst \
+  && sudo pacman -U clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst
 ```
 
 ### Android
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/1.0.0/clipboard-sync-android_1.0.0.apk)
+[download](https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-android_1.1.0.apk)
 
 ### Windows
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/1.0.0/clipboard-sync-1.0.0-x86_64.msi)
+[download](https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-x86_64.msi)
 
 
 ### Others
 
-[other versions](https://github.com/songokas/clipboard-sync/releases/tag/1.0.0)
+[other versions](https://github.com/songokas/clipboard-sync/releases/tag/1.1.0)
 
 ### Install from source
 
@@ -55,10 +55,9 @@ cargo install --root="~/bin/" --git=https://github.com/songokas/clipboard-sync
 
 run with default config:
 
-group name and key must be the same across your devices
-
 ```
-clipboard-sync --autogenerate
+# group name and key must be the same across your devices (check ~/.config/clipboard-sync/config.yml)
+clipboard-sync
 ```
 
 run with key:
@@ -77,13 +76,13 @@ clipboard-sync --key <(echo "$KEY") --allowed-host "127.0.0.1:8000" --clipboard 
 send and quit
 
 ```
-clipboard-sync --autogenerate --send-once
+clipboard-sync --send-once
 ```
 
 receive and quit
 
 ```
-clipboard-sync --config ~/.config/clipboard-sync/config.yml --receive-once
+clipboard-sync --receive-once
 ```
 
 check for more options 
@@ -103,8 +102,8 @@ clipboard-sync --config ~/.config/clipboard-sync.yaml
 ```yaml
 bind_addresses:
   # protocol: local socket address
-  basic: "0.0.0.0:8900"
-  frames: "0.0.0.0:8901"
+  basic: "0.0.0.0:8900" # default
+  frames: "0.0.0.0:8901" # optional
 
 # optional unless using quic
 certificates:
@@ -115,6 +114,7 @@ certificates:
 # send_using_address and visible_ip are per group as well
 send_using_address: "0.0.0.0:8901"
 
+# if behind nat and sending outside local network
 visible_ip: "my-public-ip"
 
 # max bytes to receive per connection

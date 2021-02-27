@@ -1,6 +1,6 @@
 [package]
 name = "clipboard-sync"
-version = "1.0.0"
+version = "1.1.0"
 readme = "README.md"
 authors = ["Tomas Jakstas <tom.jakstas@gmail.com>"]
 edition = "2018"
@@ -60,6 +60,7 @@ optional = true
 optional = true
 git = "https://github.com/songokas/rust-clipboard.git"
 branch = "multiple-targets"
+# path = "../rust-clipboard"
 
 [features]
 default = ["frames", "clipboard"]

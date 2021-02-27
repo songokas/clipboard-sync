@@ -43,10 +43,18 @@ async fn main() -> Result<(), CliError>
 
     env_logger::from_env(Env::default().default_filter_or(verbosity)).init();
 
+    let key_data: String = match matches.value_of("key") {
+        Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
+            Ok(file_contents) => file_contents,
+            Err(_) => expected_key.to_owned(),
+        },
+        None => "".to_owned(),
+    };
+
     let config_path: Option<String> = match matches.value_of("config") {
         Some(p) => Some(p.to_owned()),
         None => {
-            if matches.is_present("autogenerate") {
+            if matches.is_present("autogenerate") || key_data == "" {
                 match generate_config("clipboard-sync") {
                     Ok(p) => {
                         let path = p.to_string_lossy().to_string();
@@ -73,14 +81,6 @@ async fn main() -> Result<(), CliError>
 
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
     let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
-
-    let key_data: String = match matches.value_of("key") {
-        Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
-            Ok(file_contents) => file_contents,
-            Err(_) => expected_key.to_owned(),
-        },
-        None => "".to_owned(),
-    };
 
     if config_path.is_none() && key_data.len() != KEY_SIZE {
         return Err(CliError::ArgumentError(format!(
@@ -143,7 +143,7 @@ async fn main() -> Result<(), CliError>
             socket_address,
             groups,
             MAX_RECEIVE_BUFFER,
-            RECEIVE_ONCE_WAIT,
+            matches.value_of("receive-once-wait").and_then(|s| s.parse::<u64>().ok()).unwrap_or(RECEIVE_ONCE_WAIT),
             !matches.is_present("ignore-initial-clipboard"),
         );
         Ok(full_config)
@@ -157,9 +157,12 @@ async fn main() -> Result<(), CliError>
             } else {
                 allowed_host
             },
+            local_address,
             matches.value_of("protocol"),
             load_certs,
             !matches.is_present("ignore-initial-clipboard"),
+            visible_ip.clone(),
+            key_data.clone(),
         );
     };
 

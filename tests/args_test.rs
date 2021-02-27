@@ -15,7 +15,7 @@ fn test_send_once()
             "127.0.0.1:8922",
             "--send-once",
         ],
-        "count 0",
+        "count",
     );
 }
 
@@ -51,7 +51,6 @@ fn test_receive_once()
 }
 
 #[test]
-
 fn test_config()
 {
     check_success(
@@ -61,10 +60,15 @@ fn test_config()
 }
 
 #[test]
-
 fn test_autogenerate()
 {
     check_success(vec!["--autogenerate"], "clipboard changes");
+}
+
+#[test]
+fn test_blank()
+{
+    check_success(vec![], "clipboard changes");
 }
 
 #[test]

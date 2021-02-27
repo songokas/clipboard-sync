@@ -6,9 +6,10 @@ use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use chacha20poly1305::Key;
 
 use crate::defaults::{
-    default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER,
+    default_socket_send_address, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER,
     PACKAGE_NAME, RECEIVE_ONCE_WAIT,
 };
 use crate::encryption::random_alphanumeric;
@@ -132,7 +133,7 @@ pub fn load_default_certificates(
     };
 
     let verify_str: Option<String> = match verify_dir {
-        Some(k) => Some(k.to_owned()),
+        Some(k) => Some(k.into()),
         None => {
             let path = config_path()?.join("cert-verify");
             if !path.exists() {
@@ -152,10 +153,13 @@ pub fn load_default_certificates(
 
 pub fn load_groups(
     file_path: &str,
-    default_host_address: &str,
+    default_allowed_host_address: &str,
+    default_bind_address: &str,
     default_protocol: Option<&str>,
     load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
     send_clipboard_on_startup: bool,
+    default_visible_ip: Option<String>,
+    default_key: String,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -197,7 +201,7 @@ pub fn load_groups(
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {
             sd.clone()
         } else {
-            vec![String::from(default_host_address)]
+            vec![String::from(default_allowed_host_address)]
         };
 
         let visible_ip = if let Some(pub_ip) = &group.visible_ip {
@@ -205,17 +209,26 @@ pub fn load_groups(
         } else if let Some(pub_ip) = &user_config.visible_ip {
             Some(pub_ip.clone())
         } else {
-            None
+            default_visible_ip.clone()
         };
 
         let c_proto = group.protocol.as_deref().or(default_protocol);
 
         let protocol = Protocol::from(c_proto, load_certs)?;
 
+        let key_data = if let Some(k) = group.key {
+            k.clone()
+        } else {
+            if default_key.len() != KEY_SIZE {
+                return Err(CliError::InvalidKey(format!("No key provided"))); 
+            }
+            Key::from_slice(default_key.as_bytes()).clone()
+        };
+
         groups.push(Group {
             name,
             allowed_hosts,
-            key: group.key,
+            key: key_data,
             visible_ip,
             send_using_address,
             clipboard: group
@@ -228,8 +241,8 @@ pub fn load_groups(
 
     let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
     let receive_once_wait = user_config.receive_once_wait.unwrap_or(RECEIVE_ONCE_WAIT);
-    // log::debug!("{:?}", user_config);
-    let bind_addresses = create_bind_addresses(&user_config.bind_addresses, load_certs)?;
+    let bind_default_protocol = Protocol::from(default_protocol, load_certs)?;
+    let bind_addresses = create_bind_addresses(&user_config.bind_addresses, default_bind_address, load_certs, bind_default_protocol)?;
     let full_config = FullConfig::from_config(
         bind_addresses,
         groups,
@@ -270,7 +283,9 @@ pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
 
 fn create_bind_addresses(
     config_addresses: &Option<IndexMap<String, SocketAddr>>,
+    default_bind_address: &str,
     load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
+    bind_default_protocol: Protocol,
 ) -> Result<IndexMap<Protocol, SocketAddr>, CliError>
 {
     let mut hash = IndexMap::new();
@@ -286,10 +301,10 @@ fn create_bind_addresses(
             hash.insert(protocol, sock_addr.clone());
         }
     } else {
-        let socket: SocketAddr = BIND_ADDRESS
+        let socket: SocketAddr = default_bind_address
             .parse()
             .expect("Failed parsing default bind address");
-        hash.insert(Protocol::Basic, socket);
+        hash.insert(bind_default_protocol, socket);
     }
 
     return Ok(hash);
@@ -314,9 +329,12 @@ mod configtest
         let full_config = load_groups(
             "tests/config.sample.yaml",
             socket_addr,
+            "127.0.0.1:9088",
             None,
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
+            None,
+            "".to_owned(),
         )
         .unwrap();
 
@@ -397,9 +415,12 @@ mod configtest
         let full_config = load_groups(
             "tests/config.failure.yaml",
             socket_addr,
+            "127.0.0.1:9088",
             None,
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
+            None,
+            "".to_owned(),
         );
 
         match full_config {

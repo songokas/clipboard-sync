@@ -10,7 +10,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
-use crate::clipboards::{Clipboard, ClipboardType};
+use crate::clipboards::{Clipboard, ClipboardType, create_targets_for_cut_files, create_text_targets};
 use crate::config::FullConfig;
 use crate::defaults::*;
 use crate::encryption::*;
@@ -306,32 +306,18 @@ fn write_to(
                         ClipboardError::Invalid("Unable to retrieve configuration path".to_owned())
                     })?;
                 let files_created = bytes_to_dir(&config_path, data, identity)?;
-                let file_content = files_created
-                    .iter()
-                    .map(|p| format!("file://{}", p.to_str().unwrap()))
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                // let text_content = files_created
-                //     .iter()
-                //     .map(|p| format!("{}", p.to_str().unwrap()))
-                //     .collect::<Vec<String>>()
-                //     .join("\n");
-                let cut_content = [String::from("cut"), file_content.clone()].join("\n");
-                let mut clipboard_list = HashMap::new();
-                //@TODO multiple targets does not work
-                // clipboard_list.insert(ClipboardType::Text, text_content.as_bytes());
-                // clipboard_list.insert(ClipboardType::Files, file_content.as_bytes());
-                clipboard_list.insert(ClipboardType::CutFiles, cut_content.as_bytes());
+                let (clipboard_list, main_content) = create_targets_for_cut_files(files_created);
+                let clipboards: HashMap<ClipboardType, &[u8]> = clipboard_list.iter().map(|(k, v)| (k.clone(), v.as_bytes())).collect();
+                let hash = hash(main_content.as_bytes());
                 clipboard
-                    .set_multiple_targets(clipboard_list)
+                    .set_multiple_targets(clipboards)
                     .map_err(|err| ClipboardError::Access((*err).to_string()))?;
-                let hash = hash(&file_content.as_bytes());
                 return Ok((hash, group.name.clone()));
             }
             _ => {
                 let hash = hash(&data);
                 clipboard
-                    .set_target_contents(ClipboardType::Text, &data)
+                    .set_multiple_targets(create_text_targets(&data))
                     .map_err(|err| ClipboardError::Access((*err).to_string()))?;
                 return Ok((hash, group.name.clone()));
             }
@@ -376,8 +362,11 @@ async fn handle_clipboard_change(
         if remote_ip.is_multicast() {
             if let Some(sock) = endpoint.socket() {
                 sock.set_multicast_loop_v4(false).unwrap_or(());
+                sock.set_multicast_loop_v6(false).unwrap_or(())
             }
         }
+
+        debug!("Sending to {}:{} using {}", remote_ip, addr.port(), identity);
 
         sent += send_data(endpoint, bytes, &addr, group).await?;
     }
@@ -392,7 +381,6 @@ async fn retrieve_identity(
 {
     let is_private = match remote_ip {
         IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
-        //@TODO ipv6 private in stable
         _ => false,
     };
 

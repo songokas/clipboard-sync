@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio::try_join;
 
-use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER};
+use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
 use crate::errors::ConnectionError;
 use crate::message::{Group, MessageType};
@@ -102,15 +102,20 @@ async fn confirm_received(
 ) -> Result<usize, ConnectionError>
 {
     let mut received: HashMap<u32, bool> = HashMap::new();
+    let timeout_callback_with_channel = |d: Duration| {
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_closed()
+    };
     while received.len() != indexes && !channel_sender.is_closed() {
         let mut bytes = [0; 100];
-        let received_bytes = match socket_reader.recv(&mut bytes).await {
-            Ok(_) => validate(&bytes, &groups)
+        let received_bytes = match receive_from_timeout(&socket_reader, &mut bytes, timeout_callback_with_channel).await {
+            Ok(_) => {
+                validate(&bytes, &groups)
                 .map_err(ConnectionError::ReceiveError)
                 .and_then(|(message, cgroup)| {
                     decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
                         .map_err(ConnectionError::Encryption)
-                }),
+                })
+            },
             _ => {
                 continue;
             }
@@ -214,7 +219,7 @@ pub async fn send_data_frames(
     group: &Group,
 ) -> Result<usize, ConnectionError>
 {
-    let indexes: usize = (data.len() / MAX_UDP_BUFFER) + 1;
+    let indexes: usize = (data.len() / MAX_UDP_PAYLOAD) + 1;
     let identity = socket.local_addr().map(|a| a.ip().to_string())?;
     let socket_writer = Arc::new(socket);
     let socket_reader = Arc::clone(&socket_writer);
@@ -252,9 +257,8 @@ async fn send_index(
     group: &Group,
 ) -> Result<usize, ConnectionError>
 {
-    let max_that_fit: usize = MAX_UDP_BUFFER - 300;
-    let from = index as usize * max_that_fit;
-    let mut to = (index as usize + 1) * max_that_fit;
+    let from = index as usize * MAX_UDP_PAYLOAD;
+    let mut to = (index as usize + 1) * MAX_UDP_PAYLOAD;
     if to > data.len() {
         to = data.len();
     }
@@ -269,7 +273,10 @@ async fn send_index(
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 
-    return Ok(socket_writer.send(&bytes).await?);
+    return match socket_writer.send(&bytes).await {
+        Ok(n) => Ok(n),
+        Err(e) => Err(ConnectionError::FailedToConnect(format!("Failed to send index {}. Message: {}", index, e)))
+    };
 }
 
 #[cfg(test)]
@@ -277,12 +284,15 @@ mod framestest
 {
     use super::*;
     use futures::try_join;
+    use crate::encryption::{random};
+    use crate::{assert_error_type};
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_send_receive()
+    async fn test_send_receive(data_len: usize, max_len: usize, port: u32)
+        -> (SocketAddr, Vec<u8>, (Result<usize, ConnectionError>, Result<(Vec<u8>, SocketAddr), ConnectionError>))
     {
-        let local_server: SocketAddr = "127.0.0.1:9934".parse().unwrap();
-        let local_client: SocketAddr = "127.0.0.1:9935".parse().unwrap();
+        // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+        let local_server: SocketAddr = format!("127.0.0.1:993{}", port).parse().unwrap();
+        let local_client: SocketAddr = format!("127.0.0.1:993{}", port + 1).parse().unwrap();
         let server_sock = UdpSocket::bind(local_server).await.unwrap();
         let client_sock = UdpSocket::bind(local_client).await.unwrap();
         let group = Group::from_name("test1");
@@ -290,25 +300,42 @@ mod framestest
 
         client_sock.connect(local_server).await.unwrap();
 
-        let data_sent = b"test1".to_vec();
+        let data_sent = random(data_len);
         let expected_data = data_sent.clone();
         let res = try_join!(
             tokio::spawn(async move {
-                send_data_frames(client_sock, data_sent.clone(), &local_server, &group).await
+                send_data_frames(client_sock, data_sent, &local_server, &group).await
             }),
             tokio::spawn(async move {
-                receive_data_frames(&server_sock, 100, &groups, |d: Duration| {
+                receive_data_frames(&server_sock, max_len, &groups, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await
             })
         )
         .unwrap();
+        return (local_client, expected_data, res);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_send_receive_more_data()
+    {
+        let (_, _, res) = test_send_receive(100, 100, 4).await;
+        assert_error_type!(res.0, ConnectionError::FailedToConnect(_));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_send_receive_10mb()
+    {
+        let data_len = 10 * 1024 * 1024;
+        let max_len = data_len + 20000;
+        let (local_client, expected_data, res) = test_send_receive(data_len, max_len, 6).await;
         let data_len_sent = res.0.unwrap();
         let (data_received, addr) = res.1.unwrap();
 
         assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, 80);
+        assert_eq!(data_len_sent, 10498210);
+        assert_eq!(expected_data.len(), data_received.len());
         assert_eq!(expected_data, data_received);
     }
 }
