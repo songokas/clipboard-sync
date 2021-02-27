@@ -111,7 +111,14 @@ sign-windows:
 distdir:
 	mkdir -p dist
 
-release: distdir dist deb strip rpm sign
+# to release:
+# build on windows: cargo wix
+# copy to target/clipboard-sync-$(VERSION)-x86_64.msi from windows
+# make android-copy
+# build android apk
+# create tag
+# make release
+release: distdir dist deb strip rpm sign makepkg-in-vagrant
 	cp target/*/debian/clipboard-sync* dist/
 	cp target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/* dist/
 	cp target/i686-unknown-linux-gnu/release/rpmbuild/RPMS/i686/* dist/
@@ -119,6 +126,5 @@ release: distdir dist deb strip rpm sign
 	cp target/i686-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-i686-binary
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless dist/clipboard-sync-amd64-headless-binary
 	@cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
-	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 	
 .PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows distdir sign-rpm

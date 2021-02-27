@@ -80,6 +80,8 @@ pub fn create_targets_for_cut_files(files: Vec<PathBuf>) -> (HashMap<ClipboardTy
         .map(|p| format!("file://{}", p.to_str().unwrap()))
         .collect::<Vec<String>>()
         .join("\n");
+    
+    #[cfg(target_os = "linux")]
     let cut_content = [String::from("cut"), file_content.clone()].join("\n");
 
     let mut clipboard_list = HashMap::new();
