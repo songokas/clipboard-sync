@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 #[cfg(target_os = "android")]
-use tokio::sync::mpsc::Sender;
-use tokio::sync::mpsc::{channel, Receiver};
+use flume::Sender;
+use flume::{bounded, Receiver};
 use tokio::task::JoinHandle;
 
 use chacha20poly1305::Key;
@@ -229,10 +229,10 @@ impl Runner
 
         let running = Arc::new(AtomicBool::new(true));
 
-        let (tx, rx) = channel(MAX_CHANNEL);
+        let (tx, rx) = bounded(MAX_CHANNEL);
         let atx = Arc::new(tx);
 
-        let (stat_sender, stat_receiver) = channel(MAX_CHANNEL);
+        let (stat_sender, stat_receiver) = bounded(MAX_CHANNEL);
 
         let stat_sender = Arc::new(stat_sender);
 

@@ -4,7 +4,6 @@
 use chacha20poly1305::Key;
 use log::{error, info};
 use std::sync::Arc;
-use tokio::sync::mpsc::channel;
 
 use clap::{load_yaml, App};
 use env_logger::Env;
@@ -41,7 +40,7 @@ async fn main() -> Result<(), CliError>
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
 
-    env_logger::from_env(Env::default().default_filter_or(verbosity)).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or(verbosity)).init();
 
     let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
@@ -172,10 +171,10 @@ async fn main() -> Result<(), CliError>
 
     let running = Arc::new(AtomicBool::new(true));
 
-    let (tx, rx) = channel(MAX_CHANNEL);
+    let (tx, rx) = flume::bounded(MAX_CHANNEL);
     let atx = Arc::new(tx);
 
-    let (stat_sender, _) = channel(MAX_CHANNEL);
+    let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
     let stat_sender = Arc::new(stat_sender);
 
     let send_once = matches.is_present("send-once");

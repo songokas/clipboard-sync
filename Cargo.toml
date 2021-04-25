@@ -13,29 +13,30 @@ license = "LICENSE"
 chacha20poly1305 = "0.7"
 base64 = "0.13"
 chrono = "0.4"
-rand = "0.7"
+rand = "0.8"
 bincode = "1.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
 serde_json = "1.0"
 futures = "0.3"
 clap = {version = "2.2", features = ["yaml"]}
-tokio = { version = "0.3", features = ["full"] }
-tokio-test = "0.3"
+tokio = { version = "1.5", features = ["full"] }
+tokio-test = "0.4"
 log = "0.4"
-env_logger = "0.7"
+env_logger = "0.8"
 flate2 = "1.0"
 walkdir = "2"
 dirs = "3.0"
-cached = "0.22"
-jni = "0.18"
+cached = "0.23"
+jni = "0.19"
 lazy_static = "1.4"
 indexmap = { version = "1.6", features = ["serde-1"] }
+flume = "0.10"
 # @TODO
 # err-derive = "0.3.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.9"
+android_logger = "0.10"
 
 [build-dependencies]
 cargo-deb = "1.28"
@@ -48,11 +49,11 @@ predicates = "1.0"
 crate-type = ["lib", "cdylib"]
 
 [dependencies.quinn]
-version = "0.6.1"
+version = "0.7"
 optional = true
 
 [dependencies.quiche]
-version = "0.6.0"
+version = "0.8"
 optional = true
 
 [dependencies.clipboard]

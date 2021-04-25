@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tokio::sync::mpsc::{Receiver, Sender};
+use flume::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
@@ -104,7 +104,7 @@ pub async fn wait_handle_receive(
 
 pub async fn wait_on_clipboard(
     mut clipboard: Clipboard,
-    mut channel: Receiver<(String, String)>,
+    channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
     config: FullConfig,
     status_channel: Arc<Sender<(u64, u64)>>,
@@ -133,6 +133,9 @@ pub async fn wait_on_clipboard(
         }
 
         for group in &groups {
+
+            announce_multicast(MessageType::Announce, &group);
+
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
                 &mut clipboard,
                 group,

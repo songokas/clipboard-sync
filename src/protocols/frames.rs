@@ -6,9 +6,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio::try_join;
+use flume::{bounded, Receiver, Sender};
 
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
@@ -95,7 +95,7 @@ pub async fn receive_data_frames(
 
 async fn confirm_received(
     socket_reader: Arc<UdpSocket>,
-    channel_sender: mpsc::Sender<u32>,
+    channel_sender: Sender<u32>,
     expected_addr: SocketAddr,
     indexes: usize,
     groups: Vec<Group>,
@@ -103,9 +103,9 @@ async fn confirm_received(
 {
     let mut received: HashMap<u32, bool> = HashMap::new();
     let timeout_callback_with_channel = |d: Duration| {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_closed()
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected()
     };
-    while received.len() != indexes && !channel_sender.is_closed() {
+    while received.len() != indexes && !channel_sender.is_disconnected() {
         let mut bytes = [0; 100];
         let received_bytes = match receive_from_timeout(&socket_reader, &mut bytes, timeout_callback_with_channel).await {
             Ok(_) => {
@@ -160,7 +160,7 @@ async fn confirm_received(
 async fn confirm_sent(
     socket_writer: Arc<UdpSocket>,
     data: Vec<u8>,
-    mut channel_receiver: mpsc::Receiver<u32>,
+    channel_receiver: Receiver<u32>,
     identity: String,
     indexes: usize,
     group: Group,
@@ -200,7 +200,6 @@ async fn confirm_sent(
             .await?;
         }
         if now.elapsed().as_millis() > CONNECTION_TIMEOUT as u128 {
-            channel_receiver.close();
             return Err(ConnectionError::FailedToConnect(format!(
                 "Connection timeout {}. Total {} Remaining {}",
                 now.elapsed().as_millis(),
@@ -226,7 +225,7 @@ pub async fn send_data_frames(
     let groups = vec![group.clone()];
     let expected_addr = destination_addr.clone();
 
-    let (channel_sender, channel_receiver) = mpsc::channel(indexes * 4);
+    let (channel_sender, channel_receiver) = bounded(indexes * 4);
     let res = try_join!(
         tokio::spawn(confirm_received(
             socket_reader,

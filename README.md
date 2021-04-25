@@ -126,6 +126,14 @@ send_clipboard_on_startup: false
 # if receiving once how many seconds to wait
 receive_once_wait: 20
 
+frames:
+
+
+quic:
+
+exchange_multicast:
+
+
 groups:
   specific_hosts:
     key: "32323232323232323232323232323232"
@@ -155,11 +163,29 @@ groups:
       - "192.168.0.111:0" # port 0 - receive only
       - "192.168.0.112:0"
     protocol: frames
+  no_key_needed:
+    protocol: 
 ```
 
 
+### TODO
 
+* send clipboard without the same key (diffie helman)
+* send large clipboards without specifing hosts
 
+```yaml
 
+groups:
+  default:
+    key: 123
+    protocol: quic
+    allowed_hosts:
+      - 229.1.1.1:8922
+      - 192.168.0.1:333
+    multicast_retrieve_hosts: true
 
+```
 
+* improve docs for configuration/group explanation
+* check quiche without public keys/rethink
+* update quin
