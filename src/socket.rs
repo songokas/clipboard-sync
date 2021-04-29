@@ -13,39 +13,7 @@ use tokio::time::{timeout, Duration};
 use crate::errors::{ConnectionError, DnsError};
 use crate::message::Group;
 
-pub async fn retrieve_identity(
-    remote_ip: &IpAddr,
-    local_ip: Option<IpAddr>,
-    group: &Group,
-) -> Result<IpAddr, ConnectionError>
-{
-    let is_private = match remote_ip {
-        IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
-        _ => false,
-    };
-
-    let identity = if remote_ip.is_multicast() {
-        // match group.protocol {
-        //     Protocol::Basic => (),
-        //     _ => {
-        //         return Err(ConnectionError::InvalidProtocol(format!(
-        //             "Protocol {} does not support multicast",
-        //             group.protocol
-        //         )));
-        //     }
-        // };
-        to_visible_ip(local_ip, group).await
-    } else if remote_ip.is_loopback() || is_private {
-        to_visible_ip(local_ip, group).await
-    } else {
-        let host = group.visible_ip.as_ref().ok_or(ConnectionError::NoPublic(
-            "Group missing public ip however global routing requested".to_owned(),
-        ))?;
-        let sock_addr = to_socket(format!("{}:0", host)).await?;
-        sock_addr.ip()
-    };
-    return Ok(identity);
-}
+pub trait Timeout = Fn(Duration) -> bool;
 
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
@@ -143,7 +111,7 @@ impl Multicast
 pub async fn receive_from_timeout(
     socket: &UdpSocket,
     buf: &mut [u8],
-    timeout_callback: impl Fn(Duration) -> bool,
+    timeout_callback: impl Timeout,
 ) -> io::Result<(usize, SocketAddr)>
 {
     let timeout_duration = Duration::from_millis(50);

@@ -8,7 +8,7 @@ use tokio::time::Duration;
 pub async fn receive_data(
     socket: &UdpSocket,
     max_len: usize,
-    timeout: impl Fn(Duration) -> bool,
+    timeout: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];

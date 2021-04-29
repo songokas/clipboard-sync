@@ -1,5 +1,7 @@
 // #![feature(ip)]
+#![feature(trait_alias)]
 #![allow(dead_code)]
+#![feature(type_alias_impl_trait)]
 
 use chacha20poly1305::Key;
 use log::{error, info};
@@ -18,6 +20,7 @@ mod encryption;
 mod errors;
 mod filesystem;
 mod fragmenter;
+mod identity;
 mod message;
 mod process;
 mod protocols;
@@ -31,7 +34,7 @@ use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
 use crate::message::Group;
-use crate::process::{wait_handle_receive, wait_on_clipboard};
+use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::Protocol;
 
 #[tokio::main]
@@ -42,6 +45,14 @@ async fn main() -> Result<(), CliError>
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
 
     env_logger::Builder::from_env(Env::default().default_filter_or(verbosity)).init();
+
+    // let full_config = load_config();
+
+    // let encryptor: FrameDecryptor = ();
+
+    // let protocols = register(
+    //     ("frames", FrameSender::new()
+    // );
 
     let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
@@ -193,7 +204,7 @@ async fn main() -> Result<(), CliError>
             let clipboard = Clipboard::new().expect(
                 "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
             );
-            let receive = wait_handle_receive(
+            let receive = receive_clipboard(
                 clipboard,
                 Arc::clone(&atx),
                 bind_address.clone(),
@@ -211,7 +222,7 @@ async fn main() -> Result<(), CliError>
         let clipboard = Clipboard::new().expect(
             "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
         );
-        let send = wait_on_clipboard(
+        let send = send_clipboard(
             clipboard,
             rx,
             Arc::clone(&running),

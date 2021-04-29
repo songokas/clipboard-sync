@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
-use std::sync::Arc;
 #[cfg(target_os = "android")]
 use flume::Sender;
 use flume::{bounded, Receiver};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 use chacha20poly1305::Key;
@@ -24,7 +24,7 @@ use crate::defaults::{
 };
 use crate::errors::CliError;
 use crate::message::Group;
-use crate::process::{wait_handle_receive, wait_on_clipboard};
+use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::Protocol;
 
 #[derive(Serialize, Deserialize)]
@@ -255,7 +255,7 @@ impl Runner
             .get_first_bind_address()
             .expect("Protocol bind addresses required");
 
-        let receive = wait_handle_receive(
+        let receive = receive_clipboard(
             clipboard_receive,
             Arc::clone(&atx),
             bind_address.clone(),
@@ -266,7 +266,7 @@ impl Runner
             false,
         );
 
-        let send = wait_on_clipboard(
+        let send = send_clipboard(
             clipboard_send,
             rx,
             Arc::clone(&running),

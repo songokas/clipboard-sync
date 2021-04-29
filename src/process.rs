@@ -18,11 +18,13 @@ use crate::defaults::*;
 use crate::encryption::*;
 use crate::errors::*;
 use crate::filesystem::*;
+use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
+use crate::identity::{retrieve_identity, Identity};
 use crate::message::*;
 use crate::protocols::*;
 use crate::socket::*;
 
-pub async fn wait_handle_receive(
+pub async fn receive_clipboard(
     mut clipboard: Clipboard,
     channel: Arc<Sender<(String, String)>>,
     local_address: SocketAddr,
@@ -33,16 +35,17 @@ pub async fn wait_handle_receive(
     receive_once: bool,
 ) -> Result<u64, CliError>
 {
-    let mut endpoint = obtain_server_socket(&local_address, &protocol).await?;
-    let interface_ip = endpoint.ip();
+    let mut local_socket = obtain_server_socket(&local_address, &protocol).await?;
+    let interface_ip = local_socket.ip();
     let mut multicast = Multicast::new();
     let mut count = 0;
     let groups = config.groups;
+    let encryptor = GroupsEncryptor::new(groups.clone());
 
     info!("Listen on {}", local_address);
 
     if let Some(local_addr) = interface_ip {
-        if let Some(sock) = endpoint.socket() {
+        if let Some(sock) = local_socket.socket() {
             multicast.join_groups(sock, &groups, &local_addr).await;
         }
     }
@@ -51,10 +54,10 @@ pub async fn wait_handle_receive(
 
     while running.load(Ordering::Relaxed) {
         let (buf, addr) = match receive_data(
-            &mut endpoint,
-            config.max_receive_buffer,
-            &groups,
+            &mut local_socket,
+            &encryptor,
             &protocol,
+            config.max_receive_buffer,
             timeout,
         )
         .await
@@ -80,7 +83,12 @@ pub async fn wait_handle_receive(
 
         debug!("Packet received from {} length {}", addr, len);
 
-        let result = handle_receive(&buf[..len], &addr.ip().to_string(), &groups, &mut clipboard);
+        let result = handle_receive(
+            &mut clipboard,
+            &buf[..len],
+            &Identity::from_addr(&addr),
+            &groups,
+        );
 
         match result {
             Ok((hash, group_name)) => {
@@ -104,7 +112,7 @@ pub async fn wait_handle_receive(
     return Ok(count);
 }
 
-pub async fn wait_on_clipboard(
+pub async fn send_clipboard(
     mut clipboard: Clipboard,
     channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
@@ -174,7 +182,7 @@ pub async fn wait_on_clipboard(
 
             count += 1;
 
-            match handle_clipboard_change(&data, &message_type, &group).await {
+            match send_clipboard_to_group(&data, &message_type, &group).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             };
@@ -201,7 +209,7 @@ pub async fn wait_on_clipboard(
     return Ok(count);
 }
 
-pub async fn send_clipboard(contents: String, group: &Group) -> Result<usize, String>
+pub async fn send_clipboard_contents(contents: String, group: &Group) -> Result<usize, String>
 {
     let message_type = MessageType::Text;
     let bytes = contents.as_bytes();
@@ -215,7 +223,7 @@ pub async fn send_clipboard(contents: String, group: &Group) -> Result<usize, St
         }
     };
 
-    let sent = match handle_clipboard_change(&data, &message_type, &group).await {
+    let sent = match send_clipboard_to_group(&data, &message_type, &group).await {
         Ok(sent) => {
             debug!("Sent bytes {}", sent);
             sent
@@ -275,10 +283,10 @@ fn clipboard_group_to_bytes(
 }
 
 fn handle_receive(
-    buffer: &[u8],
-    identity: &str,
-    groups: &[Group],
     clipboard: &mut Clipboard,
+    buffer: &[u8],
+    identity: &Identity,
+    groups: &[Group],
 ) -> Result<(String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups)?;
@@ -292,7 +300,7 @@ fn write_to(
     group: &Group,
     data: Vec<u8>,
     message_type: &MessageType,
-    identity: &str,
+    identity: &Identity,
 ) -> Result<(String, String), ClipboardError>
 {
     if group.clipboard == CLIPBOARD_NAME {
@@ -301,12 +309,12 @@ fn write_to(
                 let config_path = dirs::config_dir()
                     .map(|p| p.join(PACKAGE_NAME))
                     .map(|p| p.join("data"))
-                    .map(|p| p.join(identity))
+                    .map(|p| p.join(identity.to_string()))
                     .map(|path| path.to_string_lossy().to_string())
                     .ok_or_else(|| {
                         ClipboardError::Invalid("Unable to retrieve configuration path".to_owned())
                     })?;
-                let files_created = bytes_to_dir(&config_path, data, identity)?;
+                let files_created = bytes_to_dir(&config_path, data, &identity.to_string())?;
                 let (clipboard_list, main_content) = create_targets_for_cut_files(files_created);
                 let clipboards: HashMap<ClipboardType, &[u8]> = clipboard_list
                     .iter()
@@ -328,7 +336,7 @@ fn write_to(
         };
     } else if group.clipboard.ends_with("/") {
         let hash = hash(&data);
-        bytes_to_dir(&group.clipboard, data, identity)?;
+        bytes_to_dir(&group.clipboard, data, &identity.to_string())?;
         return Ok((hash, group.name.clone()));
     }
     let hash = hash(&data);
@@ -336,7 +344,7 @@ fn write_to(
     return Ok((hash, group.name.clone()));
 }
 
-async fn handle_clipboard_change(
+async fn send_clipboard_to_group(
     buffer: &[u8],
     message_type: &MessageType,
     group: &Group,
@@ -357,18 +365,11 @@ async fn handle_clipboard_change(
             continue;
         }
         let remote_ip = addr.ip();
-        let endpoint =
+        let local_socket =
             obtain_client_socket(&group.send_using_address, &addr, &group.protocol).await?;
 
-        let identity = retrieve_identity(&remote_ip, endpoint.ip(), group).await?;
-        let bytes = encrypt_to_bytes(&buffer, &identity.to_string(), group, message_type)?;
-
-        if remote_ip.is_multicast() {
-            if let Some(sock) = endpoint.socket() {
-                sock.set_multicast_loop_v4(false).unwrap_or(());
-                sock.set_multicast_loop_v6(false).unwrap_or(())
-            }
-        }
+        let identity = retrieve_identity(&remote_ip, local_socket.ip(), group).await?;
+        let bytes = encrypt_to_bytes(&buffer, &identity, group, message_type)?;
 
         debug!(
             "Sending to {}:{} using {}",
@@ -377,7 +378,8 @@ async fn handle_clipboard_change(
             identity
         );
 
-        sent += send_data(endpoint, bytes, &addr, group).await?;
+        let encryptor = IdentityEncryptor::new(group.clone(), identity);
+        sent += send_data(local_socket, encryptor, &group.protocol, addr, bytes).await?;
     }
     return Ok(sent);
 }

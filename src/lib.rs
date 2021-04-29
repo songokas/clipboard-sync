@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#![feature(trait_alias)]
+#![feature(type_alias_impl_trait)]
 
 use jni::objects::{JClass, JString};
 use jni::sys::jstring;
@@ -19,6 +21,7 @@ mod encryption;
 mod errors;
 mod filesystem;
 mod fragmenter;
+mod identity;
 mod message;
 mod process;
 mod protocols;
@@ -26,7 +29,7 @@ mod runner;
 mod socket;
 mod test;
 
-use crate::process::send_clipboard;
+use crate::process::{send_clipboard, send_clipboard_contents};
 use crate::runner::{create_config, create_runner, Runner, Status, StatusCount};
 
 lazy_static! {
@@ -190,7 +193,7 @@ pub async fn send(config_str: String, clipboard: String) -> Result<usize, String
 {
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
-    return send_clipboard(clipboard, &groups[0]).await;
+    return send_clipboard_contents(clipboard, &groups[0]).await;
 }
 
 #[cfg(target_os = "android")]

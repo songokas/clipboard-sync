@@ -1,23 +1,21 @@
 use laminar::{Config, Packet, Socket, SocketEvent};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Instant;
 use tokio::time::Duration;
 
-use crate::errors::ConnectionError;
-use crate::message::{Group, MessageType};
-// use crate::socket::receive_from_timeout;
 use crate::defaults::MAX_ENCRYPTION_HEADER_SIZE;
-use crate::encryption::{decrypt, encrypt_to_bytes, validate};
-use crate::fragmenter::{data_to_frame, Frame};
-use crate::socket::retrieve_identity;
+use crate::errors::ConnectionError;
+use crate::fragmenter::{size_to_indexes, FrameDecryptor, FrameIndexEncryptor};
+use crate::identity::Identity;
+use crate::socket::Timeout;
 
 pub async fn receive_data(
     socket: &mut Socket,
+    encryptor: &impl FrameDecryptor,
     max_len: usize,
-    groups: &[Group],
-    timeout_callback: impl Fn(Duration) -> bool,
+    timeout_callback: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut now = Instant::now();
@@ -36,11 +34,13 @@ pub async fn receive_data(
                         let addr: SocketAddr = packet.addr();
                         let data: &[u8] = packet.payload();
 
-                        let (message, group) = validate(&data, groups)?;
-                        let bytes = decrypt(&message, &addr.ip().to_string(), &group)?;
-                        let frame: Frame = bincode::deserialize(&bytes)
-                            .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
+                        let (frame, _) = encryptor.decrypt(data, &Identity::from_addr(&addr))?;
                         total_size += data.len();
+
+                        // let (message, group) = validate(&data, groups)?;
+                        // let bytes = decrypt(&message, &addr.ip().to_string(), &group)?;
+                        // let frame: Frame = bincode::deserialize(&bytes)
+                        //     .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
 
                         if total_size > max_len {
                             return Err(ConnectionError::InvalidBuffer(format!(
@@ -94,28 +94,28 @@ pub async fn receive_data(
 pub async fn send_data(
     mut socket: Socket,
     config: &Config,
+    encryptor: impl FrameIndexEncryptor,
     data: Vec<u8>,
     destination_addr: &SocketAddr,
-    group: &Group,
 ) -> Result<usize, ConnectionError>
 {
     let max_payload = config.max_packet_size - MAX_ENCRYPTION_HEADER_SIZE as usize;
-    let size = data.len();
-    let reminder = if size % max_payload > 0 { 1 } else { 0 };
-    let indexes = (size / max_payload) + reminder;
+    let indexes = size_to_indexes(data.len(), max_payload);
 
-    let identity = retrieve_identity(
-        &destination_addr.ip(),
-        socket.local_addr().map(|s| s.ip().clone()).ok(),
-        group,
-    )
-    .await?;
+    // let identity = frame_encryptor
+    //     .retrieve_identity(
+    //         &destination_addr.ip(),
+    //         socket.local_addr().map(|s| s.ip().clone()).ok(),
+    //     )
+    //     .await?;
 
     let reliable = !destination_addr.ip().is_multicast();
 
+    let mut size = 0;
+
     for index in 0..indexes {
-        let frame = data_to_frame(index as u32, indexes as u16, &data, max_payload)?;
-        let bytes = encrypt_to_bytes(&frame, &identity.to_string(), &group, &MessageType::Frame)?;
+        let bytes = encryptor.encrypt_with_index(&data, index as u32, max_payload)?;
+        size += bytes.len();
 
         let packet = if reliable {
             Packet::reliable_ordered(destination_addr.clone(), bytes, None)

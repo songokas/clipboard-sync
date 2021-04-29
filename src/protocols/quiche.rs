@@ -16,6 +16,7 @@ use crate::socket::receive_from_timeout;
 
 pub async fn send_data_quic(
     socket: UdpSocket,
+
     data: Vec<u8>,
     destination_addr: &SocketAddr,
     group: &Group,
@@ -76,11 +77,11 @@ pub async fn send_data_quic(
 
 pub async fn receive_data_quic(
     socket: &UdpSocket,
+    encryptor: impl FrameDecryptor,
     max_len: usize,
-    groups: &[Group],
     private_key: &str,
     public_key: &str,
-    timeout_callback: impl Fn(Duration) -> bool,
+    timeout_callback: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut config = load_server_config(private_key, public_key)?;
@@ -89,7 +90,7 @@ pub async fn receive_data_quic(
     let timeout = DATA_TIMEOUT as u128;
 
     let (header, addr, mut buffer, mut connection_read) =
-        receive_handshake(&socket, groups, timeout_callback).await?;
+        receive_handshake(&socket, encryptor, timeout_callback).await?;
 
     debug!(
         "Initial packet with size {} received {:?}",
@@ -191,16 +192,16 @@ fn receive_stream(
 async fn send_handshake(
     conn: &mut Connection,
     socket: &UdpSocket,
-    group: &Group,
+    encryptor: impl FrameEncryptor,
 ) -> Result<usize, ConnectionError>
 {
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
-    let identity = socket.local_addr().map(|a| a.ip().to_string())?;
+    // let identity = socket.local_addr().map(|a| a.ip().to_string())?;
 
     let cwrite = conn.send(&mut out)?;
 
-    let enc_write = encrypt_to_bytes(&out[..cwrite], &identity, group, &MessageType::Handshake)?;
+    let enc_write = encryptor.encrypt(&out[..cwrite], &MessageType::Handshake)?;
 
     let connection_sent = match timeout(
         Duration::from_millis(CONNECTION_TIMEOUT),
@@ -221,8 +222,8 @@ async fn send_handshake(
 
 async fn receive_handshake(
     socket: &UdpSocket,
-    groups: &[Group],
-    timeout: impl Fn(Duration) -> bool,
+    encryptor: impl DataDecryptor,
+    timeout: impl Timeout,
 ) -> Result<(Header, SocketAddr, Vec<u8>, usize), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
@@ -230,8 +231,10 @@ async fn receive_handshake(
     let pkt_buf_read = &buffer[..connection_read];
 
     // we dont need to retry with token if the first handshake is correct
-    let (message, group) = validate(pkt_buf_read, groups)?;
-    let mut pkt_buf = decrypt(&message, &addr.ip().to_string(), &group)?;
+    // let (message, group) = validate(pkt_buf_read, groups)?;
+    // let mut pkt_buf = decrypt(&message, &addr.ip().to_string(), &group)?;
+
+    let mut pkt_buf = encryptor.decrypt(pkt_buf_read, Identity::from_addr(&addr))?;
 
     let header = match Header::from_slice(&mut pkt_buf, quiche::MAX_CONN_ID_LEN) {
         Ok(v) => v,
@@ -412,7 +415,7 @@ mod quichetest
 
         client_sock.connect(local_server).await.unwrap();
 
-        let data_len = 10*1024*1024;
+        let data_len = 10 * 1024 * 1024;
         let data_sent = random(data_len);
         let expect_data = data_sent.clone();
 

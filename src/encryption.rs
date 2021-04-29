@@ -12,7 +12,18 @@ use std::io::prelude::*;
 use std::io::{self, Read};
 
 use crate::errors::*;
+use crate::identity::Identity;
 use crate::message::*;
+
+pub trait DataEncryptor
+{
+    fn encrypt(
+        &self,
+        data: &[u8],
+        group: &Group,
+        identity: &Identity,
+    ) -> Result<Vec<u8>, ConnectionError>;
+}
 
 pub fn random(number_of_chars: usize) -> Vec<u8>
 {
@@ -30,7 +41,7 @@ pub fn random_alphanumeric(number_of_chars: usize) -> String
 
 pub fn encrypt(
     contents: &[u8],
-    identity: &str,
+    identity: &Identity,
     group: &Group,
     message_type: &MessageType,
 ) -> Result<Message, EncryptionError>
@@ -47,7 +58,7 @@ pub fn encrypt(
     let nonce = Nonce::from_slice(&nonce_data);
 
     let add = AdditionalData {
-        identity: identity.to_owned(),
+        identity: identity.to_string(),
         group: group.name.clone(),
         message_type: message_type.clone(),
     };
@@ -74,7 +85,7 @@ pub fn encrypt(
 
 pub fn encrypt_to_bytes(
     contents: &[u8],
-    identity: &str,
+    identity: &Identity,
     group: &Group,
     message_type: &MessageType,
 ) -> Result<Vec<u8>, EncryptionError>
@@ -101,11 +112,14 @@ pub fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), Val
     return Ok((message, group.clone()));
 }
 
-pub fn decrypt(message: &Message, identity: &str, group: &Group)
-    -> Result<Vec<u8>, EncryptionError>
+pub fn decrypt(
+    message: &Message,
+    identity: &Identity,
+    group: &Group,
+) -> Result<Vec<u8>, EncryptionError>
 {
     let ad = AdditionalData {
-        identity: identity.to_owned(),
+        identity: identity.to_string(),
         group: group.name.clone(),
         message_type: message.message_type.clone(),
     };

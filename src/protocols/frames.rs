@@ -1,6 +1,5 @@
 use flume::{bounded, Receiver, Sender};
 use log::{debug, error, warn};
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::net::SocketAddr;
@@ -11,25 +10,28 @@ use tokio::time::{sleep, Duration};
 use tokio::try_join;
 
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
-use crate::encryption::{decrypt, encrypt_to_bytes, validate};
+use crate::encryption::DataEncryptor;
 use crate::errors::ConnectionError;
-use crate::fragmenter::{data_to_frame, Frame};
-use crate::message::{Group, MessageType};
-use crate::socket::{receive_from_timeout, retrieve_identity};
+use crate::fragmenter::{
+    size_to_indexes, FragmentEncryptor, FrameDataDecryptor, FrameDecryptor, FrameEncryptor,
+    FrameIndexEncryptor,
+};
+use crate::identity::Identity;
+use crate::socket::{receive_from_timeout, Timeout};
 
 pub async fn receive_data(
     socket: &UdpSocket,
+    encryptor: &(impl FrameDecryptor + DataEncryptor),
     max_len: usize,
-    groups: &[Group],
-    timeout_callback: impl Fn(Duration) -> bool,
+    timeout: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut received_frames: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
     let mut data = [0; MAX_UDP_BUFFER];
     let mut received = 0;
     let mut last_addr: Option<SocketAddr> = None;
-    let timeout_callback_with_time = |d: Duration| {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout_callback(d);
+    let timeout_callback_with_time = |d: Duration| -> bool {
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout(d);
     };
 
     loop {
@@ -55,11 +57,15 @@ pub async fn receive_data(
             ));
         }
 
-        let (message, group) = validate(&data, groups)?;
-        let bytes = decrypt(&message, &addr.ip().to_string(), &group)?;
+        let identity = Identity::from_addr(&addr);
 
-        let frame: Frame = bincode::deserialize(&bytes)
-            .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
+        let (frame, group) = encryptor.decrypt(&data, &identity)?;
+
+        // let (message, group) = validate(&data, groups)?;
+        // let bytes = decrypt(&message, &addr.ip().to_string(), &group)?;
+
+        // let frame: Frame = bincode::deserialize(&bytes)
+        //     .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
 
         debug!(
             "Read {} bytes from {}, index {} total {}",
@@ -68,13 +74,15 @@ pub async fn receive_data(
 
         received_frames.insert(frame.index, frame.data);
 
-        let bytes = encrypt_to_bytes(
-            &frame.index.to_be_bytes(),
-            &addr.ip().to_string(),
-            &group,
-            &MessageType::Frame,
-        )?;
-        socket.send_to(&bytes, addr).await?;
+        let confirm_bytes = encryptor.encrypt(&frame.index.to_be_bytes(), &group, &identity)?;
+
+        // let bytes = encrypt_to_bytes(
+        //     &frame.index.to_be_bytes(),
+        //     &addr.ip().to_string(),
+        //     &group,
+        //     &MessageType::Frame,
+        // )?;
+        socket.send_to(&confirm_bytes, addr).await?;
 
         if frame.total as usize == received_frames.len() {
             let mut full = Vec::new();
@@ -86,16 +94,70 @@ pub async fn receive_data(
     }
 }
 
+pub async fn send_data(
+    socket: UdpSocket,
+    encryptor: impl FragmentEncryptor,
+    data: Vec<u8>,
+    destination_addr: &SocketAddr,
+) -> Result<usize, ConnectionError>
+{
+    // let reminder = if data.len() % MAX_UDP_PAYLOAD > 0 {
+    //     1
+    // } else {
+    //     0
+    // };
+    // let indexes: usize = (data.len() / MAX_UDP_PAYLOAD) + reminder;
+
+    let indexes = size_to_indexes(data.len(), MAX_UDP_PAYLOAD);
+
+    // let identity = retrieve_identity(
+    //     &destination_addr.ip(),
+    //     socket.local_addr().map(|s| s.ip().clone()).ok(),
+    //     group,
+    // )
+    // .await?;
+
+    // let enc = Arc::new(encryptor);
+    // let enc_confirm = Arc::clone(&enc);
+    // let enc_receive = Arc::clone(&enc);
+
+    let socket_writer = Arc::new(socket);
+    let socket_reader = Arc::clone(&socket_writer);
+    // let groups = vec![group.clone()];
+    // let expected_addr = destination_addr.clone();
+
+    // let encryptor_confirm = encryptor.clone();
+    let indexes_b = indexes.clone();
+
+    let (channel_sender, channel_receiver) = bounded(indexes * 4);
+    let res = try_join!(
+        tokio::spawn(confirm_received(
+            socket_reader,
+            channel_sender,
+            encryptor.clone(),
+            indexes_b,
+        )),
+        tokio::spawn(confirm_sent(
+            socket_writer,
+            channel_receiver,
+            encryptor.clone(),
+            data,
+            indexes,
+        ))
+    )
+    .map_err(ConnectionError::JoinError)?;
+    return Ok(res.1?);
+}
+
 async fn confirm_received(
     socket_reader: Arc<UdpSocket>,
     channel_sender: Sender<u32>,
-    expected_addr: SocketAddr,
+    encryptor: impl FrameDataDecryptor,
     indexes: usize,
-    groups: Vec<Group>,
 ) -> Result<usize, ConnectionError>
 {
     let mut received: HashMap<u32, bool> = HashMap::new();
-    let timeout_callback_with_channel = |d: Duration| {
+    let timeout_callback_with_channel = |d: Duration| -> bool {
         return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected();
     };
     while received.len() != indexes && !channel_sender.is_disconnected() {
@@ -104,12 +166,13 @@ async fn confirm_received(
             match receive_from_timeout(&socket_reader, &mut bytes, timeout_callback_with_channel)
                 .await
             {
-                Ok(_) => validate(&bytes, &groups)
-                    .map_err(ConnectionError::ReceiveError)
-                    .and_then(|(message, cgroup)| {
-                        decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
-                            .map_err(ConnectionError::Encryption)
-                    }),
+                Ok(_) => encryptor.decrypt(&bytes),
+                // validate(&bytes, &groups)
+                //     .map_err(ConnectionError::ReceiveError)
+                //     .and_then(|(message, cgroup)| {
+                //         decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
+                //             .map_err(ConnectionError::Encryption)
+                //     }),
                 _ => {
                     continue;
                 }
@@ -153,11 +216,10 @@ async fn confirm_received(
 
 async fn confirm_sent(
     socket_writer: Arc<UdpSocket>,
-    data: Vec<u8>,
     channel_receiver: Receiver<u32>,
-    identity: String,
+    encryptor: impl FrameIndexEncryptor,
+    data: Vec<u8>,
     indexes: usize,
-    group: Group,
 ) -> Result<usize, ConnectionError>
 {
     let mut sent_without_confirmation: HashMap<u32, bool> = HashMap::new();
@@ -165,7 +227,7 @@ async fn confirm_sent(
     let mut sent = 0;
     // first send all
     while i < indexes as u32 {
-        sent += send_index(&socket_writer, i, indexes, &data, &identity, &group).await?;
+        sent += send_index(&socket_writer, &encryptor, &data, i).await?;
         sent_without_confirmation.insert(i, true);
         i += 1;
         sleep(Duration::from_millis(10)).await;
@@ -183,15 +245,7 @@ async fn confirm_sent(
         }
 
         for (index, _) in sent_without_confirmation.iter() {
-            sent += send_index(
-                &socket_writer,
-                index.clone(),
-                indexes,
-                &data,
-                &identity,
-                &group,
-            )
-            .await?;
+            sent += send_index(&socket_writer, &encryptor, &data, index.clone()).await?;
         }
         if now.elapsed().as_millis() > CONNECTION_TIMEOUT as u128 {
             return Err(ConnectionError::FailedToConnect(format!(
@@ -205,65 +259,16 @@ async fn confirm_sent(
     return Ok(sent);
 }
 
-pub async fn send_data(
-    socket: UdpSocket,
-    data: Vec<u8>,
-    destination_addr: &SocketAddr,
-    group: &Group,
-) -> Result<usize, ConnectionError>
-{
-    let reminder = if data.len() % MAX_UDP_PAYLOAD > 0 {
-        1
-    } else {
-        0
-    };
-    let indexes: usize = (data.len() / MAX_UDP_PAYLOAD) + reminder;
-
-    let identity = retrieve_identity(
-        &destination_addr.ip(),
-        socket.local_addr().map(|s| s.ip().clone()).ok(),
-        group,
-    )
-    .await?;
-
-    let socket_writer = Arc::new(socket);
-    let socket_reader = Arc::clone(&socket_writer);
-    let groups = vec![group.clone()];
-    let expected_addr = destination_addr.clone();
-
-    let (channel_sender, channel_receiver) = bounded(indexes * 4);
-    let res = try_join!(
-        tokio::spawn(confirm_received(
-            socket_reader,
-            channel_sender,
-            expected_addr,
-            indexes,
-            groups
-        )),
-        tokio::spawn(confirm_sent(
-            socket_writer,
-            data,
-            channel_receiver,
-            identity.to_string(),
-            indexes,
-            group.clone()
-        ))
-    )
-    .map_err(ConnectionError::JoinError)?;
-    return Ok(res.1?);
-}
-
 async fn send_index(
     socket_writer: &UdpSocket,
-    index: u32,
-    indexes: usize,
+    encryptor: &impl FrameIndexEncryptor,
     data: &[u8],
-    identity: &str,
-    group: &Group,
+    index: u32,
 ) -> Result<usize, ConnectionError>
 {
-    let frame = data_to_frame(index, indexes as u16, data, MAX_UDP_PAYLOAD)?;
-    let bytes = encrypt_to_bytes(&frame, identity, &group, &MessageType::Frame)?;
+    let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD)?;
+    // let frame = data_to_frame(index, indexes as u16, data, MAX_UDP_PAYLOAD)?;
+    // let bytes = encrypt_to_bytes(&frame, identity, &group, &MessageType::Frame)?;
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 

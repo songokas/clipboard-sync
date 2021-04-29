@@ -1,18 +1,19 @@
+use futures::future::try_join_all;
+use std::io;
+use std::net::SocketAddr;
+use std::time::Instant;
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::time::{timeout, Duration};
+
 use crate::defaults::MAX_UDP_BUFFER;
 use crate::errors::ConnectionError;
-use crate::socket::receive_from_timeout;
-use std::net::SocketAddr;
-use tokio::net::{UdpSocket,TcpStream,TcpListener};
-use tokio::time::{Duration, timeout};
-use tokio::io::AsyncWriteExt;
-use std::io;
-use futures::future::{try_join_all};
-use std::time::Instant;
+use crate::socket::{receive_from_timeout, Timeout};
 
 pub async fn receive_data(
     socket: &UdpSocket,
     max_len: usize,
-    timeout_callback: impl Fn(Duration) -> bool,
+    timeout_callback: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
@@ -20,43 +21,44 @@ pub async fn receive_data(
     let (read, addr) = receive_from_timeout(socket, &mut buffer, timeout_callback).await?;
     // large data
     // if read == 1 && buffer[0] == 0 {
-        let stream = TcpStream::connect("127.0.0.1:9008").await?;
-        let mut data = Vec::new();
-        let now = Instant::now();
-        while now.elapsed() < Duration::from_millis(2000) {
+    let stream = TcpStream::connect("127.0.0.1:9008").await?;
+    let mut data = Vec::new();
+    let now = Instant::now();
+    while now.elapsed() < Duration::from_millis(2000) {
+        println!("readable called 1");
 
-            println!("readable called 1");
+        stream.readable().await?;
 
-            stream.readable().await?;
+        println!("readable called 2");
 
-            println!("readable called 2");
-
-            match stream.try_read(&mut buffer) {
-                Ok(0) => {
-                    println!("0 called");
-                    return Ok((data, addr));
-                },
-                Ok(n) => {
-                    println!("received called");
-                    let mut data_read = buffer[0..n].to_vec();
-                    if (data.len() + data_read.len()) > max_len {
-                        return Err(ConnectionError::LimitReached(
-                            format!("Connection limit reached: expected {} received {}", max_len, data.len() + data_read.len())
-                        ));
-                    }
-                    data.append(&mut data_read);
+        match stream.try_read(&mut buffer) {
+            Ok(0) => {
+                println!("0 called");
+                return Ok((data, addr));
+            }
+            Ok(n) => {
+                println!("received called");
+                let mut data_read = buffer[0..n].to_vec();
+                if (data.len() + data_read.len()) > max_len {
+                    return Err(ConnectionError::LimitReached(format!(
+                        "Connection limit reached: expected {} received {}",
+                        max_len,
+                        data.len() + data_read.len()
+                    )));
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    println!("WouldBlock called");
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
+                data.append(&mut data_read);
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                println!("WouldBlock called");
+                continue;
+            }
+            Err(e) => {
+                return Err(e.into());
             }
         }
+    }
 
-        // return read_stream(stream, max_len, timeout);
+    // return read_stream(stream, max_len, timeout);
     // }
 
     let size = if read > max_len { max_len } else { read };
@@ -96,17 +98,18 @@ pub async fn send_data(socket: UdpSocket, data: Vec<u8>) -> Result<usize, Connec
         // let mut futures = Vec::new();
         while now.elapsed().as_millis() < 1000 {
             // add timeout
-            let (mut stream, sock_addr) = match timeout(Duration::from_millis(1000), listener.accept()).await {
-                Ok(v) => v?,
-                Err(_) => continue,
-            };
+            let (mut stream, sock_addr) =
+                match timeout(Duration::from_millis(1000), listener.accept()).await {
+                    Ok(v) => v?,
+                    Err(_) => continue,
+                };
             let data_to_send = data.clone();
             // futures.push(tokio::spawn(async move {
-                let res = stream.write_all(&data_to_send).await;
-                println!("shutdown called");
-                stream.shutdown().await?;
-                println!("shutdown called 2");
-                // return res;
+            let res = stream.write_all(&data_to_send).await;
+            println!("shutdown called");
+            stream.shutdown().await?;
+            println!("shutdown called 2");
+            // return res;
             // }));
         }
         // let _ = try_join_all(futures).await.map_err(|e| {
@@ -125,12 +128,10 @@ pub async fn send_data(socket: UdpSocket, data: Vec<u8>) -> Result<usize, Connec
         //         return Err(ConnectionError::FailedToConnect(format!("Failed to send data to one or more receivers")));
         //     }
         // };
-        
     }
 
     return Ok(socket.send(&data).await?);
 }
-
 
 pub async fn obtain_socket(
     local_address: &SocketAddr,
@@ -149,6 +150,11 @@ pub async fn obtain_socket(
             local_address, remote_addr, e
         ))
     })?;
+
+    if remote_addr.ip().is_multicast() {
+        sock.set_multicast_loop_v4(false).unwrap_or(());
+        sock.set_multicast_loop_v6(false).unwrap_or(());
+    }
     return Ok(sock);
 }
 
@@ -170,9 +176,7 @@ mod basictest
         client_sock.connect(local_server).await.unwrap();
         let data_sent = b"test1".to_vec();
 
-        let data_len_sent = send_data(client_sock, data_sent.clone())
-            .await
-            .unwrap();
+        let data_len_sent = send_data(client_sock, data_sent.clone()).await.unwrap();
 
         let (data_received, addr) = receive_data(&server_sock, 10, |d: Duration| {
             d > Duration::from_millis(2000)
@@ -195,9 +199,7 @@ mod basictest
         client_sock.connect(local_server).await.unwrap();
         let data_sent = b"test1".to_vec();
 
-        let data_len_sent = send_data(client_sock, data_sent.clone())
-            .await
-            .unwrap();
+        let data_len_sent = send_data(client_sock, data_sent.clone()).await.unwrap();
 
         let (data_received, addr) = receive_data(&server_sock, 2, |d: Duration| {
             d > Duration::from_millis(2000)
@@ -230,10 +232,7 @@ mod basictest
                 })
                 .await
             }),
-            tokio::spawn(async move {
-                send_data(client_sock, for_sending).await
-            }),
-
+            tokio::spawn(async move { send_data(client_sock, for_sending).await }),
         )
         .unwrap();
 

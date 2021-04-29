@@ -1,3 +1,4 @@
+use chacha20poly1305::Key;
 use indexmap::IndexMap;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -6,17 +7,18 @@ use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use chacha20poly1305::Key;
 
 use crate::defaults::{
-    default_socket_send_address, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER,
-    PACKAGE_NAME, RECEIVE_ONCE_WAIT,
+    default_socket_send_address, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER, PACKAGE_NAME,
+    RECEIVE_ONCE_WAIT,
 };
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
 use crate::message::{ConfigGroup, Group};
 use crate::protocols::Protocol;
+
+pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Certificates
@@ -156,7 +158,7 @@ pub fn load_groups(
     default_allowed_host_address: &str,
     default_bind_address: &str,
     default_protocol: Option<&str>,
-    load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
+    load_cli_certs: impl CertLoader,
     send_clipboard_on_startup: bool,
     default_visible_ip: Option<String>,
     default_key: String,
@@ -164,7 +166,7 @@ pub fn load_groups(
 {
     info!("Loading from {} config", file_path);
 
-    let yaml_file = File::open(&file_path)
+    let yaml_file = File::open(file_path)
         .map_err(|err| error!("Error while opening: {:?}", err))
         .map_err(|_| Error::new(ErrorKind::InvalidData, "Unable to open yaml file"))?;
     let reader = BufReader::new(yaml_file);
@@ -220,7 +222,7 @@ pub fn load_groups(
             k.clone()
         } else {
             if default_key.len() != KEY_SIZE {
-                return Err(CliError::InvalidKey(format!("No key provided"))); 
+                return Err(CliError::InvalidKey(format!("No key provided")));
             }
             Key::from_slice(default_key.as_bytes()).clone()
         };
@@ -242,7 +244,12 @@ pub fn load_groups(
     let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
     let receive_once_wait = user_config.receive_once_wait.unwrap_or(RECEIVE_ONCE_WAIT);
     let bind_default_protocol = Protocol::from(default_protocol, load_certs)?;
-    let bind_addresses = create_bind_addresses(&user_config.bind_addresses, default_bind_address, load_certs, bind_default_protocol)?;
+    let bind_addresses = create_bind_addresses(
+        &user_config.bind_addresses,
+        default_bind_address,
+        load_certs,
+        bind_default_protocol,
+    )?;
     let full_config = FullConfig::from_config(
         bind_addresses,
         groups,

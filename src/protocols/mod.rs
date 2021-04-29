@@ -1,15 +1,15 @@
 use laminar::{Config, Socket};
+use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
-use tokio::time::Duration;
 
 use crate::config::Certificates;
+use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
-use std::fmt;
-
 use crate::errors::ConnectionError;
-use crate::message::Group;
+use crate::fragmenter::{FragmentEncryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
+// use crate::socket::Timeout;
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
@@ -89,7 +89,7 @@ impl fmt::Display for Protocol
     }
 }
 
-pub enum SocketEndpoint
+pub enum LocalSocket
 {
     Socket(UdpSocket),
     Laminar((Socket, Config)),
@@ -100,7 +100,7 @@ pub enum SocketEndpoint
 }
 
 #[allow(irrefutable_let_patterns)]
-impl SocketEndpoint
+impl LocalSocket
 {
     pub fn socket(&self) -> Option<&UdpSocket>
     {
@@ -170,7 +170,7 @@ pub async fn obtain_client_socket(
     local_address: &SocketAddr,
     remote_addr: &SocketAddr,
     protocol: &Protocol,
-) -> Result<SocketEndpoint, ConnectionError>
+) -> Result<LocalSocket, ConnectionError>
 {
     // debug!("Send to {} using {}", remote_addr, local_address);
     match protocol {
@@ -178,11 +178,11 @@ pub async fn obtain_client_socket(
         Protocol::Quic(_) => quin::obtain_socket(local_address).await,
         Protocol::Laminar => {
             let sock = laminarpr::obtain_socket(local_address)?;
-            return Ok(SocketEndpoint::Laminar(sock));
+            return Ok(LocalSocket::Laminar(sock));
         }
         _ => {
             let sock = basic::obtain_socket(local_address, remote_addr).await?;
-            return Ok(SocketEndpoint::Socket(sock));
+            return Ok(LocalSocket::Socket(sock));
         }
     }
 }
@@ -190,7 +190,7 @@ pub async fn obtain_client_socket(
 pub async fn obtain_server_socket(
     local_address: &SocketAddr,
     protocol: &Protocol,
-) -> Result<SocketEndpoint, ConnectionError>
+) -> Result<LocalSocket, ConnectionError>
 {
     match protocol {
         #[cfg(feature = "quinn")]
@@ -200,61 +200,62 @@ pub async fn obtain_server_socket(
             .map_err(|err| ConnectionError::EndpointError(err)),
         Protocol::Laminar => {
             let s = laminarpr::obtain_socket(local_address)?;
-            return Ok(SocketEndpoint::Laminar(s));
+            return Ok(LocalSocket::Laminar(s));
         }
         _ => {
             let sock = UdpSocket::bind(local_address).await?;
-            return Ok(SocketEndpoint::Socket(sock));
+            return Ok(LocalSocket::Socket(sock));
         }
     }
 }
 
 pub async fn send_data(
-    endpoint: SocketEndpoint,
+    local_socket: LocalSocket,
+    encryptor: impl FragmentEncryptor,
+    protocol: &Protocol,
+    destination: SocketAddr,
     data: Vec<u8>,
-    addr: &SocketAddr,
-    group: &Group,
 ) -> Result<usize, ConnectionError>
 {
-    return match &group.protocol {
+    return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
             frames::send_data(
-                endpoint
+                local_socket
                     .socket_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Frames protocol socket expected".to_owned(),
                     ))?,
+                encryptor,
                 data,
-                addr,
-                group,
+                &destination,
             )
             .await
         }
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => {
             send_data_quic(
-                endpoint
+                local_socket
                     .client_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Quic protocol client expected".to_owned(),
                     ))?,
                 data,
-                addr,
-                group,
+                destination,
             )
             .await
         }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
             send_data_quic(
-                endpoint
+                local_socket
                     .socket_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Quic protocol socket expected".to_owned(),
                     ))?,
+                encryptor,
                 data,
-                addr,
+                destination,
                 group,
                 c.verify_dir.clone(),
             )
@@ -262,7 +263,7 @@ pub async fn send_data(
         }
         Protocol::Basic => {
             basic::send_data(
-                endpoint
+                local_socket
                     .socket_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Basic protocol socket expected".to_owned(),
@@ -273,33 +274,35 @@ pub async fn send_data(
         }
         Protocol::Laminar => {
             let (socket, config) =
-                endpoint
+                local_socket
                     .laminar_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Laminar protocol socket expected".to_owned(),
                     ))?;
-            laminarpr::send_data(socket, &config, data, addr, group).await
+            laminarpr::send_data(socket, &config, encryptor, data, &destination).await
         }
     };
 }
 
 pub async fn receive_data(
-    endpoint: &mut SocketEndpoint,
-    max_len: usize,
-    groups: &[Group],
+    local_socket: &mut LocalSocket,
+    encryptor: &(impl FrameDecryptor + DataEncryptor),
     protocol: &Protocol,
-    timeout: impl Fn(Duration) -> bool,
+    max_len: usize,
+    timeout: impl Fn(tokio::time::Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
             frames::receive_data(
-                endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
-                    "Frames protocol socket expected".to_owned(),
-                ))?,
+                local_socket
+                    .socket()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Frames protocol socket expected".to_owned(),
+                    ))?,
+                encryptor,
                 max_len,
-                groups,
                 timeout,
             )
             .await
@@ -307,9 +310,12 @@ pub async fn receive_data(
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => {
             receive_data_quic(
-                endpoint.server().ok_or(ConnectionError::InvalidProtocol(
-                    "Quic protocol server expected".to_owned(),
-                ))?,
+                local_socket
+                    .server()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Quic protocol server expected".to_owned(),
+                    ))?,
+                encryptor,
                 max_len,
                 timeout,
             )
@@ -318,32 +324,38 @@ pub async fn receive_data(
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
             receive_data_quic(
-                endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
-                    "Quic protocol socket expected".to_owned(),
-                ))?,
-                max_len,
-                groups,
+                local_socket
+                    .socket()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Quic protocol socket expected".to_owned(),
+                    ))?,
+                encryptor,
                 &c.private_key,
                 &c.public_key,
+                max_len,
                 timeout,
             )
             .await
         }
         Protocol::Basic => {
             basic::receive_data(
-                endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
-                    "Basic protocol socket expected".to_owned(),
-                ))?,
+                local_socket
+                    .socket()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Basic protocol socket expected".to_owned(),
+                    ))?,
                 max_len,
                 timeout,
             )
             .await
         }
         Protocol::Laminar => {
-            let (s, c) = endpoint.laminar().ok_or(ConnectionError::InvalidProtocol(
-                "Basic protocol socket expected".to_owned(),
-            ))?;
-            laminarpr::receive_data(s, max_len, groups, timeout).await
+            let (s, c) = local_socket
+                .laminar()
+                .ok_or(ConnectionError::InvalidProtocol(
+                    "Basic protocol socket expected".to_owned(),
+                ))?;
+            laminarpr::receive_data(s, encryptor, max_len, timeout).await
         }
     };
 }
