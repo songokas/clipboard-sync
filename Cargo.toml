@@ -32,8 +32,8 @@ jni = "0.19"
 lazy_static = "1.4"
 indexmap = { version = "1.6", features = ["serde-1"] }
 flume = "0.10"
-# @TODO
-# err-derive = "0.3.0"
+laminar = "0.4"
+err-derive = "0.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.10"

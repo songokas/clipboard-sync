@@ -1,7 +1,7 @@
+use flume::{Receiver, Sender};
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use flume::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
@@ -10,7 +10,9 @@ use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
-use crate::clipboards::{Clipboard, ClipboardType, create_targets_for_cut_files, create_text_targets};
+use crate::clipboards::{
+    create_targets_for_cut_files, create_text_targets, Clipboard, ClipboardType,
+};
 use crate::config::FullConfig;
 use crate::defaults::*;
 use crate::encryption::*;
@@ -133,9 +135,6 @@ pub async fn wait_on_clipboard(
         }
 
         for group in &groups {
-
-            announce_multicast(MessageType::Announce, &group);
-
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
                 &mut clipboard,
                 group,
@@ -296,7 +295,6 @@ fn write_to(
     identity: &str,
 ) -> Result<(String, String), ClipboardError>
 {
-
     if group.clipboard == CLIPBOARD_NAME {
         match message_type {
             MessageType::Files => {
@@ -310,7 +308,10 @@ fn write_to(
                     })?;
                 let files_created = bytes_to_dir(&config_path, data, identity)?;
                 let (clipboard_list, main_content) = create_targets_for_cut_files(files_created);
-                let clipboards: HashMap<ClipboardType, &[u8]> = clipboard_list.iter().map(|(k, v)| (k.clone(), v.as_bytes())).collect();
+                let clipboards: HashMap<ClipboardType, &[u8]> = clipboard_list
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.as_bytes()))
+                    .collect();
                 let hash = hash(main_content.as_bytes());
                 clipboard
                     .set_multiple_targets(clipboards)
@@ -369,45 +370,16 @@ async fn handle_clipboard_change(
             }
         }
 
-        debug!("Sending to {}:{} using {}", remote_ip, addr.port(), identity);
+        debug!(
+            "Sending to {}:{} using {}",
+            remote_ip,
+            addr.port(),
+            identity
+        );
 
         sent += send_data(endpoint, bytes, &addr, group).await?;
     }
     return Ok(sent);
-}
-
-async fn retrieve_identity(
-    remote_ip: &IpAddr,
-    local_ip: Option<IpAddr>,
-    group: &Group,
-) -> Result<IpAddr, ConnectionError>
-{
-    let is_private = match remote_ip {
-        IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
-        _ => false,
-    };
-
-    let identity = if remote_ip.is_multicast() {
-        match group.protocol {
-            Protocol::Basic => (),
-            _ => {
-                return Err(ConnectionError::InvalidProtocol(format!(
-                    "Protocol {} does not support multicast",
-                    group.protocol
-                )));
-            }
-        };
-        to_visible_ip(local_ip, group).await
-    } else if remote_ip.is_loopback() || is_private {
-        to_visible_ip(local_ip, group).await
-    } else {
-        let host = group.visible_ip.as_ref().ok_or(ConnectionError::NoPublic(
-            "Group missing public ip however global routing requested".to_owned(),
-        ))?;
-        let sock_addr = to_socket(format!("{}:0", host)).await?;
-        sock_addr.ip()
-    };
-    return Ok(identity);
 }
 
 #[cfg(test)]
@@ -464,9 +436,9 @@ mod processtest
         let clipboardr = Clipboard::new().unwrap();
         let mut group = Group::from_addr("test1", "127.0.0.1:8391", "127.0.0.1:8392");
         group.clipboard = "/tmp/twtest1".to_owned();
-        let (tx, rx) = channel(MAX_CHANNEL);
+        let (tx, rx) = flume::bounded(MAX_CHANNEL);
         let atx = Arc::new(tx);
-        let (stat_sender, _) = channel(MAX_CHANNEL);
+        let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
         let sender = Arc::new(stat_sender);
         let running = Arc::new(AtomicBool::new(true));
         let local_address: SocketAddr = "127.0.0.1:8392".parse().unwrap();
@@ -529,9 +501,9 @@ mod processtest
         let clipboard = Clipboard::new().unwrap();
         let mut group = Group::from_addr("test1", "127.0.0.1:8393", "127.0.0.1:8394");
         group.clipboard = "/tmp/twtest1".to_owned();
-        let (tx, _rx) = channel(MAX_CHANNEL);
+        let (tx, _rx) = flume::bounded(MAX_CHANNEL);
         let atx = Arc::new(tx);
-        let (stat_sender, _) = channel(MAX_CHANNEL);
+        let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
         let sender = Arc::new(stat_sender);
         let running = Arc::new(AtomicBool::new(true));
         let local_address: SocketAddr = "127.0.0.1:8394".parse().unwrap();
@@ -624,109 +596,5 @@ mod processtest
         group.clipboard = "tests/non-existing".to_owned();
         let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
         assert_eq!(res, None);
-    }
-
-    fn identity_provider() -> Vec<(IpAddr, IpAddr, Option<IpAddr>, Group)>
-    {
-        return vec![
-            (
-                "127.0.0.2".parse().unwrap(),
-                "192.168.0.1".parse().unwrap(),
-                Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test1"),
-            ),
-            (
-                "127.0.0.2".parse().unwrap(),
-                "172.16.0.1".parse().unwrap(),
-                Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test2"),
-            ),
-            (
-                "127.0.0.2".parse().unwrap(),
-                "224.0.0.1".parse().unwrap(),
-                Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test3"),
-            ),
-            (
-                "127.0.0.2".parse().unwrap(),
-                "169.254.0.1".parse().unwrap(),
-                Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test4"),
-            ),
-            (
-                "127.0.0.3".parse().unwrap(),
-                "169.254.0.1".parse().unwrap(),
-                None,
-                Group::from_addr("test5", "127.0.0.3:9811", "192.168.0.1"),
-            ),
-            (
-                "192.168.0.1".parse().unwrap(),
-                "127.0.0.1".parse().unwrap(),
-                Some("192.168.0.1".parse().unwrap()),
-                Group::from_name("test4"),
-            ),
-            (
-                "192.168.0.1".parse().unwrap(),
-                "127.0.0.1".parse().unwrap(),
-                None,
-                Group::from_addr("test5", "192.168.0.1:9811", "192.168.0.1"),
-            ),
-            (
-                "8.8.8.8".parse().unwrap(),
-                "1.1.1.1".parse().unwrap(),
-                Some("127.0.0.1".parse().unwrap()),
-                Group::from_public("test4", "8.8.8.8"),
-            ),
-        ];
-    }
-
-    #[test]
-    fn test_retrieve_identity()
-    {
-        for (expected, remote_ip, local_ip, group) in identity_provider() {
-            let res = wait!(retrieve_identity(&remote_ip, local_ip, &group));
-            assert_eq!(expected, res.unwrap());
-        }
-    }
-
-    #[test]
-    fn test_retrieve_identity_errors()
-    {
-        let r1 = (
-            "1.1.1.1".parse().unwrap(),
-            Some("127.0.0.1".parse().unwrap()),
-            Group::from_public("test1", "8.8.8.8.3"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        assert_error_type!(res, ConnectionError::DnsError(_));
-
-        let r1 = (
-            "1.1.1.1".parse().unwrap(),
-            Some("127.0.0.1".parse().unwrap()),
-            Group::from_public("test2", "abc"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        assert_error_type!(res, ConnectionError::DnsError(_));
-
-        #[cfg(feature = "frames")]
-        {
-            let mut g = Group::from_name("test3");
-            g.protocol = Protocol::Frames;
-            let r1 = (
-                "224.0.0.1".parse().unwrap(),
-                Some("127.0.0.1".parse().unwrap()),
-                g,
-            );
-            let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-            assert_error_type!(res, ConnectionError::InvalidProtocol(_));
-        }
-
-        let r1 = (
-            "1.1.1.1".parse().unwrap(),
-            Some("127.0.0.1".parse().unwrap()),
-            Group::from_name("test5"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        assert_error_type!(res, ConnectionError::NoPublic(_));
     }
 }

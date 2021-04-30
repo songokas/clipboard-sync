@@ -1,3 +1,4 @@
+use flume::{bounded, Receiver, Sender};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -8,23 +9,15 @@ use std::time::Instant;
 use tokio::net::UdpSocket;
 use tokio::time::{sleep, Duration};
 use tokio::try_join;
-use flume::{bounded, Receiver, Sender};
 
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::encryption::{decrypt, encrypt_to_bytes, validate};
 use crate::errors::ConnectionError;
+use crate::fragmenter::{data_to_frame, Frame};
 use crate::message::{Group, MessageType};
-use crate::socket::receive_from_timeout;
+use crate::socket::{receive_from_timeout, retrieve_identity};
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Frame
-{
-    index: u32,
-    total: u16,
-    data: Vec<u8>,
-}
-
-pub async fn receive_data_frames(
+pub async fn receive_data(
     socket: &UdpSocket,
     max_len: usize,
     groups: &[Group],
@@ -103,23 +96,24 @@ async fn confirm_received(
 {
     let mut received: HashMap<u32, bool> = HashMap::new();
     let timeout_callback_with_channel = |d: Duration| {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected()
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected();
     };
     while received.len() != indexes && !channel_sender.is_disconnected() {
         let mut bytes = [0; 100];
-        let received_bytes = match receive_from_timeout(&socket_reader, &mut bytes, timeout_callback_with_channel).await {
-            Ok(_) => {
-                validate(&bytes, &groups)
-                .map_err(ConnectionError::ReceiveError)
-                .and_then(|(message, cgroup)| {
-                    decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
-                        .map_err(ConnectionError::Encryption)
-                })
-            },
-            _ => {
-                continue;
-            }
-        };
+        let received_bytes =
+            match receive_from_timeout(&socket_reader, &mut bytes, timeout_callback_with_channel)
+                .await
+            {
+                Ok(_) => validate(&bytes, &groups)
+                    .map_err(ConnectionError::ReceiveError)
+                    .and_then(|(message, cgroup)| {
+                        decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
+                            .map_err(ConnectionError::Encryption)
+                    }),
+                _ => {
+                    continue;
+                }
+            };
 
         let index_bytes = match received_bytes {
             Ok(b) if b.len() == 4 => b.try_into(),
@@ -211,15 +205,27 @@ async fn confirm_sent(
     return Ok(sent);
 }
 
-pub async fn send_data_frames(
+pub async fn send_data(
     socket: UdpSocket,
     data: Vec<u8>,
     destination_addr: &SocketAddr,
     group: &Group,
 ) -> Result<usize, ConnectionError>
 {
-    let indexes: usize = (data.len() / MAX_UDP_PAYLOAD) + 1;
-    let identity = socket.local_addr().map(|a| a.ip().to_string())?;
+    let reminder = if data.len() % MAX_UDP_PAYLOAD > 0 {
+        1
+    } else {
+        0
+    };
+    let indexes: usize = (data.len() / MAX_UDP_PAYLOAD) + reminder;
+
+    let identity = retrieve_identity(
+        &destination_addr.ip(),
+        socket.local_addr().map(|s| s.ip().clone()).ok(),
+        group,
+    )
+    .await?;
+
     let socket_writer = Arc::new(socket);
     let socket_reader = Arc::clone(&socket_writer);
     let groups = vec![group.clone()];
@@ -238,7 +244,7 @@ pub async fn send_data_frames(
             socket_writer,
             data,
             channel_receiver,
-            identity,
+            identity.to_string(),
             indexes,
             group.clone()
         ))
@@ -256,25 +262,17 @@ async fn send_index(
     group: &Group,
 ) -> Result<usize, ConnectionError>
 {
-    let from = index as usize * MAX_UDP_PAYLOAD;
-    let mut to = (index as usize + 1) * MAX_UDP_PAYLOAD;
-    if to > data.len() {
-        to = data.len();
-    }
-    let frame = Frame {
-        index: index as u32,
-        total: indexes as u16,
-        data: data[from..to].to_vec(),
-    };
-    let bytes = bincode::serialize(&frame)
-        .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
-    let bytes = encrypt_to_bytes(&bytes, identity, &group, &MessageType::Frame)?;
+    let frame = data_to_frame(index, indexes as u16, data, MAX_UDP_PAYLOAD)?;
+    let bytes = encrypt_to_bytes(&frame, identity, &group, &MessageType::Frame)?;
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 
     return match socket_writer.send(&bytes).await {
         Ok(n) => Ok(n),
-        Err(e) => Err(ConnectionError::FailedToConnect(format!("Failed to send index {}. Message: {}", index, e)))
+        Err(e) => Err(ConnectionError::FailedToConnect(format!(
+            "Failed to send index {}. Message: {}",
+            index, e
+        ))),
     };
 }
 
@@ -282,12 +280,22 @@ async fn send_index(
 mod framestest
 {
     use super::*;
+    use crate::assert_error_type;
+    use crate::encryption::random;
     use futures::try_join;
-    use crate::encryption::{random};
-    use crate::{assert_error_type};
 
-    async fn test_send_receive(data_len: usize, max_len: usize, port: u32)
-        -> (SocketAddr, Vec<u8>, (Result<usize, ConnectionError>, Result<(Vec<u8>, SocketAddr), ConnectionError>))
+    async fn test_send_receive(
+        data_len: usize,
+        max_len: usize,
+        port: u32,
+    ) -> (
+        SocketAddr,
+        Vec<u8>,
+        (
+            Result<usize, ConnectionError>,
+            Result<(Vec<u8>, SocketAddr), ConnectionError>,
+        ),
+    )
     {
         // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let local_server: SocketAddr = format!("127.0.0.1:993{}", port).parse().unwrap();
@@ -302,11 +310,11 @@ mod framestest
         let data_sent = random(data_len);
         let expected_data = data_sent.clone();
         let res = try_join!(
+            tokio::spawn(
+                async move { send_data(client_sock, data_sent, &local_server, &group).await }
+            ),
             tokio::spawn(async move {
-                send_data_frames(client_sock, data_sent, &local_server, &group).await
-            }),
-            tokio::spawn(async move {
-                receive_data_frames(&server_sock, max_len, &groups, |d: Duration| {
+                receive_data(&server_sock, max_len, &groups, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await

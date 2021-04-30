@@ -25,7 +25,7 @@ use crate::defaults::{
 use crate::errors::CliError;
 use crate::message::Group;
 use crate::process::{wait_handle_receive, wait_on_clipboard};
-use crate::socket::Protocol;
+use crate::protocols::Protocol;
 
 #[derive(Serialize, Deserialize)]
 pub struct AndroidConfig
@@ -129,7 +129,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         groups,
         MAX_RECEIVE_BUFFER,
         RECEIVE_ONCE_WAIT,
-        false,
+        true,
     );
 
     return Ok(full_config);

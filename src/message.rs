@@ -3,7 +3,7 @@ use serde::{de, Deserialize, Serialize};
 use std::net::SocketAddr;
 
 use crate::defaults::KEY_SIZE;
-use crate::socket::Protocol;
+use crate::protocols::Protocol;
 
 mod serde_key_str
 {

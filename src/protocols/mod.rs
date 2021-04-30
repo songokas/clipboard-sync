@@ -1,18 +1,166 @@
+use laminar::{Config, Socket};
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
+use crate::config::Certificates;
+use crate::errors::CliError;
+use std::fmt;
+
 use crate::errors::ConnectionError;
 use crate::message::Group;
-use crate::socket::{Protocol, SocketEndpoint};
+
+#[cfg(feature = "quinn")]
+use quinn::{Endpoint, Incoming};
 
 mod basic;
 #[cfg(feature = "frames")]
 mod frames;
+#[path = "laminar.rs"]
+mod laminarpr;
 #[cfg(feature = "quiche")]
 mod quiche;
 #[cfg(feature = "quinn")]
 mod quinn;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Protocol
+{
+    Basic,
+    #[cfg(feature = "frames")]
+    Frames,
+    #[cfg(feature = "quic")]
+    Quic(Certificates),
+    Laminar,
+}
+
+impl Protocol
+{
+    pub fn requires_public_key(&self) -> bool
+    {
+        #[cfg(feature = "quic")]
+        if let Self::Quic(_) = self {
+            return true;
+        }
+        return false;
+    }
+
+    #[allow(unused_variables)]
+    pub fn from(
+        protocol_opt: Option<&str>,
+        certs_callback: impl Fn() -> Result<Certificates, CliError>,
+    ) -> Result<Protocol, CliError>
+    {
+        let protocol = match protocol_opt {
+            #[cfg(feature = "quic")]
+            Some(v) if v == "quic" => {
+                let c = certs_callback()?;
+                Protocol::Quic(c.clone())
+            }
+            #[cfg(feature = "frames")]
+            Some(v) if v == "frames" => Protocol::Frames,
+            Some(v) if v == "basic" => Protocol::Basic,
+            Some(v) if v == "laminar" => Protocol::Laminar,
+            Some(v) => {
+                return Err(CliError::ArgumentError(format!(
+                    "Protocol {} is not available",
+                    v
+                )));
+            }
+            None => Protocol::Basic,
+        };
+        return Ok(protocol);
+    }
+}
+
+impl fmt::Display for Protocol
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
+        return match self {
+            #[cfg(feature = "quic")]
+            Self::Quic(_) => write!(f, "quic"),
+            #[cfg(feature = "frames")]
+            Self::Frames => write!(f, "frames"),
+            Self::Basic => write!(f, "basic"),
+            Self::Laminar => write!(f, "laminar"),
+        };
+    }
+}
+
+pub enum SocketEndpoint
+{
+    Socket(UdpSocket),
+    Laminar((Socket, Config)),
+    #[cfg(feature = "quinn")]
+    QuicClient(Endpoint),
+    #[cfg(feature = "quinn")]
+    QuicServer(Incoming),
+}
+
+#[allow(irrefutable_let_patterns)]
+impl SocketEndpoint
+{
+    pub fn socket(&self) -> Option<&UdpSocket>
+    {
+        if let Self::Socket(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
+
+    pub fn socket_consume(self) -> Option<UdpSocket>
+    {
+        if let Self::Socket(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
+
+    pub fn laminar(&mut self) -> Option<(&mut Socket, &mut Config)>
+    {
+        if let Self::Laminar((s, c)) = self {
+            return Some((s, c));
+        }
+        return None;
+    }
+
+    pub fn laminar_consume(self) -> Option<(Socket, Config)>
+    {
+        if let Self::Laminar((s, c)) = self {
+            return Some((s, c));
+        }
+        return None;
+    }
+
+    pub fn ip(&self) -> Option<IpAddr>
+    {
+        return match self {
+            Self::Socket(s) => s.local_addr().map(|s| s.ip().clone()).ok(),
+            Self::Laminar((s, c)) => s.local_addr().map(|s| s.ip().clone()).ok(),
+            _ => None,
+        };
+    }
+
+    #[cfg(feature = "quinn")]
+    pub fn client_consume(self) -> Option<Endpoint>
+    {
+        if let Self::QuicClient(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
+
+    #[cfg(feature = "quinn")]
+    pub fn server(&mut self) -> Option<&mut Incoming>
+    {
+        if let Self::QuicServer(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
+}
 
 // use self::quinn::{obtain_client_endpoint, obtain_server_endpoint, send_data_quic, receive_data_quic};
 #[cfg(feature = "quiche")]
@@ -27,20 +175,13 @@ pub async fn obtain_client_socket(
     // debug!("Send to {} using {}", remote_addr, local_address);
     match protocol {
         #[cfg(feature = "quinn")]
-        Protocol::Quic(_) => obtain_client_endpoint(local_address).await,
+        Protocol::Quic(_) => quin::obtain_socket(local_address).await,
+        Protocol::Laminar => {
+            let sock = laminarpr::obtain_socket(local_address)?;
+            return Ok(SocketEndpoint::Laminar(sock));
+        }
         _ => {
-            let sock = UdpSocket::bind(local_address).await.map_err(|e| {
-                ConnectionError::FailedToConnect(format!(
-                    "Unable to bind local address {} {}",
-                    local_address, e
-                ))
-            })?;
-            sock.connect(remote_addr).await.map_err(|e| {
-                ConnectionError::FailedToConnect(format!(
-                    "Unable to connect local address {} to remote address {} {}",
-                    local_address, remote_addr, e
-                ))
-            })?;
+            let sock = basic::obtain_socket(local_address, remote_addr).await?;
             return Ok(SocketEndpoint::Socket(sock));
         }
     }
@@ -57,6 +198,10 @@ pub async fn obtain_server_socket(
             .await
             .and_then(|i| Ok(SocketEndpoint::QuicServer(i)))
             .map_err(|err| ConnectionError::EndpointError(err)),
+        Protocol::Laminar => {
+            let s = laminarpr::obtain_socket(local_address)?;
+            return Ok(SocketEndpoint::Laminar(s));
+        }
         _ => {
             let sock = UdpSocket::bind(local_address).await?;
             return Ok(SocketEndpoint::Socket(sock));
@@ -74,7 +219,7 @@ pub async fn send_data(
     return match &group.protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
-            frames::send_data_frames(
+            frames::send_data(
                 endpoint
                     .socket_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
@@ -116,7 +261,7 @@ pub async fn send_data(
             .await
         }
         Protocol::Basic => {
-            basic::send_data_basic(
+            basic::send_data(
                 endpoint
                     .socket_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
@@ -125,6 +270,15 @@ pub async fn send_data(
                 data,
             )
             .await
+        }
+        Protocol::Laminar => {
+            let (socket, config) =
+                endpoint
+                    .laminar_consume()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Laminar protocol socket expected".to_owned(),
+                    ))?;
+            laminarpr::send_data(socket, &config, data, addr, group).await
         }
     };
 }
@@ -140,7 +294,7 @@ pub async fn receive_data(
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
-            frames::receive_data_frames(
+            frames::receive_data(
                 endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
                     "Frames protocol socket expected".to_owned(),
                 ))?,
@@ -176,7 +330,7 @@ pub async fn receive_data(
             .await
         }
         Protocol::Basic => {
-            basic::receive_data_basic(
+            basic::receive_data(
                 endpoint.socket().ok_or(ConnectionError::InvalidProtocol(
                     "Basic protocol socket expected".to_owned(),
                 ))?,
@@ -184,6 +338,12 @@ pub async fn receive_data(
                 timeout,
             )
             .await
+        }
+        Protocol::Laminar => {
+            let (s, c) = endpoint.laminar().ok_or(ConnectionError::InvalidProtocol(
+                "Basic protocol socket expected".to_owned(),
+            ))?;
+            laminarpr::receive_data(s, max_len, groups, timeout).await
         }
     };
 }

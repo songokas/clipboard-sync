@@ -16,7 +16,7 @@ use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
 use crate::message::{ConfigGroup, Group};
-use crate::socket::Protocol;
+use crate::protocols::Protocol;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Certificates

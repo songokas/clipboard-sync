@@ -29,7 +29,7 @@ impl ChannelClipboardContext
 
     pub fn new() -> Result<ChannelClipboardContext, Box<dyn Error>>
     {
-        let (clipboard_sender, clipboard_receiver) = channel(60000);
+        let (clipboard_sender, clipboard_receiver) = flume::bounded(60000);
         let sender = Arc::new(clipboard_sender);
         return Ok(ChannelClipboardContext {
             sender,

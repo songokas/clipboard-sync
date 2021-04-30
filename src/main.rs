@@ -17,6 +17,7 @@ mod defaults;
 mod encryption;
 mod errors;
 mod filesystem;
+mod fragmenter;
 mod message;
 mod process;
 mod protocols;
@@ -31,7 +32,7 @@ use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{wait_handle_receive, wait_on_clipboard};
-use crate::socket::Protocol;
+use crate::protocols::Protocol;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -142,7 +143,10 @@ async fn main() -> Result<(), CliError>
             socket_address,
             groups,
             MAX_RECEIVE_BUFFER,
-            matches.value_of("receive-once-wait").and_then(|s| s.parse::<u64>().ok()).unwrap_or(RECEIVE_ONCE_WAIT),
+            matches
+                .value_of("receive-once-wait")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(RECEIVE_ONCE_WAIT),
             !matches.is_present("ignore-initial-clipboard"),
         );
         Ok(full_config)

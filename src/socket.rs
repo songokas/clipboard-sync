@@ -1,10 +1,8 @@
 use cached::proc_macro::cached;
 use cached::TimedSizedCache;
 use log::{debug, warn};
-#[cfg(feature = "quinn")]
-use quinn::{Endpoint, Incoming};
+
 use std::collections::HashMap;
-use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
@@ -12,125 +10,41 @@ use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
-use crate::config::Certificates;
-use crate::errors::{CliError, DnsError};
+use crate::errors::{ConnectionError, DnsError};
 use crate::message::Group;
 
-pub enum SocketEndpoint
+pub async fn retrieve_identity(
+    remote_ip: &IpAddr,
+    local_ip: Option<IpAddr>,
+    group: &Group,
+) -> Result<IpAddr, ConnectionError>
 {
-    Socket(UdpSocket),
-    #[cfg(feature = "quinn")]
-    QuicClient(Endpoint),
-    #[cfg(feature = "quinn")]
-    QuicServer(Incoming),
-}
+    let is_private = match remote_ip {
+        IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
+        _ => false,
+    };
 
-#[allow(irrefutable_let_patterns)]
-impl SocketEndpoint
-{
-    pub fn socket(&self) -> Option<&UdpSocket>
-    {
-        if let Self::Socket(s) = self {
-            return Some(s);
-        }
-        return None;
-    }
-
-    pub fn socket_consume(self) -> Option<UdpSocket>
-    {
-        if let Self::Socket(s) = self {
-            return Some(s);
-        }
-        return None;
-    }
-
-    pub fn ip(&self) -> Option<IpAddr>
-    {
-        if let Self::Socket(s) = self {
-            return s.local_addr().map(|s| s.ip().clone()).ok();
-        }
-        return None;
-    }
-
-    #[cfg(feature = "quinn")]
-    pub fn client_consume(self) -> Option<Endpoint>
-    {
-        if let Self::QuicClient(s) = self {
-            return Some(s);
-        }
-        return None;
-    }
-
-    #[cfg(feature = "quinn")]
-    pub fn server(&mut self) -> Option<&mut Incoming>
-    {
-        if let Self::QuicServer(s) = self {
-            return Some(s);
-        }
-        return None;
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Protocol
-{
-    Basic,
-    #[cfg(feature = "frames")]
-    Frames,
-    #[cfg(feature = "quic")]
-    Quic(Certificates),
-}
-
-impl Protocol
-{
-    pub fn requires_public_key(&self) -> bool
-    {
-        #[cfg(feature = "quic")]
-        if let Self::Quic(_) = self {
-            return true;
-        }
-        return false;
-    }
-
-    #[allow(unused_variables)]
-    pub fn from(
-        protocol_opt: Option<&str>,
-        certs_callback: impl Fn() -> Result<Certificates, CliError>,
-    ) -> Result<Protocol, CliError>
-    {
-        let protocol = match protocol_opt {
-            #[cfg(feature = "quic")]
-            Some(v) if v == "quic" => {
-                let c = certs_callback()?;
-                Protocol::Quic(c.clone())
-            }
-            #[cfg(feature = "frames")]
-            Some(v) if v == "frames" => Protocol::Frames,
-            Some(v) if v == "basic" => Protocol::Basic,
-            Some(v) => {
-                return Err(CliError::ArgumentError(format!(
-                    "Protocol {} is not available",
-                    v
-                )));
-            }
-            None => Protocol::Basic,
-        };
-        return Ok(protocol);
-    }
-}
-
-impl fmt::Display for Protocol
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
-    {
-        return match self {
-            #[cfg(feature = "quic")]
-            Self::Quic(_) => write!(f, "quic"),
-            #[cfg(feature = "frames")]
-            Self::Frames => write!(f, "frames"),
-            Self::Basic => write!(f, "basic"),
-        };
-    }
+    let identity = if remote_ip.is_multicast() {
+        // match group.protocol {
+        //     Protocol::Basic => (),
+        //     _ => {
+        //         return Err(ConnectionError::InvalidProtocol(format!(
+        //             "Protocol {} does not support multicast",
+        //             group.protocol
+        //         )));
+        //     }
+        // };
+        to_visible_ip(local_ip, group).await
+    } else if remote_ip.is_loopback() || is_private {
+        to_visible_ip(local_ip, group).await
+    } else {
+        let host = group.visible_ip.as_ref().ok_or(ConnectionError::NoPublic(
+            "Group missing public ip however global routing requested".to_owned(),
+        ))?;
+        let sock_addr = to_socket(format!("{}:0", host)).await?;
+        sock_addr.ip()
+    };
+    return Ok(identity);
 }
 
 #[cached(
@@ -143,7 +57,8 @@ pub async fn to_socket(host: impl AsRef<str>) -> Result<SocketAddr, DnsError>
     let to_err = |e| {
         DnsError::Failed(format!(
             "Unable to retrieve ip for {}. Message: {}",
-            host.as_ref(), e
+            host.as_ref(),
+            e
         ))
     };
     for addr in lookup_host(host.as_ref()).await.map_err(to_err)? {
@@ -185,15 +100,12 @@ impl Multicast
                     sock.set_multicast_loop_v4(false).unwrap_or(());
                     sock.join_multicast_v4(multicast_ipv4.clone(), ipv4.clone())
                 } else {
-                    Err(
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("invalid ipv4 address {}", interface_addr)
-                        ),
-                    )
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("invalid ipv4 address {}", interface_addr),
+                    ))
                 }
-
-            },
+            }
             IpAddr::V6(multicast_ipv6) => {
                 sock.set_multicast_loop_v6(false).unwrap_or(());
                 sock.join_multicast_v6(multicast_ipv6, 0)
@@ -263,4 +175,114 @@ pub async fn to_visible_ip(local_ip: Option<IpAddr>, group: &Group) -> IpAddr
         return ip;
     }
     return group.send_using_address.ip();
+}
+
+#[cfg(test)]
+mod sockettest
+{
+    use super::*;
+    use crate::message::Group;
+    use crate::{assert_error_type, wait};
+
+    fn identity_provider() -> Vec<(IpAddr, IpAddr, Option<IpAddr>, Group)>
+    {
+        return vec![
+            (
+                "127.0.0.2".parse().unwrap(),
+                "192.168.0.1".parse().unwrap(),
+                Some("127.0.0.2".parse().unwrap()),
+                Group::from_name("test1"),
+            ),
+            (
+                "127.0.0.2".parse().unwrap(),
+                "172.16.0.1".parse().unwrap(),
+                Some("127.0.0.2".parse().unwrap()),
+                Group::from_name("test2"),
+            ),
+            (
+                "127.0.0.2".parse().unwrap(),
+                "224.0.0.1".parse().unwrap(),
+                Some("127.0.0.2".parse().unwrap()),
+                Group::from_name("test3"),
+            ),
+            (
+                "127.0.0.2".parse().unwrap(),
+                "169.254.0.1".parse().unwrap(),
+                Some("127.0.0.2".parse().unwrap()),
+                Group::from_name("test4"),
+            ),
+            (
+                "127.0.0.3".parse().unwrap(),
+                "169.254.0.1".parse().unwrap(),
+                None,
+                Group::from_addr("test5", "127.0.0.3:9811", "192.168.0.1"),
+            ),
+            (
+                "192.168.0.1".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+                Some("192.168.0.1".parse().unwrap()),
+                Group::from_name("test4"),
+            ),
+            (
+                "192.168.0.1".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+                None,
+                Group::from_addr("test5", "192.168.0.1:9811", "192.168.0.1"),
+            ),
+            (
+                "8.8.8.8".parse().unwrap(),
+                "1.1.1.1".parse().unwrap(),
+                Some("127.0.0.1".parse().unwrap()),
+                Group::from_public("test4", "8.8.8.8"),
+            ),
+        ];
+    }
+    #[test]
+    fn test_retrieve_identity()
+    {
+        for (expected, remote_ip, local_ip, group) in identity_provider() {
+            let res = wait!(retrieve_identity(&remote_ip, local_ip, &group));
+            assert_eq!(expected, res.unwrap());
+        }
+    }
+
+    #[test]
+    fn test_retrieve_identity_errors()
+    {
+        let r1 = (
+            "1.1.1.1".parse().unwrap(),
+            Some("127.0.0.1".parse().unwrap()),
+            Group::from_public("test1", "8.8.8.8.3"),
+        );
+        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
+        assert_error_type!(res, ConnectionError::DnsError(_));
+
+        let r1 = (
+            "1.1.1.1".parse().unwrap(),
+            Some("127.0.0.1".parse().unwrap()),
+            Group::from_public("test2", "abc"),
+        );
+        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
+        assert_error_type!(res, ConnectionError::DnsError(_));
+
+        // #[cfg(feature = "frames")]
+        // {
+        //     let mut g = Group::from_name("test3");
+        //     g.protocol = Protocol::Frames;
+        //     let r1 = (
+        //         "224.0.0.1".parse().unwrap(),
+        //         Some("127.0.0.1".parse().unwrap()),
+        //         g,
+        //     );
+        //     let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
+        //     assert_error_type!(res, ConnectionError::InvalidProtocol(_));
+        // }
+        let r1 = (
+            "1.1.1.1".parse().unwrap(),
+            Some("127.0.0.1".parse().unwrap()),
+            Group::from_name("test5"),
+        );
+        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
+        assert_error_type!(res, ConnectionError::NoPublic(_));
+    }
 }

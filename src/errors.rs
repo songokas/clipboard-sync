@@ -1,4 +1,5 @@
 use std::io;
+use err_derive::Error;
 
 #[derive(Debug)]
 pub enum EncryptionError
@@ -26,6 +27,12 @@ pub enum DnsError
 #[derive(Debug)]
 pub enum ConnectionError
 {
+    // #[error(display="received more data {} than expected", actual, expected)]
+    // LimitReached {
+    //     expected: usize,
+    //     actual: usize,
+    // },
+    LimitReached(String),
     IoError(io::Error),
     SocketError(std::net::AddrParseError),
     FailedToConnect(String),

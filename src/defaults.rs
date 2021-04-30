@@ -24,6 +24,7 @@ pub const QUIC_STREAM: u8 = 0;
 pub const CONNECTION_TIMEOUT: u64 = 2000;
 pub const DATA_TIMEOUT: u64 = 5000;
 pub const RECEIVE_ONCE_WAIT: u64 = 45; //seconds
+pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 100;
 
 pub fn default_socket_send_address() -> SocketAddr
 {

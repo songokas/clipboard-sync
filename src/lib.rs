@@ -18,6 +18,7 @@ mod defaults;
 mod encryption;
 mod errors;
 mod filesystem;
+mod fragmenter;
 mod message;
 mod process;
 mod protocols;
