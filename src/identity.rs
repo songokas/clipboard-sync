@@ -1,7 +1,8 @@
+use cached::proc_macro::cached;
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 
-use crate::errors::ConnectionError;
+use crate::errors::{ConnectionError, DnsError};
 use crate::message::Group;
 use crate::socket::{to_socket, to_visible_ip};
 
@@ -55,27 +56,27 @@ pub async fn retrieve_identity(
         _ => false,
     };
 
-    let ip = if remote_ip.is_multicast() {
-        // match group.protocol {
-        //     Protocol::Basic => (),
-        //     _ => {
-        //         return Err(ConnectionError::InvalidProtocol(format!(
-        //             "Protocol {} does not support multicast",
-        //             group.protocol
-        //         )));
-        //     }
-        // };
-        to_visible_ip(local_ip, group).await
-    } else if remote_ip.is_loopback() || is_private {
+    let ip = if remote_ip.is_multicast() || remote_ip.is_loopback() || is_private {
         to_visible_ip(local_ip, group).await
     } else {
-        let host = group.visible_ip.as_ref().ok_or(ConnectionError::NoPublic(
-            "Group missing public ip however global routing requested".to_owned(),
-        ))?;
-        let sock_addr = to_socket(format!("{}:0", host)).await?;
-        sock_addr.ip()
+        let ip = match &group.visible_ip {
+            Some(host) => to_socket(format!("{}:0", host)).await.map(|s| s.ip()),
+            None => retrieve_public_ip().await,
+        };
+        match ip {
+            Ok(ip) => ip,
+            Err(_) => to_visible_ip(local_ip, group).await,
+        }
     };
     return Ok(Identity::from_ip(&ip));
+}
+
+#[cached(size = 1, time = 60)]
+pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
+{
+    return public_ip::addr()
+        .await
+        .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
 }
 
 #[cfg(test)]

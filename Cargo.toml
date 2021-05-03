@@ -34,6 +34,8 @@ indexmap = { version = "1.6", features = ["serde-1"] }
 flume = "0.10"
 laminar = "0.4"
 err-derive = "0.3"
+# external-ip = "4.1"
+public-ip = "0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.10"
