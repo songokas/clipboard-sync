@@ -2,9 +2,9 @@ use laminar::{Config, Socket};
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use tokio::net::UdpSocket;
+use tokio::net::{TcpListener, TcpSocket, UdpSocket};
 
-use crate::config::Certificates;
+use crate::config::CertLoader;
 use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
@@ -23,6 +23,7 @@ mod laminarpr;
 mod quiche;
 #[cfg(feature = "quinn")]
 mod quinn;
+mod tcp;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Protocol
@@ -33,6 +34,7 @@ pub enum Protocol
     #[cfg(feature = "quic")]
     Quic(Certificates),
     Laminar,
+    Tcp,
 }
 
 impl Protocol
@@ -49,7 +51,7 @@ impl Protocol
     #[allow(unused_variables)]
     pub fn from(
         protocol_opt: Option<&str>,
-        certs_callback: impl Fn() -> Result<Certificates, CliError>,
+        certs_callback: impl CertLoader,
     ) -> Result<Protocol, CliError>
     {
         let protocol = match protocol_opt {
@@ -62,6 +64,7 @@ impl Protocol
             Some(v) if v == "frames" => Protocol::Frames,
             Some(v) if v == "basic" => Protocol::Basic,
             Some(v) if v == "laminar" => Protocol::Laminar,
+            Some(v) if v == "tcp" => Protocol::Tcp,
             Some(v) => {
                 return Err(CliError::ArgumentError(format!(
                     "Protocol {} is not available",
@@ -85,6 +88,7 @@ impl fmt::Display for Protocol
             Self::Frames => write!(f, "frames"),
             Self::Basic => write!(f, "basic"),
             Self::Laminar => write!(f, "laminar"),
+            Self::Tcp => write!(f, "tcp"),
         };
     }
 }
@@ -93,6 +97,8 @@ pub enum LocalSocket
 {
     Socket(UdpSocket),
     Laminar((Socket, Config)),
+    Tcp(TcpSocket),
+    TcpListener(TcpListener),
     #[cfg(feature = "quinn")]
     QuicClient(Endpoint),
     #[cfg(feature = "quinn")]
@@ -113,6 +119,22 @@ impl LocalSocket
     pub fn socket_consume(self) -> Option<UdpSocket>
     {
         if let Self::Socket(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
+
+    pub fn tcp_listener(&self) -> Option<&TcpListener>
+    {
+        if let Self::TcpListener(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
+
+    pub fn tcp_consume(self) -> Option<TcpSocket>
+    {
+        if let Self::Tcp(s) = self {
             return Some(s);
         }
         return None;
@@ -180,6 +202,10 @@ pub async fn obtain_client_socket(
             let sock = laminarpr::obtain_socket(local_address)?;
             return Ok(LocalSocket::Laminar(sock));
         }
+        Protocol::Tcp => {
+            let socket = tcp::obtain_client_socket(local_address.clone())?;
+            return Ok(LocalSocket::Tcp(socket));
+        }
         _ => {
             let sock = basic::obtain_socket(local_address, remote_addr).await?;
             return Ok(LocalSocket::Socket(sock));
@@ -201,6 +227,10 @@ pub async fn obtain_server_socket(
         Protocol::Laminar => {
             let s = laminarpr::obtain_socket(local_address)?;
             return Ok(LocalSocket::Laminar(s));
+        }
+        Protocol::Tcp => {
+            let listener = tcp::obtain_server_socket(local_address.clone())?;
+            return Ok(LocalSocket::TcpListener(listener));
         }
         _ => {
             let sock = UdpSocket::bind(local_address).await?;
@@ -269,6 +299,7 @@ pub async fn send_data(
                         "Basic protocol socket expected".to_owned(),
                     ))?,
                 data,
+                &destination,
             )
             .await
         }
@@ -280,6 +311,14 @@ pub async fn send_data(
                         "Laminar protocol socket expected".to_owned(),
                     ))?;
             laminarpr::send_data(socket, &config, encryptor, data, &destination).await
+        }
+        Protocol::Tcp => {
+            let socket = local_socket
+                .tcp_consume()
+                .ok_or(ConnectionError::InvalidProtocol(
+                    "Basic protocol socket expected".to_owned(),
+                ))?;
+            tcp::send_data(socket, data, &destination).await
         }
     };
 }
@@ -356,6 +395,18 @@ pub async fn receive_data(
                     "Basic protocol socket expected".to_owned(),
                 ))?;
             laminarpr::receive_data(s, encryptor, max_len, timeout).await
+        }
+        Protocol::Tcp => {
+            tcp::receive_data(
+                local_socket
+                    .tcp_listener()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Tcp protocol socket expected".to_owned(),
+                    ))?,
+                max_len,
+                timeout,
+            )
+            .await
         }
     };
 }

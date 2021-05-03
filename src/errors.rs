@@ -1,5 +1,6 @@
-use std::io;
 use err_derive::Error;
+use std::io;
+use tokio::time::Duration;
 
 #[derive(Debug)]
 pub enum EncryptionError
@@ -27,6 +28,7 @@ pub enum DnsError
 #[derive(Debug)]
 pub enum ConnectionError
 {
+    Timeout(Duration),
     // #[error(display="received more data {} than expected", actual, expected)]
     // LimitReached {
     //     expected: usize,

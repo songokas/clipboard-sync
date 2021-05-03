@@ -101,16 +101,7 @@ pub async fn send_data(
 {
     let max_payload = config.max_packet_size - MAX_ENCRYPTION_HEADER_SIZE as usize;
     let indexes = size_to_indexes(data.len(), max_payload);
-
-    // let identity = frame_encryptor
-    //     .retrieve_identity(
-    //         &destination_addr.ip(),
-    //         socket.local_addr().map(|s| s.ip().clone()).ok(),
-    //     )
-    //     .await?;
-
     let reliable = !destination_addr.ip().is_multicast();
-
     let mut size = 0;
 
     for index in 0..indexes {
