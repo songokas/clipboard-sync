@@ -287,6 +287,8 @@ mod framestest
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
+    use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
+    use crate::message::Group;
     use futures::try_join;
 
     async fn test_send_receive(
@@ -310,16 +312,19 @@ mod framestest
         let group = Group::from_name("test1");
         let groups = vec![group.clone()];
 
+        let enc_r = GroupsEncryptor::new(groups);
+        let enc_s = IdentityEncryptor::new(group, Identity::from_addr(&local_server));
+
         client_sock.connect(local_server).await.unwrap();
 
         let data_sent = random(data_len);
         let expected_data = data_sent.clone();
         let res = try_join!(
             tokio::spawn(
-                async move { send_data(client_sock, data_sent, &local_server, &group).await }
+                async move { send_data(client_sock, enc_s, data_sent, &local_server).await }
             ),
             tokio::spawn(async move {
-                receive_data(&server_sock, max_len, &groups, |d: Duration| {
+                receive_data(&server_sock, &enc_r, max_len, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await

@@ -151,6 +151,8 @@ mod laminartest
 {
     use super::*;
     use crate::encryption::random;
+    use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
+    use crate::message::Group;
     use futures::try_join;
 
     #[tokio::test]
@@ -164,25 +166,29 @@ mod laminartest
 
         let group = Group::from_name("test1");
         let groups = vec![group.clone()];
+
+        let enc_r = GroupsEncryptor::new(groups);
+        let enc_s = IdentityEncryptor::new(group, Identity::from_addr(&local_server));
+
         let config = Config::default();
         let data_len_sent = send_data(
             client_sock,
             &config,
+            enc_s,
             data_sent.clone(),
             &local_server,
-            &group,
         )
         .await
         .unwrap();
 
-        let (data_received, addr) = receive_data(&mut server_sock, 80, &groups, |d: Duration| {
+        let (data_received, addr) = receive_data(&mut server_sock, &enc_r, 80, |d: Duration| {
             d > Duration::from_millis(2000)
         })
         .await
         .unwrap();
 
         assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, 5);
+        assert_eq!(data_len_sent, 80);
         assert_eq!(data_sent, data_received);
     }
 
@@ -201,17 +207,21 @@ mod laminartest
 
         let group = Group::from_name("test1");
         let groups = vec![group.clone()];
+
+        let enc_r = GroupsEncryptor::new(groups);
+        let enc_s = IdentityEncryptor::new(group, Identity::from_addr(&local_server));
+
         let config = Config::default();
 
         let res = try_join!(
             tokio::spawn(async move {
-                receive_data(&mut server_sock, max_len, &groups, |d: Duration| {
+                receive_data(&mut server_sock, &enc_r, max_len, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await
             }),
             tokio::spawn(async move {
-                send_data(client_sock, &config, for_sending, &local_server, &group).await
+                send_data(client_sock, &config, enc_s, for_sending, &local_server).await
             }),
         )
         .unwrap();
@@ -220,7 +230,7 @@ mod laminartest
         let (data_received, addr) = res.0.unwrap();
 
         assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, size);
+        assert_eq!(data_len_sent, 164665);
         assert_eq!(data_sent, data_received);
     }
 }

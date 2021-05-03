@@ -186,8 +186,8 @@ mod encryptiontest
         ];
 
         for (expected, bytes, identity1, group1, identity2, group2) in sequences {
-            let msg = encrypt(&bytes, identity1, group1, &MessageType::Text);
-            let data = decrypt(&msg.unwrap(), identity2, group2);
+            let msg = encrypt(&bytes, &identity1.into(), group1, &MessageType::Text);
+            let data = decrypt(&msg.unwrap(), &identity2.into(), group2);
             if expected {
                 assert_eq!(bytes, data.unwrap());
             } else {

@@ -8,8 +8,8 @@ use crate::config::Certificates;
 use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
-use crate::fragmenter::{FragmentEncryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
-// use crate::socket::Timeout;
+use crate::fragmenter::{FragmentEncryptor, FrameDecryptor};
+use crate::socket::Timeout;
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
@@ -289,7 +289,7 @@ pub async fn receive_data(
     encryptor: &(impl FrameDecryptor + DataEncryptor),
     protocol: &Protocol,
     max_len: usize,
-    timeout: impl Fn(tokio::time::Duration) -> bool,
+    timeout: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     return match protocol {

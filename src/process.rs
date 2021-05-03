@@ -391,35 +391,34 @@ mod processtest
     use crate::errors::{ClipboardError, ConnectionError};
     use crate::message::Group;
     use crate::{assert_error_type, wait};
-    use tokio::sync::mpsc::channel;
     use tokio::task::JoinHandle;
     use tokio::try_join;
 
     #[test]
     fn test_handle_clipboard_change()
     {
-        let result = wait!(handle_clipboard_change(
+        let result = wait!(send_clipboard_to_group(
             b"test",
             &MessageType::Text,
             &Group::from_name("me"),
         ));
         assert_eq!(result.unwrap(), 0);
 
-        let result = wait!(handle_clipboard_change(
+        let result = wait!(send_clipboard_to_group(
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
         ));
         assert_eq!(result.unwrap(), 62);
 
-        let result = wait!(handle_clipboard_change(
+        let result = wait!(send_clipboard_to_group(
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:0"),
         ));
         assert_eq!(result.unwrap(), 0);
 
-        let result = wait!(handle_clipboard_change(
+        let result = wait!(send_clipboard_to_group(
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
@@ -455,7 +454,7 @@ mod processtest
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
 
-        let r = tokio::spawn(wait_handle_receive(
+        let r = tokio::spawn(receive_clipboard(
             clipboards,
             atx,
             local_address,
@@ -465,7 +464,7 @@ mod processtest
             Arc::clone(&sender),
             false,
         ));
-        let s = tokio::spawn(wait_on_clipboard(
+        let s = tokio::spawn(send_clipboard(
             clipboardr,
             rx,
             Arc::clone(&running),
@@ -480,7 +479,7 @@ mod processtest
                 &group,
                 "test1".as_bytes().to_vec(),
                 &MessageType::Text,
-                "empty",
+                &"empty".into(),
             )
             .unwrap();
             sleep(Duration::from_millis(1100)).await;
@@ -520,7 +519,7 @@ mod processtest
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
 
-        let r = tokio::spawn(wait_handle_receive(
+        let r = tokio::spawn(receive_clipboard(
             clipboard,
             atx,
             local_address,
@@ -531,7 +530,7 @@ mod processtest
             false,
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
-            let sent = send_clipboard("test1".to_string(), &group).await;
+            let sent = send_clipboard_contents("test1".to_string(), &group).await;
             assert_eq!(74, sent.unwrap());
             srunning.store(false, Ordering::Relaxed);
             sleep(Duration::from_millis(100)).await;
