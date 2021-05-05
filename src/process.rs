@@ -1,6 +1,7 @@
 use flume::{Receiver, Sender};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
@@ -91,10 +92,14 @@ pub async fn receive_clipboard(
 
         match result {
             Ok((hash, group_name)) => {
+                if hash.is_empty() {
+                    continue;
+                }
                 if let Err(msg) = channel.try_send((group_name, hash)) {
                     warn!("Unable to update current hash {}", msg);
                 }
             }
+
             Err(err) => error!("{:?}", err),
         };
         if let Err(_) = status_channel.try_send((0, count)) {
@@ -121,6 +126,7 @@ pub async fn send_clipboard(
 ) -> Result<u64, CliError>
 {
     let mut hash_cache: HashMap<String, String> = HashMap::new();
+    let mut heartbeat_cache: HashMap<String, Instant> = HashMap::new();
     let mut count = 0;
     let groups = config.groups;
 
@@ -150,7 +156,13 @@ pub async fn send_clipboard(
                 hash_cache.get(&group.name),
             ) {
                 Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
-                _ => continue,
+                _ => {
+                    if group.heartbeat > 0 {
+                        send_heartbeat(&group, &mut heartbeat_cache, timeout).await;
+                    }
+
+                    continue;
+                }
             };
 
             let entry_value = match hash_cache.get(&group.name) {
@@ -239,6 +251,25 @@ pub async fn send_clipboard_contents(contents: String, group: &Group) -> Result<
     return Ok(sent);
 }
 
+async fn send_heartbeat(
+    group: &Group,
+    heartbeat_cache: &mut HashMap<String, Instant>,
+    timeout: impl Timeout,
+)
+{
+    heartbeat_cache
+        .entry(group.name.clone())
+        .or_insert(Instant::now());
+    let last = heartbeat_cache[&group.name];
+    if last.elapsed().as_secs() > group.heartbeat {
+        let data = vec![1];
+        match send_clipboard_to_group(&data, &MessageType::Heartbeat, &group, timeout).await {
+            Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
+            Err(err) => error!("{:?}", err),
+        };
+    }
+}
+
 fn clipboard_group_to_bytes(
     clipboard: &mut Clipboard,
     group: &Group,
@@ -306,6 +337,9 @@ fn write_to(
     identity: &Identity,
 ) -> Result<(String, String), ClipboardError>
 {
+    if message_type == &MessageType::Heartbeat {
+        return Ok(("".to_owned(), group.name.clone()));
+    }
     if group.clipboard == CLIPBOARD_NAME {
         match message_type {
             MessageType::Files => {
@@ -351,6 +385,7 @@ async fn send_clipboard_to_group(
     buffer: &[u8],
     message_type: &MessageType,
     group: &Group,
+    //@TODO use _timeout_callback
     _timeout_callback: impl Timeout,
 ) -> Result<usize, ClipboardError>
 {
@@ -403,9 +438,8 @@ async fn send_clipboard_to_group(
 mod processtest
 {
     use super::*;
-    use crate::errors::{ClipboardError, ConnectionError};
     use crate::message::Group;
-    use crate::{assert_error_type, wait};
+    use crate::wait;
     use tokio::task::JoinHandle;
     use tokio::try_join;
 
@@ -437,16 +471,16 @@ mod processtest
         ));
         assert_eq!(result.unwrap(), 0);
 
-        let result = wait!(send_clipboard_to_group(
-            b"test",
-            &MessageType::Text,
-            &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
-            timeout,
-        ));
-        assert_error_type!(
-            result,
-            ClipboardError::ConnectionError(ConnectionError::NoPublic(_))
-        );
+        // let result = wait!(send_clipboard_to_group(
+        //     b"test",
+        //     &MessageType::Text,
+        //     &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
+        //     timeout,
+        // ));
+        // assert_error_type!(
+        //     result,
+        //     ClipboardError::ConnectionError(ConnectionError::NoPublic(_))
+        // );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

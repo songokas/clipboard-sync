@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 #[cfg(target_os = "android")]
-use flume::Sender;
-use flume::{bounded, Receiver};
+use flume::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -19,8 +18,7 @@ use crate::clipboards::channel_clipboard::ChannelClipboardContext;
 use crate::clipboards::Clipboard;
 use crate::config::FullConfig;
 use crate::defaults::{
-    default_socket_send_address, BIND_ADDRESS, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL,
-    MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
+    DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL, MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
 };
 use crate::errors::CliError;
 use crate::message::Group;
@@ -34,6 +32,10 @@ pub struct AndroidConfig
     group: String,
     protocol: String,
     hosts: Vec<String>,
+    send_using_address: SocketAddr,
+    bind_address: SocketAddr,
+    visible_ip: Option<String>,
+    heartbeat: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,26 +103,23 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
 
     let key = Key::clone_from_slice(config.key.as_bytes());
 
-    let send_using_address = default_socket_send_address();
-    let socket_address = BIND_ADDRESS
-        .parse::<SocketAddr>()
-        .expect("Incorrect default bind address");
+    let send_using_address = config.send_using_address;
+    let socket_address = config.bind_address;
 
-    let protocol = match config.protocol.as_ref() {
-        "basic" => Protocol::Basic,
-        #[cfg(feature = "frames")]
-        "frames" => Protocol::Frames,
-        _ => return Err(format!("Protocol {} is not available", config.protocol)),
-    };
+    let protocol = Protocol::from(Some(&config.protocol), || {
+        Err(CliError::ArgumentError("Android no certs".to_owned()))
+    })
+    .map_err(|e| e.to_string())?;
 
     let group = Group {
         name: config.group,
         allowed_hosts: config.hosts,
         key: key,
-        visible_ip: None,
+        visible_ip: config.visible_ip,
         send_using_address,
         clipboard: String::from(DEFAULT_CLIPBOARD),
         protocol: protocol.clone(),
+        heartbeat: config.heartbeat,
     };
     let groups = vec![group];
     let full_config = FullConfig::from_protocol_groups(
@@ -229,10 +228,10 @@ impl Runner
 
         let running = Arc::new(AtomicBool::new(true));
 
-        let (tx, rx) = bounded(MAX_CHANNEL);
+        let (tx, rx) = flume::bounded(MAX_CHANNEL);
         let atx = Arc::new(tx);
 
-        let (stat_sender, stat_receiver) = bounded(MAX_CHANNEL);
+        let (stat_sender, stat_receiver) = flume::bounded(MAX_CHANNEL);
 
         let stat_sender = Arc::new(stat_sender);
 

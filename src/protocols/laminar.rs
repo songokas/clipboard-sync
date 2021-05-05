@@ -38,10 +38,10 @@ pub async fn receive_data(
                     total_size += data.len();
 
                     if total_size > max_len {
-                        return Err(ConnectionError::LimitReached(format!(
-                            "Received more data {} than expected {}",
-                            total_size, max_len
-                        )));
+                        return Err(ConnectionError::LimitReached {
+                            received: total_size,
+                            max_len,
+                        });
                     }
 
                     received_frames.insert(frame.index, frame.data);
@@ -55,8 +55,9 @@ pub async fn receive_data(
                     }
                 }
                 SocketEvent::Timeout(_) => {
-                    return Err(ConnectionError::FailedToConnect(
-                        "Timeout waiting for data".to_owned(),
+                    return Err(ConnectionError::Timeout(
+                        "laminar received".to_owned(),
+                        now.elapsed(),
                     ));
                 }
                 SocketEvent::Disconnect(_) => {
@@ -170,7 +171,7 @@ mod laminartest
         .unwrap();
 
         if size > max_len {
-            assert_error_type!(res.0, ConnectionError::LimitReached(_));
+            assert_error_type!(res.0, ConnectionError::LimitReached { .. });
         } else {
             let _data_len_sent = res.1.unwrap();
             let (data_received, addr) = res.0.unwrap();

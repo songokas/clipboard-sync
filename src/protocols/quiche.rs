@@ -192,11 +192,10 @@ fn receive_stream(
                 max_len
             );
             conn.close(true, 0x00, b"kthxbye").unwrap_or(());
-            return Err(ConnectionError::LimitReached(format!(
-                "Connection limit reached: expected {} received {}",
+            return Err(ConnectionError::LimitReached {
+                received: received.len(),
                 max_len,
-                received.len()
-            )));
+            });
         }
     }
     return Ok(());
@@ -453,7 +452,7 @@ mod quichetest
         let res = try_join!(r, s).unwrap();
 
         if size > max_len {
-            assert_error_type!(res.0, ConnectionError::LimitReached(_));
+            assert_error_type!(res.0, ConnectionError::LimitReached { .. });
         } else {
             let _data_len_sent = res.1.unwrap();
             let (data_received, addr) = res.0.unwrap();

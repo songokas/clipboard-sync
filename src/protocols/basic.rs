@@ -31,16 +31,16 @@ pub async fn receive_data(
             biased;
             Ok(stream) = listen_stream(local_addr, callback) => Ok(stream),
             Ok(stream) = connect_stream(local_addr, addr) => Ok(stream),
-            else => Err(ConnectionError::Timeout(duration)),
+            else => Err(ConnectionError::Timeout("basic receive".to_owned(), duration)),
         }?;
         return receive_stream(stream, addr, max_len, callback).await;
     }
 
     if read > max_len {
-        return Err(ConnectionError::LimitReached(format!(
-            "Connection limit reached: expected {} received {}",
-            max_len, read,
-        )));
+        return Err(ConnectionError::LimitReached {
+            received: read,
+            max_len,
+        });
     }
     return Ok((buffer[..read].to_vec(), addr));
 }
@@ -62,7 +62,7 @@ pub async fn send_data(
             biased;
             Ok(stream) = connect_stream(local_addr, destination.clone()) => Ok(stream),
             Ok(stream) = listen_stream(local_addr, callback) => Ok(stream),
-            else => Err(ConnectionError::Timeout(duration)),
+            else => Err(ConnectionError::Timeout("basic send".to_owned(), duration)),
         }?;
 
         stream.write_all(&data).await?;
@@ -111,7 +111,10 @@ async fn listen_stream(
         };
         return Ok(stream);
     }
-    return Err(ConnectionError::Timeout(now.elapsed()));
+    return Err(ConnectionError::Timeout(
+        "basic listen stream".to_owned(),
+        now.elapsed(),
+    ));
 }
 
 async fn connect_stream(
@@ -160,7 +163,7 @@ mod basictest
         .unwrap();
 
         if size > max_len {
-            assert_error_type!(res.0, ConnectionError::LimitReached(_));
+            assert_error_type!(res.0, ConnectionError::LimitReached { .. });
         } else {
             let (data_received, _) = res.0.unwrap();
             let data_len_sent = res.1.unwrap();

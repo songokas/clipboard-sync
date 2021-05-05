@@ -18,7 +18,8 @@ mod serde_key_str
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Key>, D::Error>
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D)
+        -> Result<Option<Key>, D::Error>
     {
         let str_data: String = Deserialize::deserialize(deserializer)?;
         if str_data.len() != KEY_SIZE {
@@ -59,6 +60,7 @@ pub enum MessageType
     Directory,
     Frame,
     Handshake,
+    Heartbeat,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -89,6 +91,7 @@ pub struct Group
     pub send_using_address: SocketAddr,
     pub clipboard: String,
     pub protocol: Protocol,
+    pub heartbeat: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -101,6 +104,8 @@ pub struct ConfigGroup
     pub send_using_address: Option<SocketAddr>,
     pub clipboard: Option<String>,
     pub protocol: Option<String>,
+    #[serde(default)]
+    pub heartbeat: u64,
 }
 
 #[cfg(test)]
@@ -130,6 +135,7 @@ impl Group
             send_using_address: "127.0.0.1:2993".parse::<SocketAddr>().unwrap(),
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
+            heartbeat: 0,
         };
     }
 
@@ -143,6 +149,7 @@ impl Group
             send_using_address: send_address.parse().unwrap(),
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
+            heartbeat: 0,
         };
     }
 

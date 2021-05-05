@@ -1,6 +1,6 @@
 
 ANDROID_APP ?= $(HOME)/AndroidStudioProjects/clipboard-sync-android/
-HEADLESS_OPTIONS = --release --no-default-features --features frames
+HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip"
 DEB_OPTIONS = --no-build
 ARCHS=i686-unknown-linux-gnu x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ANDROID_ARCHS=x86_64-linux-android i686-linux-android arm-linux-androideabi aarch64-linux-android 
@@ -66,7 +66,7 @@ pkg-in-vagrant:
 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 
 windows:
-	cross build --target x86_64-pc-windows-gnu --release
+	cross +nightly build --target x86_64-pc-windows-gnu --release
 	# @TODO more undefined references to `_Unwind_Resume' follow
 	# cross build --target i686-pc-windows-gnu --release
 
@@ -75,7 +75,7 @@ msi:
 	cargo wix
 
 android:
-	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(HEADLESS_OPTIONS);)
+	$(foreach arch, $(ANDROID_ARCHS), cross +nightly build --target $(arch) $(HEADLESS_OPTIONS);)
 
 android-copy: android
 	@cp target/i686-linux-android/release/libclipboard_sync.so $(ANDROID_APP)/app/src/main/jniLibs/x86/libclipboard_sync.so

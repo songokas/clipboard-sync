@@ -1,7 +1,7 @@
+use flume::{Receiver, Sender};
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::clipboards::ClipboardType;
 
@@ -11,7 +11,8 @@ pub struct ChannelClipboardContext
     receiver: Option<Receiver<String>>,
 }
 
-pub fn err(s: &str) -> Box<dyn Error> {
+pub fn err(s: &str) -> Box<dyn Error>
+{
     Box::<dyn Error + Send + Sync>::from(s)
 }
 
@@ -37,7 +38,8 @@ impl ChannelClipboardContext
         });
     }
 
-    pub fn get_target_contents(&mut self, target: impl ToString) -> Result<Vec<u8>, Box<dyn Error>>
+    pub fn get_target_contents(&mut self, target: impl ToString)
+        -> Result<Vec<u8>, Box<dyn Error>>
     {
         let clipboard_target = target.to_string();
         if clipboard_target != "UTF8_STRING" {

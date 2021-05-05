@@ -32,12 +32,14 @@ pub struct Certificates
 pub struct UserConfig
 {
     pub bind_addresses: Option<IndexMap<String, SocketAddr>>,
+    pub certificates: Option<Certificates>,
+
     pub send_using_address: Option<SocketAddr>,
     pub visible_ip: Option<String>,
-    pub certificates: Option<Certificates>,
+
+    pub groups: IndexMap<String, ConfigGroup>,
     pub max_receive_buffer: Option<usize>,
     pub receive_once_wait: Option<u64>,
-    pub groups: IndexMap<String, ConfigGroup>,
 }
 
 #[derive(Debug, Clone)]
@@ -238,6 +240,7 @@ pub fn load_groups(
                 .clone()
                 .unwrap_or(String::from(DEFAULT_CLIPBOARD)),
             protocol,
+            heartbeat: group.heartbeat,
         });
     }
 

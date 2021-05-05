@@ -33,9 +33,7 @@ lazy_static = "1.4"
 indexmap = { version = "1.6", features = ["serde-1"] }
 flume = "0.10"
 laminar = "0.4"
-err-derive = "0.3"
-# external-ip = "4.1"
-public-ip = "0.2"
+thiserror = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.10"
@@ -49,6 +47,10 @@ predicates = "1.0"
 
 [lib]
 crate-type = ["lib", "cdylib"]
+
+[dependencies.public-ip]
+version = "0.2"
+optional = true
 
 [dependencies.quinn]
 version = "0.7"
@@ -66,7 +68,7 @@ branch = "multiple-targets"
 # path = "../rust-clipboard"
 
 [features]
-default = ["frames", "clipboard"]
+default = ["frames", "clipboard", "public-ip"]
 quic = ["quiche"]
 frames = []
 
@@ -91,7 +93,7 @@ assets = [
 depends = "libxcb-render0 (>= 1.13.1), libxcb-shape0 (>= 1.13.1), libxcb1 (>= 1.13.1), libbsd0 (>= 0.9.1), libxdmcp6 (>= 1:1.1.2), libxau6 (>= 1:1.0.8), libc6 (>= 2.28), libxcb-xfixes0 (>= 1.13.1)"
 
 [package.metadata.deb.variants.headless]
-features = ["frames"]
+features = ["frames", "public-ip"]
 default-features = false
 depends = "libc6 (>= 2.28)"
 

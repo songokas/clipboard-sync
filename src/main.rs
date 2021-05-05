@@ -147,6 +147,7 @@ async fn main() -> Result<(), CliError>
             send_using_address,
             clipboard: clipboard_type.to_owned(),
             protocol: cli_protocol.clone(),
+            heartbeat: 0,
         }];
 
         let full_config = FullConfig::from_protocol_groups(

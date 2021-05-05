@@ -1,4 +1,3 @@
-use cached::proc_macro::cached;
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 
@@ -61,7 +60,10 @@ pub async fn retrieve_identity(
     } else {
         let ip = match &group.visible_ip {
             Some(host) => to_socket(format!("{}:0", host)).await.map(|s| s.ip()),
+            #[cfg(feature = " public-ip")]
             None => retrieve_public_ip().await,
+            #[cfg(not(feature = " public-ip"))]
+            None => Err(DnsError::Failed("No public ip provided".to_owned())),
         };
         match ip {
             Ok(ip) => ip,
@@ -71,6 +73,7 @@ pub async fn retrieve_identity(
     return Ok(Identity::from_ip(&ip));
 }
 
+#[cfg(feature = " public-ip")]
 #[cached(size = 1, time = 60)]
 pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
 {
@@ -84,7 +87,7 @@ mod sockettest
 {
     use super::*;
     use crate::message::Group;
-    use crate::{assert_error_type, wait};
+    use crate::wait;
 
     fn identity_provider() -> Vec<(IpAddr, IpAddr, Option<IpAddr>, Group)>
     {
@@ -146,45 +149,5 @@ mod sockettest
             let res = wait!(retrieve_identity(&remote_ip, local_ip, &group));
             assert_eq!(Identity::from_ip(&expected), res.unwrap());
         }
-    }
-
-    #[test]
-    fn test_retrieve_identity_errors()
-    {
-        let r1 = (
-            "1.1.1.1".parse().unwrap(),
-            Some("127.0.0.1".parse().unwrap()),
-            Group::from_public("test1", "8.8.8.8.3"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        assert_error_type!(res, ConnectionError::DnsError(_));
-
-        let r1 = (
-            "1.1.1.1".parse().unwrap(),
-            Some("127.0.0.1".parse().unwrap()),
-            Group::from_public("test2", "abc"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        assert_error_type!(res, ConnectionError::DnsError(_));
-
-        // #[cfg(feature = "frames")]
-        // {
-        //     let mut g = Group::from_name("test3");
-        //     g.protocol = Protocol::Frames;
-        //     let r1 = (
-        //         "224.0.0.1".parse().unwrap(),
-        //         Some("127.0.0.1".parse().unwrap()),
-        //         g,
-        //     );
-        //     let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        //     assert_error_type!(res, ConnectionError::InvalidProtocol(_));
-        // }
-        let r1 = (
-            "1.1.1.1".parse().unwrap(),
-            Some("127.0.0.1".parse().unwrap()),
-            Group::from_name("test5"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, r1.1, &r1.2));
-        assert_error_type!(res, ConnectionError::NoPublic(_));
     }
 }

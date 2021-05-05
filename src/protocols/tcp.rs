@@ -25,7 +25,10 @@ pub async fn receive_data(
         };
         return receive_stream(stream, sock_addr, max_len, timeout_with_duration).await;
     }
-    return Err(ConnectionError::Timeout(now.elapsed()));
+    return Err(ConnectionError::Timeout(
+        "tcp receive".to_owned(),
+        now.elapsed(),
+    ));
 }
 
 pub async fn receive_stream(
@@ -48,11 +51,10 @@ pub async fn receive_stream(
             Ok(n) => {
                 let mut data_read = buffer[0..n].to_vec();
                 if (data.len() + data_read.len()) > max_len {
-                    return Err(ConnectionError::LimitReached(format!(
-                        "Connection limit reached: expected {} received {}",
+                    return Err(ConnectionError::LimitReached {
+                        received: data.len() + data_read.len(),
                         max_len,
-                        data.len() + data_read.len()
-                    )));
+                    });
                 }
                 data.append(&mut data_read);
             }
@@ -64,7 +66,10 @@ pub async fn receive_stream(
             }
         }
     }
-    return Err(ConnectionError::Timeout(now.elapsed()));
+    return Err(ConnectionError::Timeout(
+        "tcp receive stream".to_owned(),
+        now.elapsed(),
+    ));
 }
 
 pub async fn send_data(
@@ -130,7 +135,7 @@ mod tcptest
         .unwrap();
 
         if size > max_len {
-            assert_error_type!(res.0, ConnectionError::LimitReached(_));
+            assert_error_type!(res.0, ConnectionError::LimitReached { .. });
         } else {
             let (data_received, addr) = res.0.unwrap();
             let data_len_sent = res.1.unwrap();
@@ -154,6 +159,6 @@ mod tcptest
         let local_server: SocketAddr = "127.0.0.1:39837".parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();
         let result = receive_data(&server_sock, 10, |_: Duration| true).await;
-        assert_error_type!(result, ConnectionError::Timeout(_));
+        assert_error_type!(result, ConnectionError::Timeout(..));
     }
 }

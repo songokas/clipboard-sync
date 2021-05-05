@@ -41,10 +41,7 @@ pub async fn receive_data(
         received += read;
 
         if received > max_len {
-            return Err(ConnectionError::LimitReached(format!(
-                "Received more data {} than expected {}",
-                received, max_len
-            )));
+            return Err(ConnectionError::LimitReached { received, max_len });
         }
 
         if last_addr.is_none() {

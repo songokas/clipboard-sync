@@ -1,293 +1,135 @@
 // use err_derive::Error;
 use std::io;
+use thiserror::Error;
 use tokio::time::Duration;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum EncryptionError
 {
+    #[error("{0}")]
     InvalidMessage(String),
+    #[error("{0}")]
     EncryptionFailed(String),
+    #[error("{0}")]
     DecryptionFailed(String),
+    #[error("{0}")]
     SerializeFailed(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ValidationError
 {
-    WrongIp(String),
+    #[error("{0}")]
     IncorrectGroup(String),
+    #[error("{0}")]
     DeserializeFailed(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Error, Clone)]
 pub enum DnsError
 {
+    #[error("{0}")]
     Failed(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ConnectionError
 {
-    Timeout(Duration),
-    // #[error(display="received more data {} than expected", actual, expected)]
-    // LimitReached {
-    //     expected: usize,
-    //     actual: usize,
-    // },
-    LimitReached(String),
-    IoError(io::Error),
-    SocketError(std::net::AddrParseError),
+    #[error("Timeout occurred {}ms while waiting for {0}", .1.as_millis())]
+    Timeout(String, Duration),
+    #[error("Connection limit reached: {max_len} received {received}")]
+    LimitReached
+    {
+        received: usize, max_len: usize
+    },
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+    #[error("Failed to parse address")]
+    SocketError(#[from] std::net::AddrParseError),
+    #[error("{0}")]
     FailedToConnect(String),
+    #[error("{0}")]
     InvalidBuffer(String),
-    NoPublic(String),
+    // NoPublic(String),
+    #[error("{0}")]
     InvalidProtocol(String),
-    ReceiveError(ValidationError),
-    Encryption(EncryptionError),
-    InvalidKey(String),
-    JoinError(tokio::task::JoinError),
-    DnsError(DnsError),
+    #[error("Failed to validate data")]
+    ReceiveError(#[from] ValidationError),
+    #[error("Failed to encrypt")]
+    Encryption(#[from] EncryptionError),
 
-    #[cfg(feature = "quin")]
-    EndpointError(EndpointError),
-    #[cfg(feature = "quin")]
-    QuicConnection(quinn::ConnectionError),
-    #[cfg(feature = "quin")]
-    QuicWriteError(quinn::WriteError),
-    #[cfg(feature = "quin")]
-    QuicConnect(quinn::ConnectError),
-    #[cfg(feature = "quin")]
-    QuicReadError(quinn::ReadToEndError),
+    #[error("Invalid key provided. {0}")]
+    InvalidKey(String),
+    #[error("Failed to join tasks")]
+    JoinError(#[from] tokio::task::JoinError),
+    #[error("Dns error")]
+    DnsError(#[from] DnsError),
+
     #[cfg(feature = "quiche")]
-    Http3(quiche::Error),
+    #[error(transparent)]
+    Http3(#[from] quiche::Error),
+    // #[cfg(feature = "quin")]
+    // EndpointError(EndpointError),
+    // #[cfg(feature = "quin")]
+    // QuicConnection(quinn::ConnectionError),
+    // #[cfg(feature = "quin")]
+    // QuicWriteError(quinn::WriteError),
+    // #[cfg(feature = "quin")]
+    // QuicConnect(quinn::ConnectError),
+    // #[cfg(feature = "quin")]
+    // QuicReadError(quinn::ReadToEndError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum CliError
 {
-    IoError(io::Error),
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+    #[error("{0}")]
     ArgumentError(String),
-    SocketError(std::net::AddrParseError),
-    ConnectionError(ConnectionError),
-    #[cfg(feature = "quinn")]
-    KeyError(quinn::ParseError),
-    JoinError(tokio::task::JoinError),
+    #[error(transparent)]
+    SocketError(#[from] std::net::AddrParseError),
+    #[error(transparent)]
+    ConnectionError(#[from] ConnectionError),
+    // #[cfg(feature = "quinn")]
+    // KeyError(quinn::ParseError),
+    #[error("Failed to join tasks")]
+    JoinError(#[from] tokio::task::JoinError),
+    #[error("Invalid key provided")]
     InvalidKey(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ClipboardError
 {
-    IoError(io::Error),
-    ConnectionError(ConnectionError),
-    EncryptionError(EncryptionError),
-    ValidationError(ValidationError),
+    #[error("{0}")]
+    IoError(#[from] io::Error),
+    #[error("{0}")]
+    ConnectionError(#[from] ConnectionError),
+    #[error("{0}")]
+    EncryptionError(#[from] EncryptionError),
+    #[error("{0}")]
+    ValidationError(#[from] ValidationError),
+    #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
     Provider(String),
+    #[error("{0}")]
     Access(String),
 }
 
-#[cfg(feature = "quinn")]
-#[derive(Debug)]
-pub enum EndpointError
-{
-    IoError(io::Error),
-    ParseError(quinn::ParseError),
-    ConnectError(quinn::EndpointError),
-    CertificateError(quinn::crypto::rustls::TLSError),
-    InvalidKey(String),
-}
-
-#[cfg(feature = "quinn")]
-impl From<io::Error> for EndpointError
-{
-    fn from(error: io::Error) -> Self
-    {
-        EndpointError::IoError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::ParseError> for EndpointError
-{
-    fn from(error: quinn::ParseError) -> Self
-    {
-        EndpointError::ParseError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::EndpointError> for EndpointError
-{
-    fn from(error: quinn::EndpointError) -> Self
-    {
-        EndpointError::ConnectError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::crypto::rustls::TLSError> for EndpointError
-{
-    fn from(error: quinn::crypto::rustls::TLSError) -> Self
-    {
-        EndpointError::CertificateError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::ReadToEndError> for ConnectionError
-{
-    fn from(error: quinn::ReadToEndError) -> Self
-    {
-        ConnectionError::QuicReadError(error)
-    }
-}
-
-#[cfg(feature = "quiche")]
-impl From<quiche::Error> for ConnectionError
-{
-    fn from(error: quiche::Error) -> Self
-    {
-        ConnectionError::Http3(error)
-    }
-}
-
-impl From<ValidationError> for ClipboardError
-{
-    fn from(error: ValidationError) -> Self
-    {
-        ClipboardError::ValidationError(error)
-    }
-}
-
-impl From<io::Error> for ClipboardError
-{
-    fn from(error: io::Error) -> Self
-    {
-        ClipboardError::IoError(error)
-    }
-}
-
-impl From<ConnectionError> for ClipboardError
-{
-    fn from(error: ConnectionError) -> Self
-    {
-        ClipboardError::ConnectionError(error)
-    }
-}
-
-impl From<EncryptionError> for ClipboardError
-{
-    fn from(error: EncryptionError) -> Self
-    {
-        ClipboardError::EncryptionError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<EndpointError> for ConnectionError
-{
-    fn from(error: EndpointError) -> Self
-    {
-        ConnectionError::EndpointError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::ConnectionError> for ConnectionError
-{
-    fn from(error: quinn::ConnectionError) -> Self
-    {
-        ConnectionError::QuicConnection(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::WriteError> for ConnectionError
-{
-    fn from(error: quinn::WriteError) -> Self
-    {
-        ConnectionError::QuicWriteError(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::ConnectError> for ConnectionError
-{
-    fn from(error: quinn::ConnectError) -> Self
-    {
-        ConnectionError::QuicConnect(error)
-    }
-}
-
-impl From<std::net::AddrParseError> for ConnectionError
-{
-    fn from(error: std::net::AddrParseError) -> Self
-    {
-        ConnectionError::SocketError(error)
-    }
-}
-
-impl From<ValidationError> for ConnectionError
-{
-    fn from(error: ValidationError) -> Self
-    {
-        ConnectionError::ReceiveError(error)
-    }
-}
-
-impl From<DnsError> for ConnectionError
-{
-    fn from(error: DnsError) -> Self
-    {
-        ConnectionError::DnsError(error)
-    }
-}
-
-impl From<EncryptionError> for ConnectionError
-{
-    fn from(error: EncryptionError) -> Self
-    {
-        ConnectionError::Encryption(error)
-    }
-}
-
-#[cfg(feature = "quinn")]
-impl From<quinn::ParseError> for CliError
-{
-    fn from(error: quinn::ParseError) -> Self
-    {
-        CliError::KeyError(error)
-    }
-}
-
-impl From<std::net::AddrParseError> for CliError
-{
-    fn from(error: std::net::AddrParseError) -> Self
-    {
-        CliError::SocketError(error)
-    }
-}
-
-impl From<io::Error> for CliError
-{
-    fn from(error: io::Error) -> Self
-    {
-        CliError::IoError(error)
-    }
-}
-
-impl From<io::Error> for ConnectionError
-{
-    fn from(error: io::Error) -> Self
-    {
-        ConnectionError::IoError(error)
-    }
-}
-
-impl From<ConnectionError> for CliError
-{
-    fn from(error: ConnectionError) -> Self
-    {
-        CliError::ConnectionError(error)
-    }
-}
+// #[cfg(feature = "quinn")]
+// #[derive(Debug, Error)]
+// pub enum EndpointError
+// {
+//     #[error(transparent)]
+//     IoError(io::Error),
+//     #[error(transparent)]
+//     ParseError(quinn::ParseError),
+//     #[error(transparent)]
+//     ConnectError(quinn::EndpointError),
+//     #[error(transparent)]
+//     CertificateError(quinn::crypto::rustls::TLSError),
+//     #[error(transparent)]
+//     InvalidKey(String),
+// }

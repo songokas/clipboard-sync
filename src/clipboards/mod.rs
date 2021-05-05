@@ -1,5 +1,5 @@
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
 
 #[cfg(target_os = "android")]
@@ -39,7 +39,7 @@ pub enum ClipboardType
     MateFiles,
     KdeFiles,
     KdeFilesCut,
-    UriList
+    UriList,
 }
 
 impl fmt::Display for ClipboardType
@@ -61,7 +61,8 @@ impl fmt::Display for ClipboardType
     }
 }
 
-pub fn create_text_targets(contents: &[u8]) -> HashMap<ClipboardType, &[u8]> {
+pub fn create_text_targets(contents: &[u8]) -> HashMap<ClipboardType, &[u8]>
+{
     let mut clipboard_list = HashMap::new();
     clipboard_list.insert(ClipboardType::Text, contents);
     #[cfg(target_os = "linux")]
@@ -73,14 +74,14 @@ pub fn create_text_targets(contents: &[u8]) -> HashMap<ClipboardType, &[u8]> {
     return clipboard_list;
 }
 
-pub fn create_targets_for_cut_files(files: Vec<PathBuf>) -> (HashMap<ClipboardType, String>, String)
+pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
+    -> (HashMap<ClipboardType, String>, String)
 {
     let file_content = files
         .iter()
         .map(|p| format!("file://{}", p.to_str().unwrap()))
         .collect::<Vec<String>>()
         .join("\n");
-    
     #[cfg(target_os = "linux")]
     let cut_content = [String::from("cut"), file_content.clone()].join("\n");
 
