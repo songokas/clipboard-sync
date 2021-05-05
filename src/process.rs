@@ -260,9 +260,11 @@ async fn send_heartbeat(
     heartbeat_cache
         .entry(group.name.clone())
         .or_insert(Instant::now());
+
     let last = heartbeat_cache[&group.name];
     if last.elapsed().as_secs() > group.heartbeat {
         let data = vec![1];
+        heartbeat_cache.insert(group.name.clone(), Instant::now());
         match send_clipboard_to_group(&data, &MessageType::Heartbeat, &group, timeout).await {
             Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
             Err(err) => error!("{:?}", err),

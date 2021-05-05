@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
+use flume::Receiver;
 #[cfg(target_os = "android")]
-use flume::{Receiver, Sender};
+use flume::Sender;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
