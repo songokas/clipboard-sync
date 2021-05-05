@@ -16,12 +16,30 @@ pub struct Frame
 
 pub trait FrameDecryptor
 {
-    fn decrypt(&self, data: &[u8], identity: &Identity) -> Result<(Frame, Group), ConnectionError>;
+    fn decrypt_to_frame(
+        &self,
+        data: &[u8],
+        identity: &Identity,
+    ) -> Result<(Frame, Group), ConnectionError>;
+    fn decrypt(
+        &self,
+        data: &[u8],
+        identity: &Identity,
+    ) -> Result<(Vec<u8>, Group), ConnectionError>;
+}
+
+pub trait FrameDataDecryptor
+{
+    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ConnectionError>;
 }
 
 pub trait FrameEncryptor
 {
-    fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, ConnectionError>;
+    fn encrypt(
+        &self,
+        data: Vec<u8>,
+        message_type: &MessageType,
+    ) -> Result<Vec<u8>, ConnectionError>;
 }
 
 pub trait FrameIndexEncryptor
@@ -32,11 +50,6 @@ pub trait FrameIndexEncryptor
         index: u32,
         max_payload: usize,
     ) -> Result<Vec<u8>, ConnectionError>;
-}
-
-pub trait FrameDataDecryptor
-{
-    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ConnectionError>;
 }
 
 pub trait FragmentEncryptor =
@@ -57,10 +70,21 @@ impl GroupsEncryptor
 
 impl FrameDecryptor for GroupsEncryptor
 {
-    fn decrypt(&self, data: &[u8], identity: &Identity) -> Result<(Frame, Group), ConnectionError>
+    fn decrypt(&self, data: &[u8], identity: &Identity)
+        -> Result<(Vec<u8>, Group), ConnectionError>
     {
         let (message, group) = validate(&data, &self.groups)?;
         let bytes = decrypt(&message, identity, &group)?;
+        return Ok((bytes, group));
+    }
+
+    fn decrypt_to_frame(
+        &self,
+        data: &[u8],
+        identity: &Identity,
+    ) -> Result<(Frame, Group), ConnectionError>
+    {
+        let (bytes, group) = self.decrypt(data, identity)?;
         let frame: Frame = bincode::deserialize(&bytes)
             .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
         return Ok((frame, group));
@@ -74,9 +98,10 @@ impl DataEncryptor for GroupsEncryptor
         data: &[u8],
         group: &Group,
         identity: &Identity,
+        message_type: &MessageType,
     ) -> Result<Vec<u8>, ConnectionError>
     {
-        let bytes = encrypt_to_bytes(data, identity, group, &MessageType::Frame)?;
+        let bytes = encrypt_to_bytes(data, identity, group, message_type)?;
         return Ok(bytes);
     }
 }
@@ -98,9 +123,10 @@ impl IdentityEncryptor
 
 impl FrameEncryptor for IdentityEncryptor
 {
-    fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, ConnectionError>
+    fn encrypt(&self, data: Vec<u8>, message_type: &MessageType)
+        -> Result<Vec<u8>, ConnectionError>
     {
-        let bytes = encrypt_to_bytes(&data, &self.identity, &self.group, &MessageType::Frame)?;
+        let bytes = encrypt_to_bytes(&data, &self.identity, &self.group, message_type)?;
         return Ok(bytes);
     }
 }

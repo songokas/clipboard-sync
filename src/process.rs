@@ -1,5 +1,4 @@
 use flume::{Receiver, Sender};
-use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -127,6 +126,8 @@ pub async fn send_clipboard(
 
     info!("Listen for clipboard changes");
 
+    let timeout = |_: Duration| !running.load(Ordering::Relaxed);
+
     while running.load(Ordering::Relaxed) {
         while let Ok((group_name, rhash)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
@@ -182,7 +183,7 @@ pub async fn send_clipboard(
 
             count += 1;
 
-            match send_clipboard_to_group(&data, &message_type, &group).await {
+            match send_clipboard_to_group(&data, &message_type, &group, timeout).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             };
@@ -223,7 +224,9 @@ pub async fn send_clipboard_contents(contents: String, group: &Group) -> Result<
         }
     };
 
-    let sent = match send_clipboard_to_group(&data, &message_type, &group).await {
+    let timeout = |d: Duration| d > Duration::from_millis(DATA_TIMEOUT);
+
+    let sent = match send_clipboard_to_group(&data, &message_type, &group, timeout).await {
         Ok(sent) => {
             debug!("Sent bytes {}", sent);
             sent
@@ -348,9 +351,12 @@ async fn send_clipboard_to_group(
     buffer: &[u8],
     message_type: &MessageType,
     group: &Group,
+    _timeout_callback: impl Timeout,
 ) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
+    let callback = |d: Duration| d > Duration::from_millis(2000);
+
     for remote_host in &group.allowed_hosts {
         let addr = match to_socket(remote_host).await {
             Ok(a) => a,
@@ -379,7 +385,16 @@ async fn send_clipboard_to_group(
         );
 
         let encryptor = IdentityEncryptor::new(group.clone(), identity);
-        sent += send_data(local_socket, encryptor, &group.protocol, addr, bytes).await?;
+
+        sent += send_data(
+            local_socket,
+            encryptor,
+            &group.protocol,
+            addr,
+            bytes,
+            callback,
+        )
+        .await?;
     }
     return Ok(sent);
 }
@@ -397,10 +412,12 @@ mod processtest
     #[test]
     fn test_handle_clipboard_change()
     {
+        let timeout = |d: Duration| d > Duration::from_millis(2000);
         let result = wait!(send_clipboard_to_group(
             b"test",
             &MessageType::Text,
             &Group::from_name("me"),
+            timeout,
         ));
         assert_eq!(result.unwrap(), 0);
 
@@ -408,6 +425,7 @@ mod processtest
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
+            timeout,
         ));
         assert_eq!(result.unwrap(), 62);
 
@@ -415,6 +433,7 @@ mod processtest
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:0"),
+            timeout,
         ));
         assert_eq!(result.unwrap(), 0);
 
@@ -422,6 +441,7 @@ mod processtest
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
+            timeout,
         ));
         assert_error_type!(
             result,

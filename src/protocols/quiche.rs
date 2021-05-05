@@ -1,5 +1,5 @@
 use log::{debug, error, info};
-use quiche::{Config, Connection, Header};
+use quiche::{Config, Connection, ConnectionId, Header};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -7,26 +7,32 @@ use std::time::Instant;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use crate::defaults::MAX_UDP_BUFFER;
-use crate::defaults::{CONNECTION_TIMEOUT, DATA_TIMEOUT, MAX_DATAGRAM_SIZE, QUIC_STREAM};
-use crate::encryption::{decrypt, encrypt_to_bytes, hex_dump, random, validate};
+use crate::defaults::{CONNECTION_TIMEOUT, MAX_DATAGRAM_SIZE, MAX_UDP_BUFFER, QUIC_STREAM};
+use crate::encryption::{hex_dump, random};
 use crate::errors::ConnectionError;
-use crate::message::{Group, MessageType};
-use crate::socket::receive_from_timeout;
+use crate::fragmenter::{FrameDecryptor, FrameEncryptor};
+use crate::identity::Identity;
+use crate::message::MessageType;
+use crate::socket::{receive_from_timeout, Timeout};
 
-pub async fn send_data_quic(
+pub async fn send_data(
     socket: UdpSocket,
-
+    encryptor: impl FrameEncryptor,
     data: Vec<u8>,
     destination_addr: &SocketAddr,
-    group: &Group,
     verify_path: Option<String>,
+    timeout_callback: impl Timeout,
 ) -> Result<usize, ConnectionError>
 {
     let scid = random(quiche::MAX_CONN_ID_LEN);
     let mut config = load_client_config(verify_path)?;
+    let connection_id = ConnectionId::from_vec(scid.clone());
 
-    let mut conn = quiche::connect(Some(&destination_addr.ip().to_string()), &scid, &mut config)?;
+    let mut conn = quiche::connect(
+        Some(&destination_addr.ip().to_string()),
+        &connection_id,
+        &mut config,
+    )?;
 
     debug!(
         "Connecting to {:} from {:} with scid {}",
@@ -35,7 +41,8 @@ pub async fn send_data_quic(
         hex_dump(&scid)
     );
 
-    let mut connection_sent = send_handshake(&mut conn, &socket, group).await?;
+    let mut connection_sent =
+        send_handshake(&mut conn, &socket, encryptor, timeout_callback).await?;
 
     debug!("Sent initial packet size {}", connection_sent);
 
@@ -75,22 +82,24 @@ pub async fn send_data_quic(
     }
 }
 
-pub async fn receive_data_quic(
+pub async fn receive_data(
     socket: &UdpSocket,
-    encryptor: impl FrameDecryptor,
-    max_len: usize,
+    encryptor: &impl FrameDecryptor,
     private_key: &str,
     public_key: &str,
+    max_len: usize,
     timeout_callback: impl Timeout,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut config = load_server_config(private_key, public_key)?;
     let mut connection_sent = 0;
     let mut received = Vec::new();
-    let timeout = DATA_TIMEOUT as u128;
+    let timeout_with_time = |d: Duration| -> bool {
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout_callback(d);
+    };
 
     let (header, addr, mut buffer, mut connection_read) =
-        receive_handshake(&socket, encryptor, timeout_callback).await?;
+        receive_handshake(&socket, encryptor, timeout_with_time).await?;
 
     debug!(
         "Initial packet with size {} received {:?}",
@@ -142,7 +151,7 @@ pub async fn receive_data_quic(
             return Ok((received, addr));
         }
 
-        if now.elapsed().as_millis() > timeout {
+        if timeout_with_time(now.elapsed()) {
             return Err(ConnectionError::FailedToConnect(format!(
                 "Connection timeout {}. Received {} Sent {}",
                 now.elapsed().as_millis(),
@@ -183,7 +192,11 @@ fn receive_stream(
                 max_len
             );
             conn.close(true, 0x00, b"kthxbye").unwrap_or(());
-            break;
+            return Err(ConnectionError::LimitReached(format!(
+                "Connection limit reached: expected {} received {}",
+                max_len,
+                received.len()
+            )));
         }
     }
     return Ok(());
@@ -193,49 +206,38 @@ async fn send_handshake(
     conn: &mut Connection,
     socket: &UdpSocket,
     encryptor: impl FrameEncryptor,
+    timeout_callback: impl Timeout,
 ) -> Result<usize, ConnectionError>
 {
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
-    // let identity = socket.local_addr().map(|a| a.ip().to_string())?;
-
     let cwrite = conn.send(&mut out)?;
+    let enc_write = encryptor.encrypt(out[..cwrite].to_vec(), &MessageType::Handshake)?;
 
-    let enc_write = encryptor.encrypt(&out[..cwrite], &MessageType::Handshake)?;
-
-    let connection_sent = match timeout(
-        Duration::from_millis(CONNECTION_TIMEOUT),
-        socket.send(&enc_write),
-    )
-    .await
-    {
-        Ok(v) => v?,
-        Err(e) => {
-            return Err(ConnectionError::FailedToConnect(format!(
-                "Failed to send initial data {}",
-                e
-            )));
-        }
-    };
-    return Ok(connection_sent);
+    let now = Instant::now();
+    while !timeout_callback(now.elapsed()) {
+        let connection_sent =
+            match timeout(Duration::from_millis(100), socket.send(&enc_write)).await {
+                Ok(v) => v?,
+                Err(_) => continue,
+            };
+        return Ok(connection_sent);
+    }
+    return Err(ConnectionError::FailedToConnect(
+        "Quic failed to send initial data".to_owned(),
+    ));
 }
 
-async fn receive_handshake(
+async fn receive_handshake<'a>(
     socket: &UdpSocket,
-    encryptor: impl DataDecryptor,
+    encryptor: &impl FrameDecryptor,
     timeout: impl Timeout,
-) -> Result<(Header, SocketAddr, Vec<u8>, usize), ConnectionError>
+) -> Result<(Header<'a>, SocketAddr, Vec<u8>, usize), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
     let (connection_read, addr) = receive_from_timeout(socket, &mut buffer, timeout).await?;
-    let pkt_buf_read = &buffer[..connection_read];
-
-    // we dont need to retry with token if the first handshake is correct
-    // let (message, group) = validate(pkt_buf_read, groups)?;
-    // let mut pkt_buf = decrypt(&message, &addr.ip().to_string(), &group)?;
-
-    let mut pkt_buf = encryptor.decrypt(pkt_buf_read, Identity::from_addr(&addr))?;
-
+    let (mut pkt_buf, _) =
+        encryptor.decrypt(&buffer[..connection_read], &Identity::from_addr(&addr))?;
     let header = match Header::from_slice(&mut pkt_buf, quiche::MAX_CONN_ID_LEN) {
         Ok(v) => v,
 
@@ -351,7 +353,7 @@ fn load_config() -> Result<Config, ConnectionError>
         .unwrap();
 
     config.set_max_idle_timeout(CONNECTION_TIMEOUT);
-    config.set_max_udp_payload_size(MAX_DATAGRAM_SIZE as u64);
+    config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE as usize);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_bidi_local(1_000_000);
     config.set_initial_max_stream_data_bidi_remote(1_000_000);
@@ -401,47 +403,71 @@ fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, Connect
 mod quichetest
 {
     use super::*;
+    use crate::assert_error_type;
+    use crate::encryption::random;
+    use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
+    use crate::message::Group;
     use tokio::try_join;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_send_receive_quic()
+    async fn send_receive(size: usize, max_len: usize)
     {
         let local_server: SocketAddr = "127.0.0.1:9956".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:9957".parse().unwrap();
         let server_sock = UdpSocket::bind(local_server).await.unwrap();
         let client_sock = UdpSocket::bind(local_client).await.unwrap();
+
         let group = Group::from_name("test1");
         let groups = vec![group.clone()];
 
+        let enc_r = GroupsEncryptor::new(groups);
+        let enc_s = IdentityEncryptor::new(group, Identity::from_addr(&local_server));
+
         client_sock.connect(local_server).await.unwrap();
 
-        let data_len = 10 * 1024 * 1024;
-        let data_sent = random(data_len);
-        let expect_data = data_sent.clone();
-
+        let data_sent = random(size);
+        let for_sending = data_sent.clone();
         let r = tokio::spawn(async move {
-            // Process each socket concurrently.
-            let (data_received, addr) = receive_data_quic(
+            receive_data(
                 &server_sock,
-                data_len + 20000,
-                &groups,
+                &enc_r,
                 "tests/cert.key",
                 "tests/cert.crt",
+                max_len,
                 |d: Duration| d > Duration::from_millis(2000),
             )
             .await
-            .unwrap();
-            assert_eq!(expect_data, data_received);
-            assert_eq!(local_client, addr);
         });
 
         let s = tokio::spawn(async move {
-            let data_len_sent = send_data_quic(client_sock, data_sent, &local_server, &group, None)
-                .await
-                .unwrap();
-            assert_eq!(data_len_sent, data_len);
+            send_data(
+                client_sock,
+                enc_s,
+                for_sending,
+                &local_server,
+                None,
+                |d: Duration| d > Duration::from_millis(2000),
+            )
+            .await
         });
 
-        try_join!(r, s,).unwrap();
+        let res = try_join!(r, s).unwrap();
+
+        if size > max_len {
+            assert_error_type!(res.0, ConnectionError::LimitReached(_));
+        } else {
+            let _data_len_sent = res.1.unwrap();
+            let (data_received, addr) = res.0.unwrap();
+            assert_eq!(local_client, addr);
+            // assert_eq!(data_len_sent, size);
+            assert_eq!(data_sent, data_received);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_data()
+    {
+        send_receive(5, 100).await;
+        send_receive(16 * 1024 * 10, 16 * 1024 * 10 + 1000).await;
+        send_receive(10, 5).await;
     }
 }

@@ -13,10 +13,10 @@ use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::encryption::DataEncryptor;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{
-    size_to_indexes, FragmentEncryptor, FrameDataDecryptor, FrameDecryptor, FrameEncryptor,
-    FrameIndexEncryptor,
+    size_to_indexes, FragmentEncryptor, FrameDataDecryptor, FrameDecryptor, FrameIndexEncryptor,
 };
 use crate::identity::Identity;
+use crate::message::MessageType;
 use crate::socket::{receive_from_timeout, Timeout};
 
 pub async fn receive_data(
@@ -41,7 +41,7 @@ pub async fn receive_data(
         received += read;
 
         if received > max_len {
-            return Err(ConnectionError::InvalidBuffer(format!(
+            return Err(ConnectionError::LimitReached(format!(
                 "Received more data {} than expected {}",
                 received, max_len
             )));
@@ -59,13 +59,7 @@ pub async fn receive_data(
 
         let identity = Identity::from_addr(&addr);
 
-        let (frame, group) = encryptor.decrypt(&data, &identity)?;
-
-        // let (message, group) = validate(&data, groups)?;
-        // let bytes = decrypt(&message, &addr.ip().to_string(), &group)?;
-
-        // let frame: Frame = bincode::deserialize(&bytes)
-        //     .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
+        let (frame, group) = encryptor.decrypt_to_frame(&data, &identity)?;
 
         debug!(
             "Read {} bytes from {}, index {} total {}",
@@ -74,14 +68,13 @@ pub async fn receive_data(
 
         received_frames.insert(frame.index, frame.data);
 
-        let confirm_bytes = encryptor.encrypt(&frame.index.to_be_bytes(), &group, &identity)?;
+        let confirm_bytes = encryptor.encrypt(
+            &frame.index.to_be_bytes(),
+            &group,
+            &identity,
+            &MessageType::Frame,
+        )?;
 
-        // let bytes = encrypt_to_bytes(
-        //     &frame.index.to_be_bytes(),
-        //     &addr.ip().to_string(),
-        //     &group,
-        //     &MessageType::Frame,
-        // )?;
         socket.send_to(&confirm_bytes, addr).await?;
 
         if frame.total as usize == received_frames.len() {
@@ -98,37 +91,16 @@ pub async fn send_data(
     socket: UdpSocket,
     encryptor: impl FragmentEncryptor,
     data: Vec<u8>,
-    destination_addr: &SocketAddr,
+    _: &SocketAddr,
+    timeout_callback: impl Timeout + std::marker::Sync + std::marker::Send + 'static,
 ) -> Result<usize, ConnectionError>
 {
-    // let reminder = if data.len() % MAX_UDP_PAYLOAD > 0 {
-    //     1
-    // } else {
-    //     0
-    // };
-    // let indexes: usize = (data.len() / MAX_UDP_PAYLOAD) + reminder;
-
     let indexes = size_to_indexes(data.len(), MAX_UDP_PAYLOAD);
-
-    // let identity = retrieve_identity(
-    //     &destination_addr.ip(),
-    //     socket.local_addr().map(|s| s.ip().clone()).ok(),
-    //     group,
-    // )
-    // .await?;
-
-    // let enc = Arc::new(encryptor);
-    // let enc_confirm = Arc::clone(&enc);
-    // let enc_receive = Arc::clone(&enc);
 
     let socket_writer = Arc::new(socket);
     let socket_reader = Arc::clone(&socket_writer);
-    // let groups = vec![group.clone()];
-    // let expected_addr = destination_addr.clone();
-
-    // let encryptor_confirm = encryptor.clone();
     let indexes_b = indexes.clone();
-
+    // let confirm_timeout = |d: Duration| timeout_callback(d);
     let (channel_sender, channel_receiver) = bounded(indexes * 4);
     let res = try_join!(
         tokio::spawn(confirm_received(
@@ -143,6 +115,7 @@ pub async fn send_data(
             encryptor.clone(),
             data,
             indexes,
+            timeout_callback,
         ))
     )
     .map_err(ConnectionError::JoinError)?;
@@ -167,12 +140,6 @@ async fn confirm_received(
                 .await
             {
                 Ok(_) => encryptor.decrypt(&bytes),
-                // validate(&bytes, &groups)
-                //     .map_err(ConnectionError::ReceiveError)
-                //     .and_then(|(message, cgroup)| {
-                //         decrypt(&message, &expected_addr.ip().to_string(), &cgroup)
-                //             .map_err(ConnectionError::Encryption)
-                //     }),
                 _ => {
                     continue;
                 }
@@ -220,6 +187,7 @@ async fn confirm_sent(
     encryptor: impl FrameIndexEncryptor,
     data: Vec<u8>,
     indexes: usize,
+    timeout: impl Timeout,
 ) -> Result<usize, ConnectionError>
 {
     let mut sent_without_confirmation: HashMap<u32, bool> = HashMap::new();
@@ -233,6 +201,10 @@ async fn confirm_sent(
         sleep(Duration::from_millis(10)).await;
     }
     let now = Instant::now();
+    let timeout_with_time = |d: Duration| -> bool {
+        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout(d);
+    };
+
     while sent_without_confirmation.len() > 0 {
         sleep(Duration::from_millis(100)).await;
         while i < 5000 && sent_without_confirmation.len() > 0 {
@@ -247,7 +219,7 @@ async fn confirm_sent(
         for (index, _) in sent_without_confirmation.iter() {
             sent += send_index(&socket_writer, &encryptor, &data, index.clone()).await?;
         }
-        if now.elapsed().as_millis() > CONNECTION_TIMEOUT as u128 {
+        if timeout_with_time(now.elapsed()) {
             return Err(ConnectionError::FailedToConnect(format!(
                 "Connection timeout {}. Total {} Remaining {}",
                 now.elapsed().as_millis(),
@@ -267,8 +239,6 @@ async fn send_index(
 ) -> Result<usize, ConnectionError>
 {
     let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD)?;
-    // let frame = data_to_frame(index, indexes as u16, data, MAX_UDP_PAYLOAD)?;
-    // let bytes = encrypt_to_bytes(&frame, identity, &group, &MessageType::Frame)?;
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 
@@ -320,9 +290,16 @@ mod framestest
         let data_sent = random(data_len);
         let expected_data = data_sent.clone();
         let res = try_join!(
-            tokio::spawn(
-                async move { send_data(client_sock, enc_s, data_sent, &local_server).await }
-            ),
+            tokio::spawn(async move {
+                send_data(
+                    client_sock,
+                    enc_s,
+                    data_sent,
+                    &local_server,
+                    |d: Duration| d > Duration::from_millis(2000),
+                )
+                .await
+            }),
             tokio::spawn(async move {
                 receive_data(&server_sock, &enc_r, max_len, |d: Duration| {
                     d > Duration::from_millis(2000)

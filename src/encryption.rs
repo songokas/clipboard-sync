@@ -22,6 +22,7 @@ pub trait DataEncryptor
         data: &[u8],
         group: &Group,
         identity: &Identity,
+        message_type: &MessageType,
     ) -> Result<Vec<u8>, ConnectionError>;
 }
 

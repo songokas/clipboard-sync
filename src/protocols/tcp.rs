@@ -1,4 +1,4 @@
-use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER};
+use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
 use crate::socket::Timeout;
 use std::io;
@@ -16,11 +16,10 @@ pub async fn receive_data(
 {
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
-        let (mut stream, sock_addr) =
-            match timeout(Duration::from_millis(100), socket.accept()).await {
-                Ok(v) => v?,
-                Err(_) => continue,
-            };
+        let (stream, sock_addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
+            Ok(v) => v?,
+            Err(_) => continue,
+        };
         let timeout_with_duration = |d: Duration| -> bool {
             return d > Duration::from_millis(CONNECTION_TIMEOUT) && timeout_callback(d);
         };
@@ -75,7 +74,7 @@ pub async fn send_data(
 ) -> Result<usize, ConnectionError>
 {
     let mut stream = socket.connect(destination.clone()).await?;
-    let res = stream.write_all(&data).await;
+    stream.write_all(&data).await?;
     stream.shutdown().await?;
     return Ok(data.len());
 }
@@ -83,8 +82,9 @@ pub async fn send_data(
 pub fn obtain_client_socket(local_address: SocketAddr) -> Result<TcpSocket, ConnectionError>
 {
     let socket = TcpSocket::new_v4()?;
-    // socket.set_reuseaddr(true)?;
-    // socket.set_reuseport(true)?;
+    socket.set_reuseaddr(true)?;
+    #[cfg(target_os = "linux")]
+    socket.set_reuseport(true)?;
     socket.bind(local_address)?;
     return Ok(socket);
 }
@@ -92,8 +92,9 @@ pub fn obtain_client_socket(local_address: SocketAddr) -> Result<TcpSocket, Conn
 pub fn obtain_server_socket(local_address: SocketAddr) -> Result<TcpListener, ConnectionError>
 {
     let socket = TcpSocket::new_v4()?;
-    // socket.set_reuseaddr(true)?;
-    // socket.set_reuseport(true)?;
+    socket.set_reuseaddr(true)?;
+    #[cfg(target_os = "linux")]
+    socket.set_reuseport(true)?;
     socket.bind(local_address)?;
     let listener = socket.listen(1024)?;
     return Ok(listener);
@@ -114,9 +115,7 @@ mod tcptest
         let server_sock = obtain_server_socket(local_server).unwrap();
         let client_sock = obtain_client_socket(local_client).unwrap();
 
-        // let size = 16 * 1024 * 10;
         let data_sent = random(size);
-        // let max_len = size + size;
         let for_sending = data_sent.clone();
 
         let res = try_join!(

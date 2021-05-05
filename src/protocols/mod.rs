@@ -5,6 +5,8 @@ use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpSocket, UdpSocket};
 
 use crate::config::CertLoader;
+#[cfg(feature = "quic")]
+use crate::config::Certificates;
 use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
@@ -160,7 +162,7 @@ impl LocalSocket
     {
         return match self {
             Self::Socket(s) => s.local_addr().map(|s| s.ip().clone()).ok(),
-            Self::Laminar((s, c)) => s.local_addr().map(|s| s.ip().clone()).ok(),
+            Self::Laminar((s, _)) => s.local_addr().map(|s| s.ip().clone()).ok(),
             _ => None,
         };
     }
@@ -184,17 +186,12 @@ impl LocalSocket
     }
 }
 
-// use self::quinn::{obtain_client_endpoint, obtain_server_endpoint, send_data_quic, receive_data_quic};
-#[cfg(feature = "quiche")]
-use self::quiche::{receive_data_quic, send_data_quic};
-
 pub async fn obtain_client_socket(
     local_address: &SocketAddr,
     remote_addr: &SocketAddr,
     protocol: &Protocol,
 ) -> Result<LocalSocket, ConnectionError>
 {
-    // debug!("Send to {} using {}", remote_addr, local_address);
     match protocol {
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => quin::obtain_socket(local_address).await,
@@ -245,6 +242,7 @@ pub async fn send_data(
     protocol: &Protocol,
     destination: SocketAddr,
     data: Vec<u8>,
+    timeout: impl Timeout + std::marker::Send + std::marker::Sync + 'static,
 ) -> Result<usize, ConnectionError>
 {
     return match protocol {
@@ -259,6 +257,7 @@ pub async fn send_data(
                 encryptor,
                 data,
                 &destination,
+                timeout,
             )
             .await
         }
@@ -272,12 +271,13 @@ pub async fn send_data(
                     ))?,
                 data,
                 destination,
+                timeout,
             )
             .await
         }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
-            send_data_quic(
+            quiche::send_data(
                 local_socket
                     .socket_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
@@ -285,9 +285,9 @@ pub async fn send_data(
                     ))?,
                 encryptor,
                 data,
-                destination,
-                group,
+                &destination,
                 c.verify_dir.clone(),
+                timeout,
             )
             .await
         }
@@ -300,6 +300,7 @@ pub async fn send_data(
                     ))?,
                 data,
                 &destination,
+                timeout,
             )
             .await
         }
@@ -362,7 +363,7 @@ pub async fn receive_data(
         }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {
-            receive_data_quic(
+            quiche::receive_data(
                 local_socket
                     .socket()
                     .ok_or(ConnectionError::InvalidProtocol(
@@ -389,7 +390,7 @@ pub async fn receive_data(
             .await
         }
         Protocol::Laminar => {
-            let (s, c) = local_socket
+            let (s, _) = local_socket
                 .laminar()
                 .ok_or(ConnectionError::InvalidProtocol(
                     "Basic protocol socket expected".to_owned(),

@@ -29,7 +29,7 @@ mod runner;
 mod socket;
 mod test;
 
-use crate::process::{send_clipboard, send_clipboard_contents};
+use crate::process::send_clipboard_contents;
 use crate::runner::{create_config, create_runner, Runner, Status, StatusCount};
 
 lazy_static! {

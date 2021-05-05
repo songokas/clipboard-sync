@@ -10,7 +10,7 @@ use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
-use crate::errors::{ConnectionError, DnsError};
+use crate::errors::DnsError;
 use crate::message::Group;
 
 pub trait Timeout = Fn(Duration) -> bool;
