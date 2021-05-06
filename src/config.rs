@@ -18,7 +18,7 @@ use crate::filesystem::write_file;
 use crate::message::{ConfigGroup, Group};
 use crate::protocols::Protocol;
 
-pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
+// pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Certificates
@@ -160,7 +160,7 @@ pub fn load_groups(
     default_allowed_host_address: &str,
     default_bind_address: &str,
     default_protocol: Option<&str>,
-    load_cli_certs: impl CertLoader,
+    #[cfg(feature = "quic")] load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
     send_clipboard_on_startup: bool,
     default_visible_ip: Option<String>,
     default_key: String,
@@ -181,6 +181,7 @@ pub fn load_groups(
 
     let mut groups = vec![];
 
+    #[cfg(feature = "quic")]
     let load_certs = || -> Result<Certificates, CliError> {
         if let Some(c) = &user_config.certificates {
             return Ok(c.clone());
@@ -218,7 +219,11 @@ pub fn load_groups(
 
         let c_proto = group.protocol.as_deref().or(default_protocol);
 
-        let protocol = Protocol::from(c_proto, load_certs)?;
+        let protocol = Protocol::from(
+            c_proto,
+            #[cfg(feature = "quic")]
+            load_certs,
+        )?;
 
         let key_data = if let Some(k) = group.key {
             k.clone()
@@ -246,10 +251,15 @@ pub fn load_groups(
 
     let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
     let receive_once_wait = user_config.receive_once_wait.unwrap_or(RECEIVE_ONCE_WAIT);
-    let bind_default_protocol = Protocol::from(default_protocol, load_certs)?;
+    let bind_default_protocol = Protocol::from(
+        default_protocol,
+        #[cfg(feature = "quic")]
+        load_certs,
+    )?;
     let bind_addresses = create_bind_addresses(
         &user_config.bind_addresses,
         default_bind_address,
+        #[cfg(feature = "quic")]
         load_certs,
         bind_default_protocol,
     )?;
@@ -294,14 +304,18 @@ pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
 fn create_bind_addresses(
     config_addresses: &Option<IndexMap<String, SocketAddr>>,
     default_bind_address: &str,
-    load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
+    #[cfg(feature = "quic")] load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
     bind_default_protocol: Protocol,
 ) -> Result<IndexMap<Protocol, SocketAddr>, CliError>
 {
     let mut hash = IndexMap::new();
     if let Some(addresses) = config_addresses {
         for (protocol_str, sock_addr) in addresses {
-            let protocol = match Protocol::from(Some(protocol_str), load_certs) {
+            let protocol = match Protocol::from(
+                Some(protocol_str),
+                #[cfg(feature = "quic")]
+                load_certs,
+            ) {
                 Ok(p) => p,
                 Err(e) => {
                     warn!("{:?}. Skipping", e);
@@ -341,6 +355,7 @@ mod configtest
             socket_addr,
             "127.0.0.1:9088",
             None,
+            #[cfg(feature = "quic")]
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
             None,
@@ -427,6 +442,7 @@ mod configtest
             socket_addr,
             "127.0.0.1:9088",
             None,
+            #[cfg(feature = "quic")]
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
             None,

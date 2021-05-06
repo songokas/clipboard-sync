@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::marker::{Send, Sync};
 
 use crate::encryption::{decrypt, encrypt_to_bytes, validate, DataEncryptor};
 use crate::errors::ConnectionError;
@@ -52,8 +51,9 @@ pub trait FrameIndexEncryptor
     ) -> Result<Vec<u8>, ConnectionError>;
 }
 
-pub trait FragmentEncryptor =
-    FrameEncryptor + FrameDataDecryptor + FrameIndexEncryptor + Send + Sync + Clone + 'static;
+//@TODO once trait_alias
+// pub trait FragmentEncryptor =
+// FrameEncryptor + FrameDataDecryptor + FrameIndexEncryptor + Send + Sync + Clone + 'static;
 
 pub struct GroupsEncryptor
 {

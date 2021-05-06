@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -9,19 +10,19 @@ use tokio::time::{timeout, Duration};
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::errors::ConnectionError;
 use crate::protocols::tcp::{obtain_client_socket, obtain_server_socket, receive_stream};
-use crate::socket::{receive_from_timeout, Timeout};
+use crate::socket::receive_from_timeout;
 
 pub async fn receive_data(
-    socket: &UdpSocket,
+    socket: Arc<UdpSocket>,
     max_len: usize,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
 
     let callback = |d: Duration| timeout_callback(d);
 
-    let (read, addr) = receive_from_timeout(socket, &mut buffer, callback).await?;
+    let (read, addr) = receive_from_timeout(&socket, &mut buffer, callback).await?;
 
     if read == 1 && buffer[0] == 49 {
         let duration = Duration::from_millis(CONNECTION_TIMEOUT);
@@ -46,14 +47,14 @@ pub async fn receive_data(
 }
 
 pub async fn send_data(
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
     data: Vec<u8>,
     destination: &SocketAddr,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
     if data.len() > MAX_UDP_PAYLOAD {
-        socket.send(b"1").await?;
+        socket.send_to(b"1", destination).await?;
 
         let duration = Duration::from_millis(CONNECTION_TIMEOUT);
         let callback = |d: Duration| d > duration || timeout_callback(d);
@@ -69,37 +70,12 @@ pub async fn send_data(
         stream.shutdown().await?;
         return Ok(data.len());
     }
-    return Ok(socket.send(&data).await?);
-}
-
-pub async fn obtain_socket(
-    local_address: &SocketAddr,
-    remote_addr: &SocketAddr,
-) -> Result<UdpSocket, ConnectionError>
-{
-    let sock = UdpSocket::bind(local_address).await.map_err(|e| {
-        ConnectionError::FailedToConnect(format!(
-            "Unable to bind local address {} {}",
-            local_address, e
-        ))
-    })?;
-    sock.connect(remote_addr).await.map_err(|e| {
-        ConnectionError::FailedToConnect(format!(
-            "Unable to connect local address {} to remote address {} {}",
-            local_address, remote_addr, e
-        ))
-    })?;
-
-    if remote_addr.ip().is_multicast() {
-        sock.set_multicast_loop_v4(false).unwrap_or(());
-        sock.set_multicast_loop_v6(false).unwrap_or(());
-    }
-    return Ok(sock);
+    return Ok(socket.send_to(&data, destination).await?);
 }
 
 async fn listen_stream(
     local_addr: SocketAddr,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<TcpStream, ConnectionError>
 {
     let listener = obtain_server_socket(local_addr)?;
@@ -139,8 +115,8 @@ mod basictest
     {
         let local_server: SocketAddr = "127.0.0.1:35837".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:35838".parse().unwrap();
-        let mut server_sock = UdpSocket::bind(local_server).await.unwrap();
-        let client_sock = UdpSocket::bind(local_client).await.unwrap();
+        let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
+        let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
         client_sock.connect(local_server).await.unwrap();
 
         let data_sent = random(size);
@@ -148,7 +124,7 @@ mod basictest
 
         let res = try_join!(
             tokio::spawn(async move {
-                receive_data(&mut server_sock, max_len, |d: Duration| {
+                receive_data(server_sock, max_len, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await
@@ -185,8 +161,8 @@ mod basictest
     async fn test_timeout()
     {
         let local_server: SocketAddr = "127.0.0.1:39837".parse().unwrap();
-        let server_sock = UdpSocket::bind(local_server).await.unwrap();
-        let result = receive_data(&server_sock, 10, |_: Duration| true).await;
+        let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
+        let result = receive_data(server_sock, 10, |_: Duration| true).await;
         assert_error_type!(result, ConnectionError::IoError(_));
     }
 }

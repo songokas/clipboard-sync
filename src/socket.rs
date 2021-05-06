@@ -13,7 +13,8 @@ use tokio::time::{timeout, Duration};
 use crate::errors::DnsError;
 use crate::message::Group;
 
-pub trait Timeout = Fn(Duration) -> bool;
+//@TODO experimental
+// pub trait Timeout = Fn(Duration) -> bool;
 
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
@@ -111,7 +112,7 @@ impl Multicast
 pub async fn receive_from_timeout(
     socket: &UdpSocket,
     buf: &mut [u8],
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> io::Result<(usize, SocketAddr)>
 {
     let timeout_duration = Duration::from_millis(50);

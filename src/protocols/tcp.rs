@@ -1,6 +1,6 @@
 use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
-use crate::socket::Timeout;
+// use crate::socket::Timeout;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -11,7 +11,7 @@ use tokio::time::{timeout, Duration};
 pub async fn receive_data(
     socket: &TcpListener,
     max_len: usize,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let now = Instant::now();
@@ -35,7 +35,7 @@ pub async fn receive_stream(
     stream: TcpStream,
     addr: SocketAddr,
     max_len: usize,
-    timeout: impl Timeout,
+    timeout: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut buffer = [0; 10000];

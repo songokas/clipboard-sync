@@ -24,7 +24,7 @@ use crate::defaults::{
 use crate::errors::CliError;
 use crate::message::Group;
 use crate::process::{receive_clipboard, send_clipboard};
-use crate::protocols::Protocol;
+use crate::protocols::{Protocol, SocketPool};
 
 #[derive(Serialize, Deserialize)]
 pub struct AndroidConfig
@@ -107,9 +107,11 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
     let send_using_address = config.send_using_address;
     let socket_address = config.bind_address;
 
-    let protocol = Protocol::from(Some(&config.protocol), || {
-        Err(CliError::ArgumentError("Android no certs".to_owned()))
-    })
+    let protocol = Protocol::from(
+        Some(&config.protocol),
+        #[cfg(feature = "quic")]
+        || Err(CliError::ArgumentError("Android no certs".to_owned())),
+    )
     .map_err(|e| e.to_string())?;
 
     let group = Group {
@@ -155,6 +157,7 @@ pub struct Runner
     queue_receiver: Receiver<String>,
     received_count: u64,
     sent_count: u64,
+    pool: Arc<SocketPool>,
 }
 
 impl Runner
@@ -254,8 +257,9 @@ impl Runner
         let (protocol, bind_address) = full_config
             .get_first_bind_address()
             .expect("Protocol bind addresses required");
-
+        let pool = Arc::new(SocketPool::new());
         let receive = receive_clipboard(
+            Arc::clone(&pool),
             clipboard_receive,
             Arc::clone(&atx),
             bind_address.clone(),
@@ -267,6 +271,7 @@ impl Runner
         );
 
         let send = send_clipboard(
+            Arc::clone(&pool),
             clipboard_send,
             rx,
             Arc::clone(&running),
@@ -286,6 +291,7 @@ impl Runner
             queue_receiver,
             received_count: 0,
             sent_count: 0,
+            pool,
         };
     }
 }

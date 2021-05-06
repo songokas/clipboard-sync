@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-#![feature(trait_alias)]
-#![feature(type_alias_impl_trait)]
+// #![feature(trait_alias)]
+// #![feature(type_alias_impl_trait)]
 
 use jni::objects::{JClass, JString};
 use jni::sys::jstring;
@@ -30,6 +30,7 @@ mod socket;
 mod test;
 
 use crate::process::send_clipboard_contents;
+use crate::protocols::SocketPool;
 use crate::runner::{create_config, create_runner, Runner, Status, StatusCount};
 
 lazy_static! {
@@ -193,7 +194,8 @@ pub async fn send(config_str: String, clipboard: String) -> Result<usize, String
 {
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
-    return send_clipboard_contents(clipboard, &groups[0]).await;
+    let pool = SocketPool::new();
+    return send_clipboard_contents(&pool, clipboard, &groups[0]).await;
 }
 
 #[cfg(target_os = "android")]
@@ -238,7 +240,7 @@ mod runnertest
     #[test]
     fn test_start()
     {
-        let config = r#"{"key":"32323232323232323232323232323232","group":"","protocol":"basic","hosts":["127.0.0.1"]}"#;
+        let config = r#"{"key":"32323232323232323232323232323232","group":"","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":"0.0.0.0:15331","bind_address":"0.0.0.0:15330","heartbeat":0}"#;
         assert_eq!(
             Ok(String::from("Started")),
             CURRENT_RUNTIME.block_on(start(config.to_owned()))

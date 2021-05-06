@@ -21,10 +21,11 @@ use crate::filesystem::*;
 use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
 use crate::identity::{retrieve_identity, Identity};
 use crate::message::*;
-use crate::protocols::*;
+use crate::protocols::{receive_data, send_data, Protocol, SocketPool};
 use crate::socket::*;
 
 pub async fn receive_clipboard(
+    pool: Arc<SocketPool>,
     mut clipboard: Clipboard,
     channel: Arc<Sender<(String, String)>>,
     local_address: SocketAddr,
@@ -35,7 +36,7 @@ pub async fn receive_clipboard(
     receive_once: bool,
 ) -> Result<u64, CliError>
 {
-    let mut local_socket = obtain_server_socket(&local_address, &protocol).await?;
+    let mut local_socket = pool.obtain_server_socket(&local_address, &protocol).await?;
     let interface_ip = local_socket.ip();
     let mut multicast = Multicast::new();
     let mut count = 0;
@@ -46,7 +47,7 @@ pub async fn receive_clipboard(
 
     if let Some(local_addr) = interface_ip {
         if let Some(sock) = local_socket.socket() {
-            multicast.join_groups(sock, &groups, &local_addr).await;
+            multicast.join_groups(&sock, &groups, &local_addr).await;
         }
     }
 
@@ -117,6 +118,7 @@ pub async fn receive_clipboard(
 }
 
 pub async fn send_clipboard(
+    pool: Arc<SocketPool>,
     mut clipboard: Clipboard,
     channel: Receiver<(String, String)>,
     running: Arc<AtomicBool>,
@@ -158,7 +160,7 @@ pub async fn send_clipboard(
                 Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
                 _ => {
                     if group.heartbeat > 0 {
-                        send_heartbeat(&group, &mut heartbeat_cache, timeout).await;
+                        send_heartbeat(&pool, &group, &mut heartbeat_cache, timeout).await;
                     }
 
                     continue;
@@ -195,7 +197,7 @@ pub async fn send_clipboard(
 
             count += 1;
 
-            match send_clipboard_to_group(&data, &message_type, &group, timeout).await {
+            match send_clipboard_to_group(&pool, &data, &message_type, &group, timeout).await {
                 Ok(sent) => debug!("Sent bytes {}", sent),
                 Err(err) => error!("{:?}", err),
             };
@@ -222,7 +224,11 @@ pub async fn send_clipboard(
     return Ok(count);
 }
 
-pub async fn send_clipboard_contents(contents: String, group: &Group) -> Result<usize, String>
+pub async fn send_clipboard_contents(
+    pool: &SocketPool,
+    contents: String,
+    group: &Group,
+) -> Result<usize, String>
 {
     let message_type = MessageType::Text;
     let bytes = contents.as_bytes();
@@ -235,10 +241,10 @@ pub async fn send_clipboard_contents(contents: String, group: &Group) -> Result<
             ));
         }
     };
-
+    println!("test1");
     let timeout = |d: Duration| d > Duration::from_millis(DATA_TIMEOUT);
 
-    let sent = match send_clipboard_to_group(&data, &message_type, &group, timeout).await {
+    let sent = match send_clipboard_to_group(pool, &data, &message_type, &group, timeout).await {
         Ok(sent) => {
             debug!("Sent bytes {}", sent);
             sent
@@ -252,9 +258,10 @@ pub async fn send_clipboard_contents(contents: String, group: &Group) -> Result<
 }
 
 async fn send_heartbeat(
+    pool: &SocketPool,
     group: &Group,
     heartbeat_cache: &mut HashMap<String, Instant>,
-    timeout: impl Timeout,
+    timeout: impl Fn(Duration) -> bool,
 )
 {
     heartbeat_cache
@@ -265,7 +272,7 @@ async fn send_heartbeat(
     if last.elapsed().as_secs() > group.heartbeat {
         let data = vec![1];
         heartbeat_cache.insert(group.name.clone(), Instant::now());
-        match send_clipboard_to_group(&data, &MessageType::Heartbeat, &group, timeout).await {
+        match send_clipboard_to_group(pool, &data, &MessageType::Heartbeat, &group, timeout).await {
             Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
             Err(err) => error!("{:?}", err),
         };
@@ -384,11 +391,12 @@ fn write_to(
 }
 
 async fn send_clipboard_to_group(
+    pool: &SocketPool,
     buffer: &[u8],
     message_type: &MessageType,
     group: &Group,
     //@TODO use _timeout_callback
-    _timeout_callback: impl Timeout,
+    _timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
@@ -403,13 +411,18 @@ async fn send_clipboard_to_group(
             }
         };
 
+        println!("test1 send_data 1 ");
+
         if addr.port() == 0 {
             debug!("Not sending to host {}", remote_host);
             continue;
         }
         let remote_ip = addr.ip();
-        let local_socket =
-            obtain_client_socket(&group.send_using_address, &addr, &group.protocol).await?;
+        let local_socket = pool
+            .obtain_client_socket(&group.send_using_address, &addr, &group.protocol)
+            .await?;
+
+        println!("test1 send_data 2");
 
         let identity = retrieve_identity(&remote_ip, local_socket.ip(), group).await?;
         let bytes = encrypt_to_bytes(&buffer, &identity, group, message_type)?;
@@ -420,9 +433,9 @@ async fn send_clipboard_to_group(
             addr.port(),
             identity
         );
+        println!("test1 send_data 3");
 
         let encryptor = IdentityEncryptor::new(group.clone(), identity);
-
         sent += send_data(
             local_socket,
             encryptor,
@@ -448,8 +461,10 @@ mod processtest
     #[test]
     fn test_handle_clipboard_change()
     {
+        let pool = SocketPool::new();
         let timeout = |d: Duration| d > Duration::from_millis(2000);
         let result = wait!(send_clipboard_to_group(
+            &pool,
             b"test",
             &MessageType::Text,
             &Group::from_name("me"),
@@ -458,6 +473,7 @@ mod processtest
         assert_eq!(result.unwrap(), 0);
 
         let result = wait!(send_clipboard_to_group(
+            &pool,
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
@@ -466,6 +482,7 @@ mod processtest
         assert_eq!(result.unwrap(), 62);
 
         let result = wait!(send_clipboard_to_group(
+            &pool,
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:0"),
@@ -486,7 +503,7 @@ mod processtest
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_wait_on_clipboard()
+    async fn test_send_clipboard()
     {
         // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let clipboards = Clipboard::new().unwrap();
@@ -509,8 +526,10 @@ mod processtest
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
+        let pool = Arc::new(SocketPool::new());
 
         let r = tokio::spawn(receive_clipboard(
+            pool.clone(),
             clipboards,
             atx,
             local_address,
@@ -521,6 +540,7 @@ mod processtest
             false,
         ));
         let s = tokio::spawn(send_clipboard(
+            pool.clone(),
             clipboardr,
             rx,
             Arc::clone(&running),
@@ -553,7 +573,7 @@ mod processtest
     }
 
     #[tokio::test]
-    async fn test_wait_handle_receive()
+    async fn test_receive_clipboard()
     {
         let clipboard = Clipboard::new().unwrap();
         let mut group = Group::from_addr("test1", "127.0.0.1:8393", "127.0.0.1:8394");
@@ -574,8 +594,10 @@ mod processtest
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
+        let pool = Arc::new(SocketPool::new());
 
         let r = tokio::spawn(receive_clipboard(
+            pool.clone(),
             clipboard,
             atx,
             local_address,
@@ -586,7 +608,7 @@ mod processtest
             false,
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
-            let sent = send_clipboard_contents("test1".to_string(), &group).await;
+            let sent = send_clipboard_contents(&pool, "test1".to_string(), &group).await;
             assert_eq!(74, sent.unwrap());
             srunning.store(false, Ordering::Relaxed);
             sleep(Duration::from_millis(100)).await;

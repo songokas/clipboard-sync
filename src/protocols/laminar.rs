@@ -1,21 +1,112 @@
+use crossbeam_channel::{Receiver, Sender};
 use laminar::{Config, Packet, Socket, SocketEvent};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
+use tokio::sync::Mutex;
 use tokio::time::Duration;
 
 use crate::defaults::MAX_ENCRYPTION_HEADER_SIZE;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{size_to_indexes, FrameDecryptor, FrameIndexEncryptor};
 use crate::identity::Identity;
-use crate::socket::Timeout;
+
+pub struct LaminarSocket
+{
+    sender: Sender<Packet>,
+    receiver: Receiver<SocketEvent>,
+    local_addr: SocketAddr,
+    socket: Arc<Mutex<Socket>>,
+    config: Config,
+}
+
+impl LaminarSocket
+{
+    pub fn get_sender(&self) -> LaminarSender
+    {
+        return LaminarSender {
+            sender: self.sender.clone(),
+            local_addr: self.local_addr.clone(),
+            config: self.config.clone(),
+            socket: Arc::clone(&self.socket),
+        };
+    }
+
+    pub fn get_receiver(&self) -> LaminarReceiver
+    {
+        return LaminarReceiver {
+            receiver: self.receiver.clone(),
+            local_addr: self.local_addr.clone(),
+            config: self.config.clone(),
+            socket: Arc::clone(&self.socket),
+        };
+    }
+}
+
+pub struct LaminarReceiver
+{
+    pub receiver: Receiver<SocketEvent>,
+    pub local_addr: SocketAddr,
+    pub config: Config,
+    socket: Arc<Mutex<Socket>>,
+}
+
+pub struct LaminarSender
+{
+    pub sender: Sender<Packet>,
+    pub local_addr: SocketAddr,
+    pub config: Config,
+    socket: Arc<Mutex<Socket>>,
+}
+
+impl LaminarReceiver
+{
+    pub async fn recv(&self) -> Option<SocketEvent>
+    {
+        self.socket.lock().await.manual_poll(Instant::now());
+        return self.socket.lock().await.recv();
+    }
+}
+
+impl LaminarSender
+{
+    pub async fn send(&self, packet: Packet) -> bool
+    {
+        let result = self.socket.lock().await.send(packet);
+        self.socket.lock().await.manual_poll(Instant::now());
+        return result.is_ok();
+    }
+}
+
+pub fn run_laminar(local_address: &SocketAddr) -> Result<LaminarSocket, ConnectionError>
+{
+    let (socket, config) = obtain_socket(local_address)?;
+    let sender = socket.get_packet_sender();
+    let receiver = socket.get_event_receiver();
+    let local_addr = socket.local_addr().unwrap();
+    // @TODO doest not work
+    // let thread = tokio::spawn(async move {
+    //     while trunning.load(Ordering::Relaxed) {
+    //         socket.manual_poll(Instant::now());
+    //         sleep(sleep_duration).await;
+    //     }
+    // });
+    return Ok(LaminarSocket {
+        sender,
+        receiver,
+        local_addr,
+        config,
+        socket: Arc::new(Mutex::new(socket)),
+    });
+}
 
 pub async fn receive_data(
-    socket: &mut Socket,
+    socket: &LaminarReceiver,
     encryptor: &impl FrameDecryptor,
     max_len: usize,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut now = Instant::now();
@@ -23,8 +114,7 @@ pub async fn receive_data(
     let mut total_size = 0;
 
     loop {
-        socket.manual_poll(Instant::now());
-        let result = socket.recv();
+        let result = socket.recv().await;
 
         match result {
             Some(socket_event) => match socket_event {
@@ -84,14 +174,13 @@ pub async fn receive_data(
 }
 
 pub async fn send_data(
-    mut socket: Socket,
-    config: &Config,
+    socket: &LaminarSender,
     encryptor: impl FrameIndexEncryptor,
     data: Vec<u8>,
     destination_addr: &SocketAddr,
 ) -> Result<usize, ConnectionError>
 {
-    let max_payload = config.max_packet_size - MAX_ENCRYPTION_HEADER_SIZE as usize;
+    let max_payload = socket.config.max_packet_size - MAX_ENCRYPTION_HEADER_SIZE as usize;
     let indexes = size_to_indexes(data.len(), max_payload);
     let reliable = !destination_addr.ip().is_multicast();
     let mut size = 0;
@@ -105,13 +194,12 @@ pub async fn send_data(
         } else {
             Packet::unreliable_sequenced(destination_addr.clone(), bytes, None)
         };
-        socket.send(packet).map_err(|e| {
-            ConnectionError::FailedToConnect(format!(
-                "Unable to send to address {} {}",
-                destination_addr, e
-            ))
-        })?;
-        socket.manual_poll(Instant::now());
+        if !socket.send(packet).await {
+            return Err(ConnectionError::FailedToConnect(format!(
+                "Unable to send to address {}",
+                destination_addr
+            )));
+        }
     }
 
     return Ok(size);
@@ -143,8 +231,8 @@ mod laminartest
     {
         let local_server: SocketAddr = "127.0.0.1:39835".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:39836".parse().unwrap();
-        let mut server_sock = Socket::bind(local_server).unwrap();
-        let client_sock = Socket::bind(local_client).unwrap();
+        let server_sock = run_laminar(&local_server).unwrap(); //Socket::bind(local_server).unwrap();
+        let client_sock = run_laminar(&local_client).unwrap(); //Socket::bind(local_client).unwrap();
 
         let data_sent = random(size);
         let for_sending = data_sent.clone();
@@ -155,17 +243,18 @@ mod laminartest
         let enc_r = GroupsEncryptor::new(groups);
         let enc_s = IdentityEncryptor::new(group, Identity::from_addr(&local_server));
 
-        let config = Config::default();
-
         let res = try_join!(
             tokio::spawn(async move {
-                receive_data(&mut server_sock, &enc_r, max_len, |d: Duration| {
-                    d > Duration::from_millis(2000)
-                })
+                receive_data(
+                    &server_sock.get_receiver(),
+                    &enc_r,
+                    max_len,
+                    |d: Duration| d > Duration::from_millis(2000),
+                )
                 .await
             }),
             tokio::spawn(async move {
-                send_data(client_sock, &config, enc_s, for_sending, &local_server).await
+                send_data(&client_sock.get_sender(), enc_s, for_sending, &local_server).await
             }),
         )
         .unwrap();

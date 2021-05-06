@@ -135,9 +135,9 @@ pub fn decrypt(
     };
 
     let cipher = ChaCha20Poly1305::new(&group.key);
-    return cipher
-        .decrypt(&message.nonce, enc_msg)
-        .map_err(|err| EncryptionError::DecryptionFailed(err.to_string()));
+    return cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
+        EncryptionError::DecryptionFailed(format!("{:?} {} {}", message, identity, err.to_string()))
+    });
 }
 
 pub fn hash(bytes: &[u8]) -> String

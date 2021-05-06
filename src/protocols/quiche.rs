@@ -16,12 +16,12 @@ use crate::message::MessageType;
 use crate::socket::{receive_from_timeout, Timeout};
 
 pub async fn send_data(
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
     encryptor: impl FrameEncryptor,
     data: Vec<u8>,
     destination_addr: &SocketAddr,
     verify_path: Option<String>,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
     let scid = random(quiche::MAX_CONN_ID_LEN);
@@ -83,12 +83,12 @@ pub async fn send_data(
 }
 
 pub async fn receive_data(
-    socket: &UdpSocket,
+    socket: Arc<UdpSocket>,
     encryptor: &impl FrameDecryptor,
     private_key: &str,
     public_key: &str,
     max_len: usize,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut config = load_server_config(private_key, public_key)?;
@@ -205,7 +205,7 @@ async fn send_handshake(
     conn: &mut Connection,
     socket: &UdpSocket,
     encryptor: impl FrameEncryptor,
-    timeout_callback: impl Timeout,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
     let mut out = [0; MAX_DATAGRAM_SIZE];
@@ -230,7 +230,7 @@ async fn send_handshake(
 async fn receive_handshake<'a>(
     socket: &UdpSocket,
     encryptor: &impl FrameDecryptor,
-    timeout: impl Timeout,
+    timeout: impl Fn(Duration) -> bool,
 ) -> Result<(Header<'a>, SocketAddr, Vec<u8>, usize), ConnectionError>
 {
     let mut buffer = [0; MAX_UDP_BUFFER];

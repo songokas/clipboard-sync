@@ -13,17 +13,17 @@ use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::encryption::DataEncryptor;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{
-    size_to_indexes, FragmentEncryptor, FrameDataDecryptor, FrameDecryptor, FrameIndexEncryptor,
+    size_to_indexes, FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor,
 };
 use crate::identity::Identity;
 use crate::message::MessageType;
-use crate::socket::{receive_from_timeout, Timeout};
+use crate::socket::receive_from_timeout;
 
 pub async fn receive_data(
-    socket: &UdpSocket,
+    socket: Arc<UdpSocket>,
     encryptor: &(impl FrameDecryptor + DataEncryptor),
     max_len: usize,
-    timeout: impl Timeout,
+    timeout: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let mut received_frames: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
@@ -36,7 +36,7 @@ pub async fn receive_data(
 
     loop {
         let (read, addr) =
-            receive_from_timeout(socket, &mut data, timeout_callback_with_time).await?;
+            receive_from_timeout(&socket, &mut data, timeout_callback_with_time).await?;
 
         received += read;
 
@@ -85,16 +85,22 @@ pub async fn receive_data(
 }
 
 pub async fn send_data(
-    socket: UdpSocket,
-    encryptor: impl FragmentEncryptor,
+    socket: Arc<UdpSocket>,
+    encryptor: impl FrameEncryptor
+        + FrameDataDecryptor
+        + FrameIndexEncryptor
+        + Send
+        + Sync
+        + Clone
+        + 'static,
     data: Vec<u8>,
-    _: &SocketAddr,
-    timeout_callback: impl Timeout + std::marker::Sync + std::marker::Send + 'static,
+    destination: SocketAddr,
+    timeout_callback: impl Fn(Duration) -> bool + std::marker::Sync + std::marker::Send + 'static,
 ) -> Result<usize, ConnectionError>
 {
     let indexes = size_to_indexes(data.len(), MAX_UDP_PAYLOAD);
 
-    let socket_writer = Arc::new(socket);
+    let socket_writer = Arc::clone(&socket);
     let socket_reader = Arc::clone(&socket_writer);
     let indexes_b = indexes.clone();
     // let confirm_timeout = |d: Duration| timeout_callback(d);
@@ -111,6 +117,7 @@ pub async fn send_data(
             channel_receiver,
             encryptor.clone(),
             data,
+            destination,
             indexes,
             timeout_callback,
         ))
@@ -183,8 +190,9 @@ async fn confirm_sent(
     channel_receiver: Receiver<u32>,
     encryptor: impl FrameIndexEncryptor,
     data: Vec<u8>,
+    destination: SocketAddr,
     indexes: usize,
-    timeout: impl Timeout,
+    timeout: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
     let mut sent_without_confirmation: HashMap<u32, bool> = HashMap::new();
@@ -192,7 +200,7 @@ async fn confirm_sent(
     let mut sent = 0;
     // first send all
     while i < indexes as u32 {
-        sent += send_index(&socket_writer, &encryptor, &data, i).await?;
+        sent += send_index(&socket_writer, &encryptor, &data, &destination, i).await?;
         sent_without_confirmation.insert(i, true);
         i += 1;
         sleep(Duration::from_millis(10)).await;
@@ -214,7 +222,14 @@ async fn confirm_sent(
         }
 
         for (index, _) in sent_without_confirmation.iter() {
-            sent += send_index(&socket_writer, &encryptor, &data, index.clone()).await?;
+            sent += send_index(
+                &socket_writer,
+                &encryptor,
+                &data,
+                &destination,
+                index.clone(),
+            )
+            .await?;
         }
         if timeout_with_time(now.elapsed()) {
             return Err(ConnectionError::FailedToConnect(format!(
@@ -232,6 +247,7 @@ async fn send_index(
     socket_writer: &UdpSocket,
     encryptor: &impl FrameIndexEncryptor,
     data: &[u8],
+    destination: &SocketAddr,
     index: u32,
 ) -> Result<usize, ConnectionError>
 {
@@ -239,7 +255,7 @@ async fn send_index(
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
 
-    return match socket_writer.send(&bytes).await {
+    return match socket_writer.send_to(&bytes, destination).await {
         Ok(n) => Ok(n),
         Err(e) => Err(ConnectionError::FailedToConnect(format!(
             "Failed to send index {}. Message: {}",
@@ -274,8 +290,8 @@ mod framestest
         // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let local_server: SocketAddr = format!("127.0.0.1:993{}", port).parse().unwrap();
         let local_client: SocketAddr = format!("127.0.0.1:993{}", port + 1).parse().unwrap();
-        let server_sock = UdpSocket::bind(local_server).await.unwrap();
-        let client_sock = UdpSocket::bind(local_client).await.unwrap();
+        let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
+        let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
         let group = Group::from_name("test1");
         let groups = vec![group.clone()];
 
@@ -292,13 +308,13 @@ mod framestest
                     client_sock,
                     enc_s,
                     data_sent,
-                    &local_server,
+                    local_server,
                     |d: Duration| d > Duration::from_millis(2000),
                 )
                 .await
             }),
             tokio::spawn(async move {
-                receive_data(&server_sock, &enc_r, max_len, |d: Duration| {
+                receive_data(server_sock, &enc_r, max_len, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await

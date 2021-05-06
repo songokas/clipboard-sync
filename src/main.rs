@@ -1,7 +1,7 @@
 // #![feature(ip)]
-#![feature(trait_alias)]
 #![allow(dead_code)]
-#![feature(type_alias_impl_trait)]
+// #![feature(trait_alias)]
+// #![feature(type_alias_impl_trait)]
 
 use chacha20poly1305::Key;
 use log::{error, info};
@@ -28,6 +28,7 @@ mod socket;
 mod test;
 
 use crate::clipboards::Clipboard;
+#[cfg(feature = "quic")]
 use crate::config::load_default_certificates;
 use crate::config::{generate_config, load_groups, FullConfig};
 use crate::defaults::*;
@@ -35,7 +36,7 @@ use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{receive_clipboard, send_clipboard};
-use crate::protocols::Protocol;
+use crate::protocols::{Protocol, SocketPool};
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -45,14 +46,6 @@ async fn main() -> Result<(), CliError>
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
 
     env_logger::Builder::from_env(Env::default().default_filter_or(verbosity)).init();
-
-    // let full_config = load_config();
-
-    // let encryptor: FrameDecryptor = ();
-
-    // let protocols = register(
-    //     ("frames", FrameSender::new()
-    // );
 
     let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
@@ -100,11 +93,14 @@ async fn main() -> Result<(), CliError>
             key_data.len()
         )));
     }
-
+    #[cfg(feature = "quic")]
     let private_key = matches.value_of("private-key");
+    #[cfg(feature = "quic")]
     let public_key = matches.value_of("public-key");
+    #[cfg(feature = "quic")]
     let cert_dir = matches.value_of("cert-verify-dir");
 
+    #[cfg(feature = "quic")]
     let load_certs = move || {
         return load_default_certificates(private_key, public_key, cert_dir);
     };
@@ -118,7 +114,11 @@ async fn main() -> Result<(), CliError>
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
-        let cli_protocol = Protocol::from(matches.value_of("protocol"), load_certs)?;
+        let cli_protocol = Protocol::from(
+            matches.value_of("protocol"),
+            #[cfg(feature = "quic")]
+            load_certs,
+        )?;
 
         if allowed_host.is_empty() {
             return Err(CliError::ArgumentError(format!(
@@ -174,6 +174,7 @@ async fn main() -> Result<(), CliError>
             },
             local_address,
             matches.value_of("protocol"),
+            #[cfg(feature = "quic")]
             load_certs,
             !matches.is_present("ignore-initial-clipboard"),
             visible_ip.clone(),
@@ -199,6 +200,7 @@ async fn main() -> Result<(), CliError>
     let launch_sender = send_once || !receive_once;
 
     let mut handles = Vec::new();
+    let pool = Arc::new(SocketPool::new());
 
     if launch_receiver {
         for (protocol, bind_address) in &full_config.bind_addresses {
@@ -206,6 +208,7 @@ async fn main() -> Result<(), CliError>
                 "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
             );
             let receive = receive_clipboard(
+                Arc::clone(&pool),
                 clipboard,
                 Arc::clone(&atx),
                 bind_address.clone(),
@@ -224,6 +227,7 @@ async fn main() -> Result<(), CliError>
             "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
         );
         let send = send_clipboard(
+            Arc::clone(&pool),
             clipboard,
             rx,
             Arc::clone(&running),
