@@ -1,17 +1,14 @@
 use cached::proc_macro::cached;
 use cached::TimedSizedCache;
-use log::{debug, warn};
 
-use std::collections::HashMap;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Instant;
 use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
-use crate::errors::DnsError;
-use crate::message::Group;
+use crate::errors::{ConnectionError, DnsError};
 
 //@TODO experimental
 // pub trait Timeout = Fn(Duration) -> bool;
@@ -21,8 +18,7 @@ use crate::message::Group;
     type = "TimedSizedCache<String, Result<SocketAddr, DnsError>>",
     convert = r#"{ format!("{}", host.as_ref()) }"#
 )]
-pub async fn to_socket(host: impl AsRef<str>) -> Result<SocketAddr, DnsError>
-{
+pub async fn to_socket(host: impl AsRef<str>) -> Result<SocketAddr, DnsError> {
     let to_err = |e| {
         DnsError::Failed(format!(
             "Unable to retrieve ip for {}. Message: {}",
@@ -39,82 +35,11 @@ pub async fn to_socket(host: impl AsRef<str>) -> Result<SocketAddr, DnsError>
     )));
 }
 
-pub struct Multicast
-{
-    cache: HashMap<IpAddr, bool>,
-}
-
-impl Multicast
-{
-    pub fn new() -> Self
-    {
-        return Multicast {
-            cache: HashMap::new(),
-        };
-    }
-
-    pub fn join_group(
-        &mut self,
-        sock: &UdpSocket,
-        interface_addr: &IpAddr,
-        remote_ip: &IpAddr,
-    ) -> bool
-    {
-        if self.cache.contains_key(&remote_ip) {
-            return true;
-        }
-        let op = match remote_ip {
-            IpAddr::V4(multicast_ipv4) => {
-                if let IpAddr::V4(ipv4) = interface_addr {
-                    sock.set_multicast_loop_v4(false).unwrap_or(());
-                    sock.join_multicast_v4(multicast_ipv4.clone(), ipv4.clone())
-                } else {
-                    Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("invalid ipv4 address {}", interface_addr),
-                    ))
-                }
-            }
-            IpAddr::V6(multicast_ipv6) => {
-                sock.set_multicast_loop_v6(false).unwrap_or(());
-                sock.join_multicast_v6(multicast_ipv6, 0)
-            }
-        };
-        if let Err(_) = op {
-            warn!("Unable to join multicast network {}", remote_ip);
-            return false;
-        } else {
-            debug!("Joined multicast {}", remote_ip);
-            self.cache.insert(remote_ip.clone(), true);
-            return true;
-        }
-    }
-
-    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
-    {
-        for group in groups {
-            for remote_host in &group.allowed_hosts {
-                let addr = match to_socket(remote_host).await {
-                    Ok(a) => a,
-                    _ => {
-                        warn!("Unable to parse or retrieve address for {}", remote_host);
-                        continue;
-                    }
-                };
-                if addr.ip().is_multicast() {
-                    self.join_group(sock, local_addr, &addr.ip());
-                }
-            }
-        }
-    }
-}
-
 pub async fn receive_from_timeout(
     socket: &UdpSocket,
     buf: &mut [u8],
     timeout_callback: impl Fn(Duration) -> bool,
-) -> io::Result<(usize, SocketAddr)>
-{
+) -> io::Result<(usize, SocketAddr)> {
     let timeout_duration = Duration::from_millis(50);
     let now = Instant::now();
     loop {
@@ -133,15 +58,43 @@ pub async fn receive_from_timeout(
     }
 }
 
-pub async fn to_visible_ip(local_ip: Option<IpAddr>, group: &Group) -> IpAddr
-{
-    if let Some(host) = &group.visible_ip {
-        if let Ok(sock_addr) = to_socket(format!("{}:0", host)).await {
-            return sock_addr.ip();
-        }
-    }
-    if let Some(ip) = local_ip {
-        return ip;
-    }
-    return group.send_using_address.ip();
+// #[cached(
+//     create = "{ TimedSizedCache::with_size_and_lifespan(100, 600) }",
+//     type = "TimedSizedCache<String, Result<SocketAddr, ConnectionError>>",
+//     convert = r#"{ format!("{}{}", local_address.ip().to_string(), remote_address.ip().to_string()) }"#
+// )]
+pub async fn retrieve_local_address(
+    local_address: &SocketAddr,
+    remote_address: &SocketAddr,
+) -> Result<SocketAddr, ConnectionError> {
+    let socket = obtain_socket(local_address, remote_address).await?;
+    let sock_addr = socket.local_addr()?;
+    return Ok(sock_addr);
+}
+
+#[cfg(feature = " public-ip")]
+#[cached(size = 1, time = 60)]
+pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError> {
+    return public_ip::addr()
+        .await
+        .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
+}
+
+pub async fn obtain_socket(
+    local_address: &SocketAddr,
+    remote_address: &SocketAddr,
+) -> Result<UdpSocket, ConnectionError> {
+    let sock = UdpSocket::bind(local_address).await.map_err(|e| {
+        ConnectionError::FailedToConnect(format!(
+            "Unable to bind local address {} {}",
+            local_address, e
+        ))
+    })?;
+    sock.connect(remote_address).await.map_err(|e| {
+        ConnectionError::FailedToConnect(format!(
+            "Unable to connect local address {} to remote address {} {}",
+            local_address, remote_address, e
+        ))
+    })?;
+    return Ok(sock);
 }

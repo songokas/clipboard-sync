@@ -13,8 +13,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::stream::StreamExt;
 
-fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointError>
-{
+fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointError> {
     let mut cfg_builder = ClientConfigBuilder::default();
     for cert in server_certs {
         let chain = CertificateChain::from_pem(cert)?;
@@ -27,8 +26,7 @@ fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointErro
     Ok(cfg_builder.build())
 }
 
-pub async fn configure_server() -> Result<ServerConfig, EndpointError>
-{
+pub async fn configure_server() -> Result<ServerConfig, EndpointError> {
     let config_path = dirs::config_dir().ok_or_else(|| {
         EndpointError::InvalidKey(
             "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config".to_owned(),
@@ -58,8 +56,7 @@ pub async fn configure_server() -> Result<ServerConfig, EndpointError>
 pub async fn make_client_endpoint(
     bind_addr: &SocketAddr,
     server_certs: &[&[u8]],
-) -> Result<Endpoint, EndpointError>
-{
+) -> Result<Endpoint, EndpointError> {
     let client_cfg = configure_client(server_certs)?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.default_client_config(client_cfg);
@@ -67,8 +64,7 @@ pub async fn make_client_endpoint(
     Ok(endpoint)
 }
 
-pub async fn obtain_server_endpoint(bind_addr: &SocketAddr) -> Result<Incoming, EndpointError>
-{
+pub async fn obtain_server_endpoint(bind_addr: &SocketAddr) -> Result<Incoming, EndpointError> {
     let server_config = configure_server().await?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.listen(server_config);
@@ -78,8 +74,7 @@ pub async fn obtain_server_endpoint(bind_addr: &SocketAddr) -> Result<Incoming, 
 
 pub async fn obtain_client_endpoint(
     local_addr: &SocketAddr,
-) -> Result<SocketEndpoint, ConnectionError>
-{
+) -> Result<SocketEndpoint, ConnectionError> {
     let config_path = dirs::config_dir().ok_or_else(|| {
         ConnectionError::InvalidKey(
             "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config".to_owned(),
@@ -97,14 +92,16 @@ pub async fn obtain_client_endpoint(
 pub async fn send_data_quic(
     endpoint: Endpoint,
     mut data: Vec<u8>,
-    remote_addr: &SocketAddr,
+    remote_address: &SocketAddr,
     group: &Group,
-) -> Result<usize, ConnectionError>
-{
-    let connect = endpoint.connect(&remote_addr, &remote_addr.ip().to_string())?;
+) -> Result<usize, ConnectionError> {
+    let connect = endpoint.connect(&remote_address, &remote_address.ip().to_string())?;
 
     let quinn::NewConnection { connection, .. } = connect.await?;
-    debug!("[client] connected: addr={}", connection.remote_address());
+    debug!(
+        "[client] connected: addr={}",
+        connection.remote_addressess()
+    );
 
     let mut send = connection.open_uni().await?;
 
@@ -118,10 +115,9 @@ pub async fn send_data_quic(
 pub async fn receive_data_quic(
     incoming: &mut Incoming,
     max_len: usize,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
-{
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
     while let Some(inc) = incoming.next().await {
-        debug!("[client] connected: addr={}", inc.remote_address());
+        debug!("[client] connected: addr={}", inc.remote_addressess());
 
         let quinn::NewConnection {
             connection,
@@ -130,13 +126,13 @@ pub async fn receive_data_quic(
             ..
         } = inc.await?;
 
-        debug!("connection {:?}", connection.remote_address(),);
+        debug!("connection {:?}", connection.remote_addressess(),);
 
         while let Some(stream) = uni_streams.next().await {
             let stream = match stream {
                 Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
                     info!("connection closed");
-                    return Ok((vec![], connection.remote_address()));
+                    return Ok((vec![], connection.remote_addressess()));
                 }
                 Err(e) => {
                     return Err(ConnectionError::QuicConnection(e));
@@ -144,7 +140,7 @@ pub async fn receive_data_quic(
                 Ok(s) => s,
             };
             let req = stream.read_to_end(max_len).await?;
-            return Ok((req.into(), connection.remote_address()));
+            return Ok((req.into(), connection.remote_addressess()));
         }
     }
     return Err(ConnectionError::InvalidBuffer(format!(

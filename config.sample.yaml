@@ -36,17 +36,17 @@ groups:
   external:
     key: "32323232323232323232323232323232"
     visible_ip: "2.2.2.2"
-    send_using_address: "0.0.0.0:9000"
+    send_using_address: "0.0.0.0:8900"
     heartbeat: 20
     allowed_hosts:
-      - "external.net:8000"
+      - "external.net:8900"
   nat_traversal: # on the other host
     key: "32323232323232323232323232323232"
     visible_ip: "external.net"
-    send_using_address: "0.0.0.0:8000"
+    send_using_address: "0.0.0.0:8900"
     heartbeat: 20
     allowed_hosts:
-      - "2.2.2.2:9000"
+      - "2.2.2.2:8900"
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file

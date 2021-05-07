@@ -22,6 +22,7 @@ mod filesystem;
 mod fragmenter;
 mod identity;
 mod message;
+mod multicast;
 mod process;
 mod protocols;
 mod socket;
@@ -39,8 +40,7 @@ use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 
 #[tokio::main]
-async fn main() -> Result<(), CliError>
-{
+async fn main() -> Result<(), CliError> {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");

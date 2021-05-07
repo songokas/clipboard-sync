@@ -15,8 +15,7 @@ use crate::errors::*;
 use crate::identity::Identity;
 use crate::message::*;
 
-pub trait DataEncryptor
-{
+pub trait DataEncryptor {
     fn encrypt(
         &self,
         data: &[u8],
@@ -26,13 +25,11 @@ pub trait DataEncryptor
     ) -> Result<Vec<u8>, ConnectionError>;
 }
 
-pub fn random(number_of_chars: usize) -> Vec<u8>
-{
+pub fn random(number_of_chars: usize) -> Vec<u8> {
     return (0..number_of_chars).map(|_| rand::random::<u8>()).collect();
 }
 
-pub fn random_alphanumeric(number_of_chars: usize) -> String
-{
+pub fn random_alphanumeric(number_of_chars: usize) -> String {
     return rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(number_of_chars)
@@ -45,8 +42,7 @@ pub fn encrypt(
     identity: &Identity,
     group: &Group,
     message_type: &MessageType,
-) -> Result<Message, EncryptionError>
-{
+) -> Result<Message, EncryptionError> {
     let cipher = ChaCha20Poly1305::new(&group.key);
 
     let suffix = rand::thread_rng().gen::<[u8; 4]>();
@@ -64,7 +60,7 @@ pub fn encrypt(
         message_type: message_type.clone(),
     };
 
-    // log::debug!("Encrypt additional data: {:?}", add);
+    println!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -89,16 +85,14 @@ pub fn encrypt_to_bytes(
     identity: &Identity,
     group: &Group,
     message_type: &MessageType,
-) -> Result<Vec<u8>, EncryptionError>
-{
+) -> Result<Vec<u8>, EncryptionError> {
     let message = encrypt(contents, identity, group, message_type)?;
     let bytes = bincode::serialize(&message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     return Ok(bytes);
 }
 
-pub fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), ValidationError>
-{
+pub fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), ValidationError> {
     let message: Message = bincode::deserialize(buffer)
         .map_err(|err| ValidationError::DeserializeFailed((*err).to_string()))?;
     let group = match groups.iter().find(|group| group.name == message.group) {
@@ -117,17 +111,17 @@ pub fn decrypt(
     message: &Message,
     identity: &Identity,
     group: &Group,
-) -> Result<Vec<u8>, EncryptionError>
-{
-    let ad = AdditionalData {
+) -> Result<Vec<u8>, EncryptionError> {
+    let add = AdditionalData {
         identity: identity.to_string(),
         group: group.name.clone(),
         message_type: message.message_type.clone(),
     };
 
-    // debug!("Decrypt additional data: {:?}", ad);
+    // debug!("Decrypt additional data: {:?}", add);
+    println!("Decrypt additional data: {:?}", add);
 
-    let add_bytes = bincode::serialize(&ad)
+    let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     let enc_msg = Payload {
         msg: &message.text,
@@ -140,43 +134,37 @@ pub fn decrypt(
     });
 }
 
-pub fn hash(bytes: &[u8]) -> String
-{
+pub fn hash(bytes: &[u8]) -> String {
     let mut hasher = DefaultHasher::new();
     hasher.write(bytes);
     let hex = hasher.finish();
     return hex.to_string();
 }
 
-pub fn compress(data: &[u8]) -> io::Result<Vec<u8>>
-{
+pub fn compress(data: &[u8]) -> io::Result<Vec<u8>> {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     e.write_all(data)?;
     return e.finish();
 }
 
-pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
-{
+pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>> {
     let mut d = ZlibDecoder::new(&data[..]);
     let mut buffer = Vec::new();
     d.read_to_end(&mut buffer)?;
     return Ok(buffer);
 }
 
-pub fn hex_dump(buf: &[u8]) -> String
-{
+pub fn hex_dump(buf: &[u8]) -> String {
     let vec: Vec<String> = buf.iter().map(|b| format!("{:02x}", b)).collect();
     vec.join("")
 }
 
 #[cfg(test)]
-mod encryptiontest
-{
+mod encryptiontest {
     use super::*;
 
     #[test]
-    fn test_encryption()
-    {
+    fn test_encryption() {
         let group1 = Group::from_name("test1");
         let group2 = Group::from_name("test2");
 
@@ -198,14 +186,12 @@ mod encryptiontest
     }
 
     #[test]
-    fn test_hash()
-    {
+    fn test_hash() {
         assert_eq!("12095268261750217435", hash("content".as_bytes()));
         assert_eq!("15130871412783076140", hash("".as_bytes()));
     }
 
-    fn compress_data_provider() -> Vec<(Vec<u8>, &'static str)>
-    {
+    fn compress_data_provider() -> Vec<(Vec<u8>, &'static str)> {
         let data_t = vec![
             (
                 vec![120, 156, 203, 40, 205, 77, 204, 3, 0, 6, 88, 2, 26],
@@ -217,8 +203,7 @@ mod encryptiontest
     }
 
     #[test]
-    fn test_compress()
-    {
+    fn test_compress() {
         for (expected, string_to_compress) in compress_data_provider() {
             let data = compress(string_to_compress.as_bytes()).unwrap();
             // println!("{:?}", data);
@@ -227,8 +212,7 @@ mod encryptiontest
     }
 
     #[test]
-    fn test_uncompress()
-    {
+    fn test_uncompress() {
         for (bytes_to_uncompress, expected) in compress_data_provider() {
             let data = uncompress(bytes_to_uncompress).unwrap();
             assert_eq!(expected, String::from_utf8_lossy(&data).to_string());
@@ -236,8 +220,7 @@ mod encryptiontest
     }
 
     #[test]
-    fn test_validate()
-    {
+    fn test_validate() {
         let groups = vec![Group::from_name("test1"), Group::from_name("test2")];
         let sequences: Vec<(Vec<u8>, bool)> = vec![
             (
@@ -263,8 +246,7 @@ mod encryptiontest
     }
 
     #[test]
-    fn test_random()
-    {
+    fn test_random() {
         let r1 = random(3);
         assert_eq!(3, r1.len());
         let r2 = random(120);
@@ -276,8 +258,7 @@ mod encryptiontest
     }
 
     #[test]
-    fn test_random_alphanumeric()
-    {
+    fn test_random_alphanumeric() {
         let r1 = random_alphanumeric(3);
         assert_eq!(3, r1.len());
         let r2 = random_alphanumeric(120);

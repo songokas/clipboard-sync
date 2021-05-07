@@ -16,8 +16,7 @@ pub async fn receive_data(
     socket: Arc<UdpSocket>,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
-{
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
     let mut buffer = [0; MAX_UDP_BUFFER];
 
     let callback = |d: Duration| timeout_callback(d);
@@ -51,8 +50,7 @@ pub async fn send_data(
     data: Vec<u8>,
     destination: &SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError>
-{
+) -> Result<usize, ConnectionError> {
     if data.len() > MAX_UDP_PAYLOAD {
         socket.send_to(b"1", destination).await?;
 
@@ -76,8 +74,7 @@ pub async fn send_data(
 async fn listen_stream(
     local_addr: SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<TcpStream, ConnectionError>
-{
+) -> Result<TcpStream, ConnectionError> {
     let listener = obtain_server_socket(local_addr)?;
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
@@ -96,23 +93,20 @@ async fn listen_stream(
 async fn connect_stream(
     local_addr: SocketAddr,
     destination: SocketAddr,
-) -> Result<TcpStream, ConnectionError>
-{
+) -> Result<TcpStream, ConnectionError> {
     let socket = obtain_client_socket(SocketAddr::new(local_addr.ip(), 0))?;
     let stream = socket.connect(destination).await?;
     return Ok(stream);
 }
 
 #[cfg(test)]
-mod basictest
-{
+mod basictest {
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
     use futures::try_join;
 
-    async fn send_receive(size: usize, max_len: usize)
-    {
+    async fn send_receive(size: usize, max_len: usize) {
         let local_server: SocketAddr = "127.0.0.1:35837".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:35838".parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
@@ -149,8 +143,7 @@ mod basictest
     }
 
     #[tokio::test]
-    async fn test_data()
-    {
+    async fn test_data() {
         send_receive(5, 10).await;
         send_receive(16 * 1024 * 10, 16 * 1024 * 10).await;
         send_receive(10, 5).await;
@@ -158,8 +151,7 @@ mod basictest
     }
 
     #[tokio::test]
-    async fn test_timeout()
-    {
+    async fn test_timeout() {
         let local_server: SocketAddr = "127.0.0.1:39837".parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let result = receive_data(server_sock, 10, |_: Duration| true).await;

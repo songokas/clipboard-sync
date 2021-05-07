@@ -1,18 +1,16 @@
-use assert_cmd::Command;
 use assert_cmd::assert::Assert;
+use assert_cmd::Command;
 use predicates::prelude::*;
-use std::time::Duration;
-use std::thread;
+use rand::{distributions::Alphanumeric, Rng};
 use std::io;
 use std::process;
-use rand::{distributions::Alphanumeric, Rng};
+use std::thread;
+use std::time::Duration;
 
 const ANY_KEY: &'static str = "12345678912345678912345678912345";
 
-#[test]
-fn test_send_receive_once_localhost()
-{
-    let t1 = thread::spawn(|| {
+fn send_receive_once(protocol: &'static str) {
+    let t1 = thread::spawn(move || {
         run_command(
             vec![
                 "--key",
@@ -23,12 +21,21 @@ fn test_send_receive_once_localhost()
                 "--allowed-host",
                 "127.0.0.1:0",
                 "--receive-once-wait",
-                "1"
+                "1",
+                "--protocol",
+                protocol,
             ],
             "",
             3000,
         )
     });
+
+    let contents: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(10)
+        .map(char::from)
+        .collect();
+
     let t2 = thread::spawn(move || {
         run_command(
             vec![
@@ -40,9 +47,11 @@ fn test_send_receive_once_localhost()
                 "--clipboard",
                 "/dev/stdin",
                 "--allowed-host",
-                "127.0.0.1:8923"
+                "127.0.0.1:8923",
+                "--protocol",
+                protocol,
             ],
-            "hello",
+            &contents,
             2000,
         )
     });
@@ -58,67 +67,178 @@ fn test_send_receive_once_localhost()
 }
 
 #[test]
-fn test_send_receive_once_frames()
-{
-    let t1 = thread::spawn(|| {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--bind-address",
-                "0.0.0.0:8953",
-                "--receive-once",
-                "--allowed-host",
-                "127.0.0.1:0",
-                "--receive-once-wait",
-                "1",
-                "--protocol",
-                "frames"
-            ],
-            "",
-            33000,
-        )
-    });
-    let contents: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(10 * 1024 * 1024)
-        .map(char::from)
-        .collect();
-    let t2 = thread::spawn(move || {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--bind-address",
-                "0.0.0.0:8954",
-                "--send-once",
-                "--clipboard",
-                "/dev/stdin",
-                "--allowed-host",
-                "127.0.0.1:8953",
-                "--protocol",
-                "frames"
-            ],
-            &contents,
-            30000,
-        )
-    });
-
-    let output1 = t1.join().unwrap().unwrap();
-    let output2 = t2.join().unwrap().unwrap();
-
-    let assert1 = Assert::new(output1);
-    let assert2 = Assert::new(output2);
-
-    assert1.stderr(predicate::str::contains("count 1"));
-    assert2.stderr(predicate::str::contains("count 1"));
+fn test_send_receive_once() {
+    for protocol in [
+        "basic",
+        "frames",
+        "laminar",
+        #[cfg(feature = "quic")]
+        "quic",
+    ]
+    .to_vec()
+    {
+        send_receive_once(protocol);
+    }
 }
 
+// #[test]
+// fn test_send_receive_once_localhost() {
+//     let t1 = thread::spawn(|| {
+//         run_command(
+//             vec![
+//                 "--key",
+//                 ANY_KEY,
+//                 "--bind-address",
+//                 "0.0.0.0:8923",
+//                 "--receive-once",
+//                 "--allowed-host",
+//                 "127.0.0.1:0",
+//                 "--receive-once-wait",
+//                 "1",
+//             ],
+//             "",
+//             3000,
+//         )
+//     });
+//     let t2 = thread::spawn(move || {
+//         run_command(
+//             vec![
+//                 "--key",
+//                 ANY_KEY,
+//                 "--bind-address",
+//                 "0.0.0.0:8924",
+//                 "--send-once",
+//                 "--clipboard",
+//                 "/dev/stdin",
+//                 "--allowed-host",
+//                 "127.0.0.1:8923",
+//             ],
+//             "hello",
+//             2000,
+//         )
+//     });
+
+//     let output1 = t1.join().unwrap().unwrap();
+//     let output2 = t2.join().unwrap().unwrap();
+
+//     let assert1 = Assert::new(output1);
+//     let assert2 = Assert::new(output2);
+
+//     assert1.stderr(predicate::str::contains("count 1"));
+//     assert2.stderr(predicate::str::contains("count 1"));
+// }
+
+// #[test]
+// fn test_send_receive_once_frames() {
+//     let t1 = thread::spawn(|| {
+//         run_command(
+//             vec![
+//                 "--key",
+//                 ANY_KEY,
+//                 "--bind-address",
+//                 "0.0.0.0:8953",
+//                 "--receive-once",
+//                 "--allowed-host",
+//                 "127.0.0.1:0",
+//                 "--receive-once-wait",
+//                 "1",
+//                 "--protocol",
+//                 "frames",
+//             ],
+//             "",
+//             33000,
+//         )
+//     });
+//     let contents: String = rand::thread_rng()
+//         .sample_iter(&Alphanumeric)
+//         .take(10)
+//         .map(char::from)
+//         .collect();
+//     let t2 = thread::spawn(move || {
+//         run_command(
+//             vec![
+//                 "--key",
+//                 ANY_KEY,
+//                 "--bind-address",
+//                 "0.0.0.0:8954",
+//                 "--send-once",
+//                 "--clipboard",
+//                 "/dev/stdin",
+//                 "--allowed-host",
+//                 "127.0.0.1:8953",
+//                 "--protocol",
+//                 "frames",
+//             ],
+//             &contents,
+//             30000,
+//         )
+//     });
+
+//     let output1 = t1.join().unwrap().unwrap();
+//     let output2 = t2.join().unwrap().unwrap();
+
+//     let assert1 = Assert::new(output1);
+//     let assert2 = Assert::new(output2);
+
+//     assert1.stderr(predicate::str::contains("count 1"));
+//     assert2.stderr(predicate::str::contains("count 1"));
+// }
+
+// #[test]
+// fn test_send_receive_once_laminar() {
+//     let t1 = thread::spawn(|| {
+//         run_command(
+//             vec![
+//                 "--key",
+//                 ANY_KEY,
+//                 "--bind-address",
+//                 "0.0.0.0:8923",
+//                 "--receive-once",
+//                 "--allowed-host",
+//                 "127.0.0.1:0",
+//                 "--receive-once-wait",
+//                 "1",
+//                 "--protocol",
+//                 "laminar",
+//             ],
+//             "",
+//             3000,
+//         )
+//     });
+//     let t2 = thread::spawn(move || {
+//         run_command(
+//             vec![
+//                 "--key",
+//                 ANY_KEY,
+//                 "--bind-address",
+//                 "0.0.0.0:8924",
+//                 "--send-once",
+//                 "--clipboard",
+//                 "/dev/stdin",
+//                 "--allowed-host",
+//                 "127.0.0.1:8923",
+//                 "--protocol",
+//                 "laminar",
+//             ],
+//             "hello",
+//             2000,
+//         )
+//     });
+
+//     let output1 = t1.join().unwrap().unwrap();
+//     let output2 = t2.join().unwrap().unwrap();
+
+//     let assert1 = Assert::new(output1);
+//     let assert2 = Assert::new(output2);
+
+//     assert1.stderr(predicate::str::contains("count 1"));
+//     assert2.stderr(predicate::str::contains("count 1"));
+// }
+
 #[test]
-#[ignore] 
+#[ignore]
 //cargo test test_receive_once_multicast -- --ignored
-fn test_receive_once_multicast()
-{
+fn test_receive_once_multicast() {
     let t1 = thread::spawn(|| {
         run_command(
             vec![
@@ -141,18 +261,12 @@ fn test_receive_once_multicast()
 }
 
 #[test]
-#[ignore] 
+#[ignore]
 // cargo test test_send_once_multicast -- --ignored
 fn test_send_once_multicast() {
     let t2 = thread::spawn(move || {
         run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--send-once",
-                "--clipboard",
-                "/dev/stdin"
-            ],
+            vec!["--key", ANY_KEY, "--send-once", "--clipboard", "/dev/stdin"],
             "hello",
             2000,
         )
@@ -163,8 +277,7 @@ fn test_send_once_multicast() {
     assert2.stderr(predicate::str::contains("count 1"));
 }
 
-fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output>
-{
+fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output> {
     let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();
     for arg in args {
         cmd.arg(arg);

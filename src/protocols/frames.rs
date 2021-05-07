@@ -24,8 +24,7 @@ pub async fn receive_data(
     encryptor: &(impl FrameDecryptor + DataEncryptor),
     max_len: usize,
     timeout: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
-{
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
     let mut received_frames: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
     let mut data = [0; MAX_UDP_BUFFER];
     let mut received = 0;
@@ -54,7 +53,7 @@ pub async fn receive_data(
             ));
         }
 
-        let identity = Identity::from_addr(&addr);
+        let identity = Identity::from(&addr);
 
         let (frame, group) = encryptor.decrypt_to_frame(&data, &identity)?;
 
@@ -96,8 +95,7 @@ pub async fn send_data(
     data: Vec<u8>,
     destination: SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool + std::marker::Sync + std::marker::Send + 'static,
-) -> Result<usize, ConnectionError>
-{
+) -> Result<usize, ConnectionError> {
     let indexes = size_to_indexes(data.len(), MAX_UDP_PAYLOAD);
 
     let socket_writer = Arc::clone(&socket);
@@ -131,8 +129,7 @@ async fn confirm_received(
     channel_sender: Sender<u32>,
     encryptor: impl FrameDataDecryptor,
     indexes: usize,
-) -> Result<usize, ConnectionError>
-{
+) -> Result<usize, ConnectionError> {
     let mut received: HashMap<u32, bool> = HashMap::new();
     let timeout_callback_with_channel = |d: Duration| -> bool {
         return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected();
@@ -193,8 +190,7 @@ async fn confirm_sent(
     destination: SocketAddr,
     indexes: usize,
     timeout: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError>
-{
+) -> Result<usize, ConnectionError> {
     let mut sent_without_confirmation: HashMap<u32, bool> = HashMap::new();
     let mut i: u32 = 0;
     let mut sent = 0;
@@ -249,8 +245,7 @@ async fn send_index(
     data: &[u8],
     destination: &SocketAddr,
     index: u32,
-) -> Result<usize, ConnectionError>
-{
+) -> Result<usize, ConnectionError> {
     let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD)?;
 
     debug!("Sent frame {} with {} bytes", index, bytes.len());
@@ -265,8 +260,7 @@ async fn send_index(
 }
 
 #[cfg(test)]
-mod framestest
-{
+mod framestest {
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
@@ -285,8 +279,7 @@ mod framestest
             Result<usize, ConnectionError>,
             Result<(Vec<u8>, SocketAddr), ConnectionError>,
         ),
-    )
-    {
+    ) {
         // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let local_server: SocketAddr = format!("127.0.0.1:993{}", port).parse().unwrap();
         let local_client: SocketAddr = format!("127.0.0.1:993{}", port + 1).parse().unwrap();
@@ -296,7 +289,7 @@ mod framestest
         let groups = vec![group.clone()];
 
         let enc_r = GroupsEncryptor::new(groups);
-        let enc_s = IdentityEncryptor::new(group, Identity::from_addr(&local_server));
+        let enc_s = IdentityEncryptor::new(group, Identity::from(&local_server));
 
         client_sock.connect(local_server).await.unwrap();
 
@@ -325,15 +318,13 @@ mod framestest
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_send_receive_more_data()
-    {
+    async fn test_send_receive_more_data() {
         let (_, _, res) = test_send_receive(100, 100, 4).await;
         assert_error_type!(res.0, ConnectionError::FailedToConnect(_));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_send_receive_10mb()
-    {
+    async fn test_send_receive_10mb() {
         let data_len = 10 * 1024 * 1024;
         let max_len = data_len + 20000;
         let (local_client, expected_data, res) = test_send_receive(data_len, max_len, 6).await;
