@@ -119,7 +119,6 @@ pub fn decrypt(
     };
 
     // debug!("Decrypt additional data: {:?}", add);
-    println!("Decrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;

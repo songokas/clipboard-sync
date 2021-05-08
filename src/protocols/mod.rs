@@ -418,6 +418,7 @@ pub async fn receive_data(
                         "Quic protocol server expected".to_owned(),
                     ))?,
                 max_len,
+                timeout,
             )
             .await
         }

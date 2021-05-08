@@ -20,7 +20,6 @@ use crate::protocols::Protocol;
 
 // pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
-#[cfg(feature = "quic")]
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Certificates
 {
@@ -124,7 +123,7 @@ pub fn load_default_certificates(
     let key_str: String = match private_key {
         Some(k) => k.to_owned(),
         None => {
-            let path = config_path()?.join("cert.key");
+            let path = config_path()?.join("key.pem");
             path.to_string_lossy().to_string()
         }
     };
@@ -132,7 +131,7 @@ pub fn load_default_certificates(
     let crt_str: String = match public_key {
         Some(k) => k.to_owned(),
         None => {
-            let path = config_path()?.join("cert.crt");
+            let path = config_path()?.join("cert.pem");
             path.to_string_lossy().to_string()
         }
     };
