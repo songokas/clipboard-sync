@@ -422,7 +422,6 @@ async fn send_clipboard_to_group(
             addr.port(),
             identity
         );
-        println!("test1 send_data 3");
 
         let encryptor = IdentityEncryptor::new(group.clone(), identity);
         sent += send_data(

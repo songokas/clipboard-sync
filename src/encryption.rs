@@ -60,7 +60,7 @@ pub fn encrypt(
         message_type: message_type.clone(),
     };
 
-    println!("Encrypt additional data: {:?}", add);
+    // debug!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -206,7 +206,6 @@ mod encryptiontest {
     fn test_compress() {
         for (expected, string_to_compress) in compress_data_provider() {
             let data = compress(string_to_compress.as_bytes()).unwrap();
-            // println!("{:?}", data);
             assert_eq!(expected, data);
         }
     }

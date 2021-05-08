@@ -20,6 +20,7 @@ use crate::protocols::Protocol;
 
 // pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
+#[cfg(feature = "quic")]
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Certificates
 {

@@ -191,8 +191,8 @@ impl SocketPool {
     ) -> Result<LocalSocket, ConnectionError> {
         match protocol {
             #[cfg(feature = "quinn")]
-            Protocol::Quic(_) => {
-                let endpoint = quinnpr::obtain_client_endpoint(local_address).await?;
+            Protocol::Quic(c) => {
+                let endpoint = quinnpr::obtain_client_endpoint(local_address, &c).await?;
                 return Ok(LocalSocket::QuicClient(endpoint));
             }
             Protocol::Laminar => {

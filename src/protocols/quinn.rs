@@ -1,6 +1,4 @@
-// #![cfg(feature = "rustls")]
-
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use quinn::{
     Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, PrivateKey, ServerConfig,
     ServerConfigBuilder, TransportConfig,
@@ -13,12 +11,13 @@ use futures::StreamExt;
 
 use crate::config::Certificates;
 use crate::errors::{ConnectionError, EndpointError};
-use crate::filesystem::read_file;
+use crate::filesystem::{dir_to_dir_structure, read_file};
+use crate::defaults::MAX_FILE_SIZE;
 
-fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointError> {
+fn configure_client(allowed_certs: impl IntoIterator<Item = (String, Vec<u8>)>) -> Result<ClientConfig, EndpointError> {
     let mut cfg_builder = ClientConfigBuilder::default();
-    for cert in server_certs {
-        let chain = CertificateChain::from_pem(cert)?;
+    for (_, cert) in allowed_certs {
+        let chain = CertificateChain::from_pem(&cert)?;
         for pcert in chain {
             cfg_builder
                 .add_certificate_authority(Certificate::from(pcert))
@@ -29,16 +28,16 @@ fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointErro
 }
 
 pub async fn configure_server(certificates: &Certificates) -> Result<ServerConfig, EndpointError> {
-    let cert = read_file(&certificates.public_key, 10_000)
-        .map_err(|e| EndpointError::InvalidKey(format!("cert not found {:?}", cert_path)))?;
+    let cert = read_file(&certificates.public_key, MAX_FILE_SIZE)
+        .map_err(|e| EndpointError::InvalidKey(format!("cert not found {} {}", certificates.public_key, e)))?;
 
     let chain = CertificateChain::from_pem(&cert)?;
 
-    let priv_key_data = read_file(&certificates.private_key, 10_000)?;
+    let priv_key_data = read_file(&certificates.private_key, MAX_FILE_SIZE)?;
     let priv_key = PrivateKey::from_pem(&priv_key_data)?;
 
     let mut transport_config = TransportConfig::default();
-    transport_config.max_concurrent_uni_streams(0); //.unwrap();
+    transport_config.max_concurrent_uni_streams(0).map_err(|e| EndpointError::InvalidKey(format!("Configuration error max_concurrent_uni_streams {}", e)))?;
     let mut server_config = ServerConfig::default();
     server_config.transport = Arc::new(transport_config);
     let mut cfg_builder = ServerConfigBuilder::new(server_config);
@@ -49,7 +48,7 @@ pub async fn configure_server(certificates: &Certificates) -> Result<ServerConfi
 
 pub async fn make_client_endpoint(
     bind_addr: &SocketAddr,
-    server_certs: &[&[u8]],
+    server_certs: impl IntoIterator<Item = (String, Vec<u8>)>,
 ) -> Result<Endpoint, EndpointError> {
     let client_cfg = configure_client(server_certs)?;
     let mut endpoint_builder = Endpoint::builder();
@@ -65,7 +64,7 @@ pub async fn obtain_server_endpoint(
     let server_config = configure_server(certificates).await?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.listen(server_config);
-    let (endpoint, incoming) = endpoint_builder.bind(bind_addr)?;
+    let (_, incoming) = endpoint_builder.bind(bind_addr)?;
     return Ok(incoming);
 }
 
@@ -73,18 +72,8 @@ pub async fn obtain_client_endpoint(
     local_addr: &SocketAddr,
     certificates: &Certificates,
 ) -> Result<Endpoint, ConnectionError> {
-    // let config_path = dirs::config_dir().ok_or_else(|| {
-    //     ConnectionError::InvalidKey(
-    //         "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config".to_owned(),
-    //     )
-    // })?;
-    
-    let verify_path = certificates.verify_dir.join(format!("cert.crt"));
-    
-    let verify_cert = read_file(&verify_path., 10_000)?;
-    let certs = [verify_cert.as_slice()];
-
-    let endpoint: Endpoint = make_client_endpoint(local_addr, &certs).await?;
+    let certs = dir_to_dir_structure(&certificates.verify_dir.as_ref().expect("Certificates verify dir expected"), MAX_FILE_SIZE);
+    let endpoint: Endpoint = make_client_endpoint(local_addr, certs).await?;
     return Ok(endpoint);
 }
 
@@ -116,12 +105,11 @@ pub async fn receive_data(
 
         let quinn::NewConnection {
             connection,
-            mut bi_streams,
             mut uni_streams,
             ..
         } = inc.await?;
 
-        debug!("connection {:?}", connection.remote_address(),);
+        debug!("connection {:?}", connection.remote_address());
 
         while let Some(stream) = uni_streams.next().await {
             let stream = match stream {

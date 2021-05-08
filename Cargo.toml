@@ -10,7 +10,7 @@ repository = "https://github.com/songokas/clipboard-sync"
 license = "LICENSE"
 
 [dependencies]
-chacha20poly1305 = "0.7"
+chacha20poly1305 = "0.8"
 base64 = "0.13"
 chrono = "0.4"
 rand = "0.8"
@@ -101,7 +101,7 @@ assets = [
 depends = "libxcb-render0 (>= 1.13.1), libxcb-shape0 (>= 1.13.1), libxcb1 (>= 1.13.1), libbsd0 (>= 0.9.1), libxdmcp6 (>= 1:1.1.2), libxau6 (>= 1:1.0.8), libc6 (>= 2.28), libxcb-xfixes0 (>= 1.13.1)"
 
 [package.metadata.deb.variants.headless]
-features = ["frames", "public-ip"]
+features = ["frames", "public-ip", "quic"]
 default-features = false
 depends = "libc6 (>= 2.28)"
 

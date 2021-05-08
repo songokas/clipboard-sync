@@ -73,7 +73,7 @@ pub enum ConnectionError {
     #[error(transparent)]
     QuicWriteError(#[from] quinn::WriteError),
     #[cfg(feature = "quinn")]
-    #[error(transparent)]
+    #[error("Failed to connect {0}")]
     QuicConnect(#[from] quinn::ConnectError),
     #[cfg(feature = "quinn")]
     #[error(transparent)]

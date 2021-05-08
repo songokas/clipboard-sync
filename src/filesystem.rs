@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 use crate::defaults::*;
 use crate::errors::*;
 
-type DirStructure = Vec<(String, Vec<u8>)>;
+pub type DirStructure = Vec<(String, Vec<u8>)>;
 
 pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Vec<u8>, io::Error> {
     let mut f = File::open(path)?;
@@ -39,13 +39,8 @@ pub fn read_file_to_string<P: AsRef<Path>>(path: P, max_size: usize) -> Result<S
     return Ok(String::from_utf8_lossy(&buffer).to_string());
 }
 
-pub fn dir_to_bytes(directory: &str) -> Result<DirStructure, EncryptionError> {
-    if !Path::new(directory).exists() {
-        return Err(EncryptionError::InvalidMessage(format!(
-            "Directory {} does not exist",
-            directory
-        )));
-    }
+pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructure {
+
     let mut hash = DirStructure::new();
     let walk = WalkDir::new(directory)
         .follow_links(false)
@@ -63,7 +58,7 @@ pub fn dir_to_bytes(directory: &str) -> Result<DirStructure, EncryptionError> {
                 continue;
             }
         };
-        let data = match read_file(&full_path, MAX_FILE_SIZE) {
+        let data = match read_file(&full_path, max_file_size) {
             Ok(d) => d,
             Err(err) => {
                 warn!(
@@ -76,12 +71,7 @@ pub fn dir_to_bytes(directory: &str) -> Result<DirStructure, EncryptionError> {
         };
         hash.push((file_name.to_owned(), data));
     }
-    if hash.is_empty() {
-        return Ok(vec![]);
-    }
-    let add_bytes = bincode::serialize(&hash)
-        .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    return Ok(add_bytes);
+    return hash;
 }
 
 pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError> {
@@ -91,36 +81,7 @@ pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError> {
             directory
         )));
     }
-    let mut hash = DirStructure::new();
-    let walk = WalkDir::new(directory)
-        .follow_links(false)
-        .min_depth(1)
-        .max_depth(1)
-        .sort_by(|a, b| a.file_name().cmp(b.file_name()))
-        .into_iter()
-        .filter_map(|e| e.ok());
-    for entry in walk {
-        let full_path = entry.path();
-        let file_name = match entry.file_name().to_str() {
-            Some(f) => f,
-            None => {
-                warn!("Ignoring file {}", full_path.display());
-                continue;
-            }
-        };
-        let data = match read_file(&full_path, MAX_FILE_SIZE) {
-            Ok(d) => d,
-            Err(err) => {
-                warn!(
-                    "Unable to read file {} Message: {}",
-                    full_path.display(),
-                    err.to_string()
-                );
-                continue;
-            }
-        };
-        hash.push((file_name.to_owned(), data));
-    }
+    let hash = dir_to_dir_structure(directory, MAX_FILE_SIZE);
     if hash.is_empty() {
         return Ok(vec![]);
     }
@@ -129,7 +90,7 @@ pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError> {
     return Ok(add_bytes);
 }
 
-pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError> {
+pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure {
     let mut hash = DirStructure::new();
     for file in files {
         let normalized_path = file.strip_prefix("file://").unwrap_or(file);
@@ -160,6 +121,11 @@ pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError> {
         };
         hash.push((file_name, data));
     }
+    return hash;
+}
+
+pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError> {
+    let hash = files_to_dir_structure(files);
     if hash.is_empty() {
         return Ok(vec![]);
     }
