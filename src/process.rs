@@ -233,7 +233,6 @@ pub async fn send_clipboard_contents(
             ));
         }
     };
-    println!("test1");
     let timeout = |d: Duration| d > Duration::from_millis(DATA_TIMEOUT);
 
     let sent = match send_clipboard_to_group(pool, &data, &message_type, &group, timeout).await {
@@ -276,30 +275,7 @@ fn clipboard_group_to_bytes(
     existing_hash: Option<&String>,
 ) -> Option<(String, MessageType, Vec<u8>)> {
     if group.clipboard == CLIPBOARD_NAME {
-        let files = clipboard.get_target_contents(ClipboardType::Files);
-        match files {
-            Ok(data) if data.len() > 0 => {
-                let hash = hash(&data);
-                if let Some(h) = existing_hash {
-                    if h == &hash {
-                        return None;
-                    }
-                }
-                let clipboard_contents = String::from_utf8(data).ok()?;
-                // debug!("Send file clipboard {}", clipboard_contents);
-                let files: Vec<&str> = clipboard_contents.lines().collect();
-                return Some((hash, MessageType::Files, files_to_bytes(files).ok()?));
-            }
-            _ => {
-                match clipboard.get_target_contents(ClipboardType::Text) {
-                    Ok(contents) => return Some((hash(&contents), MessageType::Text, contents)),
-                    _ => {
-                        warn!("Failed to retrieve contents");
-                        return None;
-                    }
-                };
-            }
-        }
+        return clipboard_to_bytes(clipboard, existing_hash);
     } else if group.clipboard.ends_with("/") {
         //@TODO do not read directory every time
         match dir_to_bytes(&group.clipboard) {
@@ -313,6 +289,36 @@ fn clipboard_group_to_bytes(
             Err(_) => return None,
         };
     }
+}
+
+fn clipboard_to_bytes(
+    clipboard: &mut Clipboard,
+    existing_hash: Option<&String>,
+) -> Option<(String, MessageType, Vec<u8>)> {
+    let files = clipboard.get_target_contents(ClipboardType::Files);
+    match files {
+        Ok(data) if data.len() > 0 => {
+            let hash = hash(&data);
+            if let Some(h) = existing_hash {
+                if h == &hash {
+                    return None;
+                }
+            }
+            let clipboard_contents = String::from_utf8(data).ok()?;
+            // debug!("Send file clipboard {}", clipboard_contents);
+            let files: Vec<&str> = clipboard_contents.lines().collect();
+            return Some((hash, MessageType::Files, files_to_bytes(files).ok()?));
+        }
+        _ => {
+            match clipboard.get_target_contents(ClipboardType::Text) {
+                Ok(contents) => return Some((hash(&contents), MessageType::Text, contents)),
+                _ => {
+                    warn!("Failed to retrieve contents");
+                    return None;
+                }
+            };
+        }
+    };
 }
 
 fn handle_receive(
@@ -548,7 +554,7 @@ mod processtest {
                 assert_eq!(result.0.unwrap(), 1);
                 assert_eq!(result.1.unwrap(), 1);
             }
-            Err(e) => panic!(e),
+            Err(_) => panic!("failed to join"),
         };
     }
 
@@ -595,7 +601,7 @@ mod processtest {
         });
         match try_join!(r, s) {
             Ok(result) => assert_eq!(result.0.unwrap(), 1),
-            Err(e) => panic!(e),
+            Err(_) => panic!("failed to join"),
         };
     }
 

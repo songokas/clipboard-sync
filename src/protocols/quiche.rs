@@ -2,8 +2,8 @@ use log::{debug, error, info};
 use quiche::{Config, Connection, ConnectionId, Header};
 use std::io;
 use std::net::SocketAddr;
-use std::time::Duration;
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
@@ -13,7 +13,7 @@ use crate::errors::ConnectionError;
 use crate::fragmenter::{FrameDecryptor, FrameEncryptor};
 use crate::identity::Identity;
 use crate::message::MessageType;
-use crate::socket::{receive_from_timeout, Timeout};
+use crate::socket::receive_from_timeout;
 
 pub async fn send_data(
     socket: Arc<UdpSocket>,
@@ -360,7 +360,7 @@ fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionE
 
     if let Some(crt_str) = verify_path {
         config
-            .load_verify_locations_from_file(&crt_str)
+            .load_verify_locations_from_directory(&crt_str)
             .map_err(|e| {
                 ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e))
             })?;
@@ -399,8 +399,8 @@ mod quichetest {
     async fn send_receive(size: usize, max_len: usize) {
         let local_server: SocketAddr = "127.0.0.1:9956".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:9957".parse().unwrap();
-        let server_sock = UdpSocket::bind(local_server).await.unwrap();
-        let client_sock = UdpSocket::bind(local_client).await.unwrap();
+        let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
+        let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
 
         let group = Group::from_name("test1");
         let groups = vec![group.clone()];
@@ -414,7 +414,7 @@ mod quichetest {
         let for_sending = data_sent.clone();
         let r = tokio::spawn(async move {
             receive_data(
-                &server_sock,
+                server_sock,
                 &enc_r,
                 "tests/cert.key",
                 "tests/cert.crt",

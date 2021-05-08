@@ -5,22 +5,20 @@ use std::net::SocketAddr;
 use crate::defaults::KEY_SIZE;
 use crate::protocols::Protocol;
 
-mod serde_key_str
-{
+mod serde_key_str {
     use super::*;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(key: &Option<Key>, serializer: S) -> Result<S::Ok, S::Error>
-    {
+    pub fn serialize<S: Serializer>(key: &Option<Key>, serializer: S) -> Result<S::Ok, S::Error> {
         match key {
             Some(v) => serializer.serialize_str(&String::from_utf8_lossy(v)),
             None => serializer.serialize_none(),
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D)
-        -> Result<Option<Key>, D::Error>
-    {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Key>, D::Error> {
         let str_data: String = Deserialize::deserialize(deserializer)?;
         if str_data.len() != KEY_SIZE {
             return Err(de::Error::custom(format!(
@@ -34,26 +32,22 @@ mod serde_key_str
     }
 }
 
-mod serde_nonce
-{
+mod serde_nonce {
     use super::*;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(nonce: &Nonce, serializer: S) -> Result<S::Ok, S::Error>
-    {
+    pub fn serialize<S: Serializer>(nonce: &Nonce, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(nonce)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Nonce, D::Error>
-    {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Nonce, D::Error> {
         let nonce_data: Vec<u8> = Deserialize::deserialize(deserializer)?;
         Ok(Nonce::from_slice(&nonce_data).clone())
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum MessageType
-{
+pub enum MessageType {
     Text,
     File,
     Files,
@@ -64,8 +58,7 @@ pub enum MessageType
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Message
-{
+pub struct Message {
     #[serde(with = "serde_nonce")]
     pub nonce: Nonce,
     pub group: String,
@@ -74,16 +67,14 @@ pub struct Message
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct AdditionalData
-{
+pub struct AdditionalData {
     pub group: String,
     pub identity: String,
     pub message_type: MessageType,
 }
 
 #[derive(Debug, Clone)]
-pub struct Group
-{
+pub struct Group {
     pub name: String,
     pub allowed_hosts: Vec<String>,
     pub key: Key,
@@ -95,8 +86,7 @@ pub struct Group
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ConfigGroup
-{
+pub struct ConfigGroup {
     pub allowed_hosts: Option<Vec<String>>,
     #[serde(default, with = "serde_key_str")]
     pub key: Option<Key>,
@@ -109,10 +99,8 @@ pub struct ConfigGroup
 }
 
 #[cfg(test)]
-impl Message
-{
-    pub fn from_group(name: &str) -> Self
-    {
+impl Message {
+    pub fn from_group(name: &str) -> Self {
         return Message {
             nonce: Nonce::from_slice(b"123456789101").clone(),
             group: name.to_owned(),
@@ -123,10 +111,8 @@ impl Message
 }
 
 #[cfg(test)]
-impl Group
-{
-    pub fn from_name(name: &str) -> Self
-    {
+impl Group {
+    pub fn from_name(name: &str) -> Self {
         return Group {
             name: name.to_owned(),
             allowed_hosts: Vec::new(),
@@ -139,8 +125,7 @@ impl Group
         };
     }
 
-    pub fn from_addr(name: &str, send_address: &str, allowed_host: &str) -> Self
-    {
+    pub fn from_addr(name: &str, send_address: &str, allowed_host: &str) -> Self {
         return Group {
             name: name.to_owned(),
             allowed_hosts: vec![allowed_host.to_owned()],
@@ -153,8 +138,7 @@ impl Group
         };
     }
 
-    pub fn from_public(name: &str, visible_ip: &str) -> Self
-    {
+    pub fn from_visible(name: &str, visible_ip: &str) -> Self {
         let mut group = Group::from_name(name);
         group.visible_ip = Some(visible_ip.to_owned());
         return group;

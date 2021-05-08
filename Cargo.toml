@@ -61,16 +61,23 @@ optional = true
 version = "0.8"
 optional = true
 
-[dependencies.clipboard]
-# version = "0.5"
+[dependencies.rustls]
+version = "0.19"
 optional = true
+
+[dependencies.clipboard]
+# using custom implementation due too multiple clipboard types
 git = "https://github.com/songokas/rust-clipboard.git"
 branch = "multiple-targets"
+optional = true
 # path = "../rust-clipboard"
 
 [features]
 default = ["frames", "clipboard", "public-ip"]
-quic = ["quiche"]
+
+# default quic implementation
+# quic = ["quiche"]
+quic = ["quinn", "rustls"]
 frames = []
 
 [package.metadata.deb]

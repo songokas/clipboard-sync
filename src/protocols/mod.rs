@@ -6,6 +6,18 @@ use tokio::net::{TcpListener, TcpSocket, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 
+mod basic;
+#[cfg(feature = "frames")]
+mod frames;
+#[path = "laminar.rs"]
+mod laminarpr;
+#[cfg(feature = "quiche")]
+mod quiche;
+#[cfg(feature = "quinn")]
+#[path = "quinn.rs"]
+mod quinnpr;
+mod tcp;
+
 // use crate::config::CertLoader;
 #[cfg(feature = "quic")]
 use crate::config::Certificates;
@@ -17,17 +29,6 @@ use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, Fram
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
-
-mod basic;
-#[cfg(feature = "frames")]
-mod frames;
-#[path = "laminar.rs"]
-mod laminarpr;
-#[cfg(feature = "quiche")]
-mod quiche;
-#[cfg(feature = "quinn")]
-mod quinn;
-mod tcp;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Protocol {
@@ -97,10 +98,10 @@ pub enum LocalSocket {
     LaminarSender(laminarpr::LaminarSender),
     Tcp(TcpSocket),
     TcpListener(TcpListener),
-    // #[cfg(feature = "quinn")]
-    // QuicClient(Endpoint),
-    // #[cfg(feature = "quinn")]
-    // QuicServer(Incoming),
+    #[cfg(feature = "quinn")]
+    QuicClient(Endpoint),
+    #[cfg(feature = "quinn")]
+    QuicServer(Incoming),
 }
 
 #[allow(irrefutable_let_patterns)]
@@ -149,23 +150,21 @@ impl LocalSocket {
     //     };
     // }
 
-    // #[cfg(feature = "quinn")]
-    // pub fn client_consume(self) -> Option<Endpoint>
-    // {
-    //     if let Self::QuicClient(s) = self {
-    //         return Some(s);
-    //     }
-    //     return None;
-    // }
+    #[cfg(feature = "quinn")]
+    pub fn client_consume(self) -> Option<Endpoint> {
+        if let Self::QuicClient(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
 
-    // #[cfg(feature = "quinn")]
-    // pub fn server(&mut self) -> Option<&mut Incoming>
-    // {
-    //     if let Self::QuicServer(s) = self {
-    //         return Some(s);
-    //     }
-    //     return None;
-    // }
+    #[cfg(feature = "quinn")]
+    pub fn server(&mut self) -> Option<&mut Incoming> {
+        if let Self::QuicServer(s) = self {
+            return Some(s);
+        }
+        return None;
+    }
 }
 
 type UdpPool = HashMap<SocketAddr, Arc<UdpSocket>>;
@@ -191,8 +190,11 @@ impl SocketPool {
         protocol: &Protocol,
     ) -> Result<LocalSocket, ConnectionError> {
         match protocol {
-            // #[cfg(feature = "quinn")]
-            // Protocol::Quic(_) => quin::obtain_socket(local_address).await,
+            #[cfg(feature = "quinn")]
+            Protocol::Quic(_) => {
+                let endpoint = quinnpr::obtain_client_endpoint(local_address).await?;
+                return Ok(LocalSocket::QuicClient(endpoint));
+            }
             Protocol::Laminar => {
                 let s = self.get_laminar_socket(local_address).await?;
                 return Ok(LocalSocket::LaminarSender(s.get_sender()));
@@ -218,11 +220,11 @@ impl SocketPool {
         protocol: &Protocol,
     ) -> Result<LocalSocket, ConnectionError> {
         match protocol {
-            // #[cfg(feature = "quinn")]
-            // Protocol::Quic(_) => obtain_server_endpoint(local_address)
-            //     .await
-            //     .and_then(|i| Ok(SocketEndpoint::QuicServer(i)))
-            //     .map_err(|err| ConnectionError::EndpointError(err)),
+            #[cfg(feature = "quinn")]
+            Protocol::Quic(c) => {
+                let endpoint = quinnpr::obtain_server_endpoint(local_address, c).await?;
+                return Ok(LocalSocket::QuicServer(endpoint));
+            }
             Protocol::Laminar => {
                 let s = self.get_laminar_socket(local_address).await?;
                 return Ok(LocalSocket::LaminarReceiver(s.get_receiver()));
@@ -326,15 +328,14 @@ pub async fn send_data(
         }
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => {
-            send_data_quic(
+            quinnpr::send_data(
                 local_socket
                     .client_consume()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Quic protocol client expected".to_owned(),
                     ))?,
                 data,
-                destination,
-                timeout,
+                &destination,
             )
             .await
         }
@@ -342,7 +343,7 @@ pub async fn send_data(
         Protocol::Quic(c) => {
             quiche::send_data(
                 local_socket
-                    .socket_consume()
+                    .socket()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Quic protocol socket expected".to_owned(),
                     ))?,
@@ -410,15 +411,13 @@ pub async fn receive_data(
         }
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => {
-            receive_data_quic(
+            quinnpr::receive_data(
                 local_socket
                     .server()
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Quic protocol server expected".to_owned(),
                     ))?,
-                encryptor,
                 max_len,
-                timeout,
             )
             .await
         }

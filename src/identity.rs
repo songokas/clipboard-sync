@@ -84,67 +84,99 @@ pub async fn retrieve_identity(
 }
 
 #[cfg(test)]
-mod sockettest {
+mod identitytest {
     use super::*;
+    use crate::assert_error_type;
     use crate::message::Group;
     use crate::wait;
 
-    fn identity_provider() -> Vec<(IpAddr, SocketAddr, Group)> {
+    fn identity_provider() -> Vec<(&'static str, SocketAddr, Group)> {
         return vec![
             (
-                "127.0.0.2".parse().unwrap(),
-                "192.168.0.1:0".parse().unwrap(),
-                Group::from_addr("test5", "127.0.0.2:9811", "192.168.0.1"),
-            ),
-            (
-                "127.0.0.2".parse().unwrap(),
-                "172.16.0.1:0".parse().unwrap(),
-                // Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test2"),
-            ),
-            (
-                "127.0.0.2".parse().unwrap(),
-                "224.0.0.1:0".parse().unwrap(),
-                // Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test3"),
-            ),
-            (
-                "127.0.0.2".parse().unwrap(),
-                "169.254.0.1:0".parse().unwrap(),
-                // Some("127.0.0.2".parse().unwrap()),
-                Group::from_name("test4"),
-            ),
-            (
-                "127.0.0.3".parse().unwrap(),
-                "169.254.0.1:0".parse().unwrap(),
-                // None,
-                Group::from_addr("test5", "127.0.0.3:9811", "192.168.0.1"),
-            ),
-            (
-                "192.168.0.1".parse().unwrap(),
+                "127.0.0.1",
                 "127.0.0.1:0".parse().unwrap(),
-                // Some("192.168.0.1".parse().unwrap()),
-                Group::from_name("test4"),
+                Group::from_addr("test1", "127.0.0.1:9811", "127.0.0.1"),
             ),
+            // (
+            //     "192.168.0.154",
+            //     "172.16.0.1:0".parse().unwrap(),
+            //     Group::from_addr("test1", "0.0.0.0:9811", "192.168.0.1"),
+            // ),
+            // (
+            //     "127.0.0.2".parse().unwrap(),
+            //     "224.0.0.1:0".parse().unwrap(),
+            //     // Some("127.0.0.2".parse().unwrap()),
+            //     Group::from_name("test3"),
+            // ),
+            // (
+            //     "127.0.0.2".parse().unwrap(),
+            //     "169.254.0.1:0".parse().unwrap(),
+            //     // Some("127.0.0.2".parse().unwrap()),
+            //     Group::from_name("test4"),
+            // ),
+            // (
+            //     "127.0.0.3".parse().unwrap(),
+            //     "169.254.0.1:0".parse().unwrap(),
+            //     // None,
+            //     Group::from_addr("test5", "127.0.0.3:9811", "192.168.0.1"),
+            // ),
+            // (
+            //     "192.168.0.1".parse().unwrap(),
+            //     "127.0.0.1:0".parse().unwrap(),
+            //     // Some("192.168.0.1".parse().unwrap()),
+            //     Group::from_name("test4"),
+            // ),
+            // (
+            //     "192.168.0.1".parse().unwrap(),
+            //     "127.0.0.1:0".parse().unwrap(),
+            //     // None,
+            //     Group::from_addr("test5", "192.168.0.1:9811", "192.168.0.1"),
+            // ),
             (
-                "192.168.0.1".parse().unwrap(),
-                "127.0.0.1:0".parse().unwrap(),
-                // None,
-                Group::from_addr("test5", "192.168.0.1:9811", "192.168.0.1"),
-            ),
-            (
-                "8.8.8.8".parse().unwrap(),
+                "8.8.8.8",
                 "1.1.1.1:0".parse().unwrap(),
-                // Some("127.0.0.1".parse().unwrap()),
-                Group::from_public("test4", "8.8.8.8"),
+                Group::from_visible("test4", "8.8.8.8"),
+            ),
+            (
+                "192.168.0.1",
+                "192.168.0.18:0".parse().unwrap(),
+                Group::from_visible("test4", "192.168.0.1"),
             ),
         ];
     }
     #[test]
     fn test_retrieve_identity() {
-        for (expected, remote_ip, group) in identity_provider() {
-            let res = wait!(retrieve_identity(&remote_ip, &group));
-            assert_eq!(Identity::from(&expected), res.unwrap());
+        for (expected, remote_addr, group) in identity_provider() {
+            let res = wait!(retrieve_identity(&remote_addr, &group));
+            assert_eq!(Identity::from(expected), res.unwrap());
         }
+    }
+
+    #[test]
+    fn test_retrieve_identity_errors() {
+        let r1 = (
+            "1.1.1.1:0".parse().unwrap(),
+            Group::from_visible("test1", "8.8.8.8.3"),
+        );
+        let res = wait!(retrieve_identity(&r1.0, &r1.1));
+        assert_error_type!(res, ConnectionError::DnsError(_));
+
+        let r1 = (
+            "1.1.1.1:0".parse().unwrap(),
+            Group::from_visible("test2", "abc"),
+        );
+        let res = wait!(retrieve_identity(&r1.0, &r1.1));
+        assert_error_type!(res, ConnectionError::DnsError(_));
+
+        let r1 = (
+            "224.0.0.1:0".parse().unwrap(),
+            Group::from_addr("test3", "192.168.254.254:0", "192.168.0.1"),
+        );
+        let res = wait!(retrieve_identity(&r1.0, &r1.1));
+        assert_error_type!(res, ConnectionError::FailedToConnect(_));
+
+        let r1 = ("1.1.1.1:0".parse().unwrap(), Group::from_name("test5"));
+        let res = wait!(retrieve_identity(&r1.0, &r1.1));
+        assert_error_type!(res, ConnectionError::FailedToConnect(_));
     }
 }

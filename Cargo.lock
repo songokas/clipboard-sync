@@ -398,6 +398,7 @@ dependencies = [
  "quiche",
  "quinn",
  "rand",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml",

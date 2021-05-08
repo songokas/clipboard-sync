@@ -4,8 +4,7 @@ use thiserror::Error;
 use tokio::time::Duration;
 
 #[derive(Debug, Error)]
-pub enum EncryptionError
-{
+pub enum EncryptionError {
     #[error("{0}")]
     InvalidMessage(String),
     #[error("{0}")]
@@ -17,8 +16,7 @@ pub enum EncryptionError
 }
 
 #[derive(Debug, Error)]
-pub enum ValidationError
-{
+pub enum ValidationError {
     #[error("{0}")]
     IncorrectGroup(String),
     #[error("{0}")]
@@ -26,22 +24,17 @@ pub enum ValidationError
 }
 
 #[derive(Debug, Error, Clone)]
-pub enum DnsError
-{
+pub enum DnsError {
     #[error("{0}")]
     Failed(String),
 }
 
 #[derive(Debug, Error)]
-pub enum ConnectionError
-{
+pub enum ConnectionError {
     #[error("Timeout occurred {}ms while waiting for {0}", .1.as_millis())]
     Timeout(String, Duration),
     #[error("Connection limit reached: {max_len} received {received}")]
-    LimitReached
-    {
-        received: usize, max_len: usize
-    },
+    LimitReached { received: usize, max_len: usize },
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error("Failed to parse address")]
@@ -50,6 +43,7 @@ pub enum ConnectionError
     FailedToConnect(String),
     #[error("{0}")]
     InvalidBuffer(String),
+    // #[error("{0}")
     // NoPublic(String),
     #[error("{0}")]
     InvalidProtocol(String),
@@ -68,21 +62,26 @@ pub enum ConnectionError
     #[cfg(feature = "quiche")]
     #[error(transparent)]
     Http3(#[from] quiche::Error),
-    // #[cfg(feature = "quin")]
-    // EndpointError(EndpointError),
-    // #[cfg(feature = "quin")]
-    // QuicConnection(quinn::ConnectionError),
-    // #[cfg(feature = "quin")]
-    // QuicWriteError(quinn::WriteError),
-    // #[cfg(feature = "quin")]
-    // QuicConnect(quinn::ConnectError),
-    // #[cfg(feature = "quin")]
-    // QuicReadError(quinn::ReadToEndError),
+
+    #[cfg(feature = "quinn")]
+    #[error(transparent)]
+    EndpointError(#[from] EndpointError),
+    #[cfg(feature = "quinn")]
+    #[error(transparent)]
+    QuicConnection(#[from] quinn::ConnectionError),
+    #[cfg(feature = "quinn")]
+    #[error(transparent)]
+    QuicWriteError(#[from] quinn::WriteError),
+    #[cfg(feature = "quinn")]
+    #[error(transparent)]
+    QuicConnect(#[from] quinn::ConnectError),
+    #[cfg(feature = "quinn")]
+    #[error(transparent)]
+    QuicReadError(#[from] quinn::ReadToEndError),
 }
 
 #[derive(Debug, Error)]
-pub enum CliError
-{
+pub enum CliError {
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error("{0}")]
@@ -91,8 +90,10 @@ pub enum CliError
     SocketError(#[from] std::net::AddrParseError),
     #[error(transparent)]
     ConnectionError(#[from] ConnectionError),
-    // #[cfg(feature = "quinn")]
-    // KeyError(quinn::ParseError),
+
+    #[cfg(feature = "quinn")]
+    #[error(transparent)]
+    KeyError(#[from] quinn::ParseError),
     #[error("Failed to join tasks")]
     JoinError(#[from] tokio::task::JoinError),
     #[error("Invalid key provided")]
@@ -100,8 +101,7 @@ pub enum CliError
 }
 
 #[derive(Debug, Error)]
-pub enum ClipboardError
-{
+pub enum ClipboardError {
     #[error("{0}")]
     IoError(#[from] io::Error),
     #[error("{0}")]
@@ -118,18 +118,17 @@ pub enum ClipboardError
     Access(String),
 }
 
-// #[cfg(feature = "quinn")]
-// #[derive(Debug, Error)]
-// pub enum EndpointError
-// {
-//     #[error(transparent)]
-//     IoError(io::Error),
-//     #[error(transparent)]
-//     ParseError(quinn::ParseError),
-//     #[error(transparent)]
-//     ConnectError(quinn::EndpointError),
-//     #[error(transparent)]
-//     CertificateError(quinn::crypto::rustls::TLSError),
-//     #[error(transparent)]
-//     InvalidKey(String),
-// }
+#[cfg(feature = "quinn")]
+#[derive(Debug, Error)]
+pub enum EndpointError {
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+    #[error(transparent)]
+    ParseError(#[from] quinn::ParseError),
+    #[error(transparent)]
+    ConnectError(#[from] quinn::EndpointError),
+    #[error(transparent)]
+    CertificateError(#[from] quinn::crypto::rustls::TLSError),
+    #[error("{0}")]
+    InvalidKey(String),
+}
