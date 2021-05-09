@@ -31,7 +31,8 @@ use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, Fram
 use quinn::{Endpoint, Incoming};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Protocol {
+pub enum Protocol
+{
     Basic,
     #[cfg(feature = "frames")]
     Frames,
@@ -41,8 +42,10 @@ pub enum Protocol {
     Tcp,
 }
 
-impl Protocol {
-    pub fn requires_public_key(&self) -> bool {
+impl Protocol
+{
+    pub fn requires_public_key(&self) -> bool
+    {
         #[cfg(feature = "quic")]
         if let Self::Quic(_) = self {
             return true;
@@ -54,7 +57,8 @@ impl Protocol {
     pub fn from(
         protocol_opt: Option<&str>,
         #[cfg(feature = "quic")] certs_callback: impl Fn() -> Result<Certificates, CliError>,
-    ) -> Result<Protocol, CliError> {
+    ) -> Result<Protocol, CliError>
+    {
         let protocol = match protocol_opt {
             #[cfg(feature = "quic")]
             Some(v) if v == "quic" => {
@@ -78,8 +82,10 @@ impl Protocol {
     }
 }
 
-impl fmt::Display for Protocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Protocol
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
         return match self {
             #[cfg(feature = "quic")]
             Self::Quic(_) => write!(f, "quic"),
@@ -92,7 +98,8 @@ impl fmt::Display for Protocol {
     }
 }
 
-pub enum LocalSocket {
+pub enum LocalSocket
+{
     Socket(Arc<UdpSocket>),
     LaminarReceiver(laminarpr::LaminarReceiver),
     LaminarSender(laminarpr::LaminarSender),
@@ -105,36 +112,42 @@ pub enum LocalSocket {
 }
 
 #[allow(irrefutable_let_patterns)]
-impl LocalSocket {
-    pub fn socket(&self) -> Option<Arc<UdpSocket>> {
+impl LocalSocket
+{
+    pub fn socket(&self) -> Option<Arc<UdpSocket>>
+    {
         if let Self::Socket(s) = self {
             return Some(Arc::clone(&s));
         }
         return None;
     }
 
-    pub fn tcp_listener(&self) -> Option<&TcpListener> {
+    pub fn tcp_listener(&self) -> Option<&TcpListener>
+    {
         if let Self::TcpListener(s) = self {
             return Some(s);
         }
         return None;
     }
 
-    pub fn tcp_consume(self) -> Option<TcpSocket> {
+    pub fn tcp_consume(self) -> Option<TcpSocket>
+    {
         if let Self::Tcp(s) = self {
             return Some(s);
         }
         return None;
     }
 
-    pub fn laminar_sender(&self) -> Option<&laminarpr::LaminarSender> {
+    pub fn laminar_sender(&self) -> Option<&laminarpr::LaminarSender>
+    {
         if let Self::LaminarSender(a) = self {
             return Some(a);
         }
         return None;
     }
 
-    pub fn laminar_receiver(&self) -> Option<&laminarpr::LaminarReceiver> {
+    pub fn laminar_receiver(&self) -> Option<&laminarpr::LaminarReceiver>
+    {
         if let Self::LaminarReceiver(a) = self {
             return Some(a);
         }
@@ -151,7 +164,8 @@ impl LocalSocket {
     // }
 
     #[cfg(feature = "quinn")]
-    pub fn client_consume(self) -> Option<Endpoint> {
+    pub fn client_consume(self) -> Option<Endpoint>
+    {
         if let Self::QuicClient(s) = self {
             return Some(s);
         }
@@ -159,7 +173,8 @@ impl LocalSocket {
     }
 
     #[cfg(feature = "quinn")]
-    pub fn server(&mut self) -> Option<&mut Incoming> {
+    pub fn server(&mut self) -> Option<&mut Incoming>
+    {
         if let Self::QuicServer(s) = self {
             return Some(s);
         }
@@ -170,13 +185,16 @@ impl LocalSocket {
 type UdpPool = HashMap<SocketAddr, Arc<UdpSocket>>;
 type LaminarPool = HashMap<SocketAddr, Arc<laminarpr::LaminarSocket>>;
 
-pub struct SocketPool {
+pub struct SocketPool
+{
     udp_pool: Mutex<UdpPool>,
     laminar_pool: Mutex<LaminarPool>,
 }
 
-impl SocketPool {
-    pub fn new() -> Self {
+impl SocketPool
+{
+    pub fn new() -> Self
+    {
         return SocketPool {
             udp_pool: Mutex::new(UdpPool::new()),
             laminar_pool: Mutex::new(LaminarPool::new()),
@@ -188,7 +206,8 @@ impl SocketPool {
         local_address: &SocketAddr,
         remote_address: &SocketAddr,
         protocol: &Protocol,
-    ) -> Result<LocalSocket, ConnectionError> {
+    ) -> Result<LocalSocket, ConnectionError>
+    {
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {
@@ -218,7 +237,8 @@ impl SocketPool {
         &self,
         local_address: &SocketAddr,
         protocol: &Protocol,
-    ) -> Result<LocalSocket, ConnectionError> {
+    ) -> Result<LocalSocket, ConnectionError>
+    {
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {
@@ -240,7 +260,8 @@ impl SocketPool {
         }
     }
 
-    pub async fn release_socket(&self, local_address: &SocketAddr) -> bool {
+    pub async fn release_socket(&self, local_address: &SocketAddr) -> bool
+    {
         if self.udp_pool.lock().await.contains_key(local_address) {
             return self.udp_pool.lock().await.remove(local_address).is_some();
         } else if self.laminar_pool.lock().await.contains_key(local_address) {
@@ -257,7 +278,8 @@ impl SocketPool {
     async fn get_laminar_socket(
         &self,
         local_address: &SocketAddr,
-    ) -> Result<Arc<laminarpr::LaminarSocket>, ConnectionError> {
+    ) -> Result<Arc<laminarpr::LaminarSocket>, ConnectionError>
+    {
         {
             let hash = self.laminar_pool.lock().await;
             if let Some(sock) = hash.get(local_address) {
@@ -277,7 +299,8 @@ impl SocketPool {
     async fn get_udp_socket(
         &self,
         local_address: &SocketAddr,
-    ) -> Result<Arc<UdpSocket>, ConnectionError> {
+    ) -> Result<Arc<UdpSocket>, ConnectionError>
+    {
         {
             let hash = self.udp_pool.lock().await;
             if let Some(sock) = hash.get(local_address) {
@@ -309,7 +332,8 @@ pub async fn send_data(
     destination: SocketAddr,
     data: Vec<u8>,
     timeout: impl Fn(Duration) -> bool + std::marker::Send + std::marker::Sync + 'static,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
@@ -349,7 +373,7 @@ pub async fn send_data(
                     ))?,
                 encryptor,
                 data,
-                &destination,
+                destination,
                 c.verify_dir.clone(),
                 timeout,
             )
@@ -393,7 +417,8 @@ pub async fn receive_data(
     protocol: &Protocol,
     max_len: usize,
     timeout: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+{
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {

@@ -75,9 +75,10 @@ optional = true
 [features]
 default = ["frames", "clipboard", "public-ip"]
 
-# default quic implementation
-# quic = ["quiche"]
-quic = ["quinn", "rustls"]
+# default quic implementations
+quic = []
+quic-quiche = ["quic", "quiche"]
+quic-quinn = ["quic", "quinn", "rustls"]
 frames = []
 
 [package.metadata.deb]

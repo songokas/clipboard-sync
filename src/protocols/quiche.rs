@@ -19,29 +19,31 @@ pub async fn send_data(
     socket: Arc<UdpSocket>,
     encryptor: impl FrameEncryptor,
     data: Vec<u8>,
-    destination_addr: &SocketAddr,
+    destination: SocketAddr,
     verify_path: Option<String>,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     let scid = random(quiche::MAX_CONN_ID_LEN);
     let mut config = load_client_config(verify_path)?;
     let connection_id = ConnectionId::from_vec(scid.clone());
 
     let mut conn = quiche::connect(
-        Some(&destination_addr.ip().to_string()),
+        Some("localhost"),
+        // Some(&destinati5on_addr.ip().to_string()),
         &connection_id,
         &mut config,
     )?;
 
     debug!(
         "Connecting to {:} from {:} with scid {}",
-        destination_addr,
+        destination,
         socket.local_addr()?,
         hex_dump(&scid)
     );
 
     let mut connection_sent =
-        send_handshake(&mut conn, &socket, encryptor, timeout_callback).await?;
+        send_handshake(&mut conn, &socket, destination, encryptor, timeout_callback).await?;
 
     debug!("Sent initial packet size {}", connection_sent);
 
@@ -55,7 +57,7 @@ pub async fn send_data(
             }
         }
 
-        connection_read += receive(&mut conn, &socket, None)?;
+        connection_read += receive(&mut conn, &socket, Some(destination))?;
 
         if conn.is_established() {
             while let Ok(sent) = conn.stream_send(QUIC_STREAM as u64, &data[data_sent..], true) {
@@ -67,7 +69,7 @@ pub async fn send_data(
             }
         }
 
-        connection_sent += send(&mut conn, &socket, None)?;
+        connection_sent += send(&mut conn, &socket, Some(destination))?;
 
         if conn.is_closed() {
             info!(
@@ -88,12 +90,13 @@ pub async fn receive_data(
     public_key: &str,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+{
     let mut config = load_server_config(private_key, public_key)?;
     let mut connection_sent = 0;
     let mut received = Vec::new();
     let timeout_with_time = |d: Duration| -> bool {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout_callback(d);
+        return timeout_callback(d);
     };
 
     let (header, addr, mut buffer, mut connection_read) =
@@ -165,7 +168,8 @@ fn receive_stream(
     stream_id: u64,
     received: &mut Vec<u8>,
     max_len: usize,
-) -> Result<(), ConnectionError> {
+) -> Result<(), ConnectionError>
+{
     let mut buffer = [0; MAX_UDP_BUFFER];
     while let Ok((read, fin)) = conn.stream_recv(stream_id, &mut buffer) {
         let mut copy = buffer[..read].to_vec();
@@ -201,9 +205,11 @@ fn receive_stream(
 async fn send_handshake(
     conn: &mut Connection,
     socket: &UdpSocket,
+    destination: SocketAddr,
     encryptor: impl FrameEncryptor,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
     let cwrite = conn.send(&mut out)?;
@@ -211,11 +217,15 @@ async fn send_handshake(
 
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
-        let connection_sent =
-            match timeout(Duration::from_millis(100), socket.send(&enc_write)).await {
-                Ok(v) => v?,
-                Err(_) => continue,
-            };
+        let connection_sent = match timeout(
+            Duration::from_millis(100),
+            socket.send_to(&enc_write, destination),
+        )
+        .await
+        {
+            Ok(v) => v?,
+            Err(_) => continue,
+        };
         return Ok(connection_sent);
     }
     return Err(ConnectionError::FailedToConnect(
@@ -227,7 +237,8 @@ async fn receive_handshake<'a>(
     socket: &UdpSocket,
     encryptor: &impl FrameDecryptor,
     timeout: impl Fn(Duration) -> bool,
-) -> Result<(Header<'a>, SocketAddr, Vec<u8>, usize), ConnectionError> {
+) -> Result<(Header<'a>, SocketAddr, Vec<u8>, usize), ConnectionError>
+{
     let mut buffer = [0; MAX_UDP_BUFFER];
     let (connection_read, addr) = receive_from_timeout(socket, &mut buffer, timeout).await?;
     let (mut pkt_buf, _) = encryptor.decrypt(&buffer[..connection_read], &Identity::from(&addr))?;
@@ -249,7 +260,8 @@ fn receive(
     conn: &mut Connection,
     socket: &UdpSocket,
     expected_addr: Option<SocketAddr>,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     let mut buffer = [0; MAX_UDP_BUFFER];
     let mut connection_read = 0;
 
@@ -296,8 +308,9 @@ fn receive(
 fn send(
     conn: &mut Connection,
     socket: &UdpSocket,
-    to_addr: Option<SocketAddr>,
-) -> Result<usize, ConnectionError> {
+    destination: Option<SocketAddr>,
+) -> Result<usize, ConnectionError>
+{
     let mut buffer = [0; MAX_UDP_BUFFER];
     let mut connection_sent = 0;
     'send_loop: loop {
@@ -316,7 +329,7 @@ fn send(
         };
         connection_sent += csent;
 
-        let op = if let Some(addr) = to_addr {
+        let op = if let Some(addr) = destination {
             socket.try_send_to(&buffer[..csent], addr)
         } else {
             socket.try_send(&buffer[..csent])
@@ -336,7 +349,8 @@ fn send(
     return Ok(connection_sent);
 }
 
-fn load_config() -> Result<Config, ConnectionError> {
+fn load_config() -> Result<Config, ConnectionError>
+{
     let mut config = Config::new(quiche::PROTOCOL_VERSION)?;
     config
         .set_application_protos(b"\x05hq-29\x05hq-28\x05hq-27\x08http/0.9")
@@ -355,14 +369,19 @@ fn load_config() -> Result<Config, ConnectionError> {
     return Ok(config);
 }
 
-fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionError> {
+fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionError>
+{
     let mut config = load_config()?;
 
     if let Some(crt_str) = verify_path {
+        config.verify_peer(true);
         config
             .load_verify_locations_from_directory(&crt_str)
             .map_err(|e| {
-                ConnectionError::InvalidKey(format!("verify crt not found {} {}", crt_str, e))
+                ConnectionError::InvalidKey(format!(
+                    "Verify certificates directory not found {} {}",
+                    crt_str, e
+                ))
             })?;
     } else {
         config.verify_peer(false);
@@ -370,25 +389,27 @@ fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionE
     return Ok(config);
 }
 
-fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, ConnectionError> {
+fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, ConnectionError>
+{
     let mut config = load_config()?;
     config
         .load_cert_chain_from_pem_file(cert_path)
         .map_err(|e| {
             ConnectionError::InvalidKey(format!(
-                "certificate not found or not valid {} {}",
+                "Certificate not found or not valid {} {}",
                 cert_path, e
             ))
         })?;
     config.load_priv_key_from_pem_file(key_path).map_err(|e| {
-        ConnectionError::InvalidKey(format!("key not found or not valid {} {}", key_path, e))
+        ConnectionError::InvalidKey(format!("Key not found or not valid {} {}", key_path, e))
     })?;
 
     return Ok(config);
 }
 
 #[cfg(test)]
-mod quichetest {
+mod quichetest
+{
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
@@ -396,7 +417,8 @@ mod quichetest {
     use crate::message::Group;
     use tokio::try_join;
 
-    async fn send_receive(size: usize, max_len: usize) {
+    async fn send_receive(size: usize, max_len: usize)
+    {
         let local_server: SocketAddr = "127.0.0.1:9956".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:9957".parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
@@ -416,10 +438,12 @@ mod quichetest {
             receive_data(
                 server_sock,
                 &enc_r,
-                "tests/cert.key",
-                "tests/cert.crt",
+                // "/tmp/b",
+                // "/tmp/a",
+                "tests/certs/localhostkey.pem",
+                "tests/certs/localhostcert.pem",
                 max_len,
-                |d: Duration| d > Duration::from_millis(2000),
+                |d: Duration| d > Duration::from_millis(5000),
             )
             .await
         });
@@ -429,9 +453,10 @@ mod quichetest {
                 client_sock,
                 enc_s,
                 for_sending,
-                &local_server,
-                None,
-                |d: Duration| d > Duration::from_millis(2000),
+                local_server,
+                // Some("/tmp/certs".to_owned()),
+                Some("tests/certs/cert-verifys".to_owned()),
+                |d: Duration| d > Duration::from_millis(5000),
             )
             .await
         });
@@ -450,9 +475,33 @@ mod quichetest {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_data() {
+    async fn test_data()
+    {
         send_receive(5, 100).await;
         send_receive(16 * 1024 * 10, 16 * 1024 * 10 + 1000).await;
         send_receive(10, 5).await;
+    }
+
+    #[tokio::test]
+    async fn test_timeout()
+    {
+        let local_server: SocketAddr = "127.0.0.1:3985".parse().unwrap();
+        let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
+
+        let group = Group::from_name("test1");
+        let groups = vec![group.clone()];
+        let enc_r = GroupsEncryptor::new(groups);
+
+        let result = receive_data(
+            server_sock,
+            &enc_r,
+            "tests/certs/localhostkey.pem",
+            "tests/certs/localhostcert.pem",
+            10,
+            |_: Duration| true,
+        )
+        .await;
+
+        assert_error_type!(result, ConnectionError::IoError(..));
     }
 }

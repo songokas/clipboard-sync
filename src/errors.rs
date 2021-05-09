@@ -75,9 +75,9 @@ pub enum ConnectionError {
     #[cfg(feature = "quinn")]
     #[error("Failed to connect {0}")]
     QuicConnect(#[from] quinn::ConnectError),
-    #[cfg(feature = "quinn")]
-    #[error(transparent)]
-    QuicReadError(#[from] quinn::ReadToEndError),
+    // #[cfg(feature = "quinn")]
+    // #[error(transparent)]
+    // QuicReadError(#[from] quinn::ReadToEndError),
 }
 
 #[derive(Debug, Error)]
