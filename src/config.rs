@@ -123,7 +123,7 @@ pub fn load_default_certificates(
     let key_str: String = match private_key {
         Some(k) => k.to_owned(),
         None => {
-            let path = config_path()?.join("key.pem");
+            let path = config_path()?.join("cert.key");
             path.to_string_lossy().to_string()
         }
     };
@@ -131,7 +131,7 @@ pub fn load_default_certificates(
     let crt_str: String = match public_key {
         Some(k) => k.to_owned(),
         None => {
-            let path = config_path()?.join("cert.pem");
+            let path = config_path()?.join("cert.crt");
             path.to_string_lossy().to_string()
         }
     };

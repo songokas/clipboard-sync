@@ -29,8 +29,8 @@ pub async fn send_data(
     let connection_id = ConnectionId::from_vec(scid.clone());
 
     let mut conn = quiche::connect(
-        Some("localhost"),
-        // Some(&destinati5on_addr.ip().to_string()),
+        // Some("localhost"),
+        Some(&destination.ip().to_string()),
         &connection_id,
         &mut config,
     )?;
@@ -149,16 +149,22 @@ pub async fn receive_data(
                 connection_read,
                 conn.stats()
             );
+
+            if !conn.is_established() {
+                return Err(ConnectionError::Timeout(
+                    "quic receiving".to_owned(),
+                    now.elapsed(),
+                ));
+            }
+
             return Ok((received, addr));
         }
 
         if timeout_with_time(now.elapsed()) {
-            return Err(ConnectionError::FailedToConnect(format!(
-                "Connection timeout {}. Received {} Sent {}",
-                now.elapsed().as_millis(),
-                connection_read,
-                connection_sent
-            )));
+            return Err(ConnectionError::Timeout(
+                "quic receiving".to_owned(),
+                now.elapsed(),
+            ));
         }
     }
 }
@@ -372,9 +378,10 @@ fn load_config() -> Result<Config, ConnectionError>
 fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionError>
 {
     let mut config = load_config()?;
+    config.verify_peer(true);
 
+    // use custom verify dir
     if let Some(crt_str) = verify_path {
-        config.verify_peer(true);
         config
             .load_verify_locations_from_directory(&crt_str)
             .map_err(|e| {
@@ -383,8 +390,6 @@ fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionE
                     crt_str, e
                 ))
             })?;
-    } else {
-        config.verify_peer(false);
     }
     return Ok(config);
 }
