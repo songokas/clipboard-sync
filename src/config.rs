@@ -9,8 +9,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use crate::defaults::{
-    default_socket_send_address, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER, PACKAGE_NAME,
-    RECEIVE_ONCE_WAIT,
+    DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER, PACKAGE_NAME, RECEIVE_ONCE_WAIT,
 };
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
@@ -159,6 +158,7 @@ pub fn load_groups(
     file_path: &str,
     default_allowed_host_address: &str,
     default_bind_address: &str,
+    default_send_using_address: &str,
     default_protocol: Option<&str>,
     #[cfg(feature = "quic")] load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
     send_clipboard_on_startup: bool,
@@ -200,7 +200,14 @@ pub fn load_groups(
         } else if let Some(sd) = &user_config.send_using_address {
             sd.clone()
         } else {
-            default_socket_send_address()
+            default_send_using_address
+                .parse::<SocketAddr>()
+                .map_err(|_| {
+                    CliError::ArgumentError(format!(
+                        "Invalid send-using-address provided {}",
+                        default_send_using_address
+                    ))
+                })?
         };
 
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {
@@ -354,6 +361,7 @@ mod configtest
             "tests/config.sample.yaml",
             socket_addr,
             "127.0.0.1:9088",
+            "127.0.0.1:9089",
             None,
             #[cfg(feature = "quic")]
             || Err(CliError::InvalidKey("test no key".to_owned())),
@@ -441,6 +449,7 @@ mod configtest
             "tests/config.failure.yaml",
             socket_addr,
             "127.0.0.1:9088",
+            "127.0.0.1:9089",
             None,
             #[cfg(feature = "quic")]
             || Err(CliError::InvalidKey("test no key".to_owned())),

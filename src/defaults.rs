@@ -1,8 +1,8 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
+// pub const BIND_ADDRESS: &str = "[::]:8900";
 pub const BIND_ADDRESS_IPV6: &str = "[::]:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:0";
+// pub const SEND_ADDRESS: &str = "[::]:0";
 pub const SEND_ADDRESS_IPV6: &str = "[::]:0";
 pub const DEFAULT_GROUP: &str = "default";
 pub const CLIPBOARD_NAME: &str = "clipboard";
@@ -25,11 +25,6 @@ pub const CONNECTION_TIMEOUT: u64 = 2000;
 pub const DATA_TIMEOUT: u64 = 5000;
 pub const RECEIVE_ONCE_WAIT: u64 = 45; //seconds
 pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 100;
-
-pub fn default_socket_send_address() -> SocketAddr
-{
-    return SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
-}
 
 pub fn default_allowed_host() -> String
 {

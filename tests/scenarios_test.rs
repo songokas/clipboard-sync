@@ -25,9 +25,21 @@ fn send_receive_once(protocol: &'static str, size: usize)
                 "1",
                 "--protocol",
                 protocol,
+                #[cfg(feature = "quic")]
+                "--cert-verify-dir",
+                #[cfg(feature = "quic")]
+                "tests/certs/cert-verify",
+                #[cfg(feature = "quic")]
+                "--private-key",
+                #[cfg(feature = "quic")]
+                "tests/certs/localhost.key",
+                #[cfg(feature = "quic")]
+                "--public-key",
+                #[cfg(feature = "quic")]
+                "tests/certs/localhost.crt",
             ],
             "",
-            3000,
+            4000,
         )
     });
 
@@ -36,6 +48,12 @@ fn send_receive_once(protocol: &'static str, size: usize)
         .take(size)
         .map(char::from)
         .collect();
+
+    let send_to = match protocol {
+        #[cfg(feature = "quic-quinn")]
+        "quic" => "localhost:8923",
+        _ => "127.0.0.1:8923",
+    };
 
     let t2 = thread::spawn(move || {
         run_command(
@@ -48,12 +66,24 @@ fn send_receive_once(protocol: &'static str, size: usize)
                 "--clipboard",
                 "/dev/stdin",
                 "--allowed-host",
-                "127.0.0.1:8923",
+                send_to,
                 "--protocol",
                 protocol,
+                #[cfg(feature = "quic")]
+                "--cert-verify-dir",
+                #[cfg(feature = "quic")]
+                "tests/certs/cert-verify",
+                #[cfg(feature = "quic")]
+                "--private-key",
+                #[cfg(feature = "quic")]
+                "tests/certs/localhost.key",
+                #[cfg(feature = "quic")]
+                "--public-key",
+                #[cfg(feature = "quic")]
+                "tests/certs/localhost.crt",
             ],
             &contents,
-            2000,
+            4000,
         )
     });
 
@@ -63,8 +93,8 @@ fn send_receive_once(protocol: &'static str, size: usize)
     let assert1 = Assert::new(output1);
     let assert2 = Assert::new(output2);
 
-    assert1.stderr(predicate::str::contains("count 1"));
     assert2.stderr(predicate::str::contains("count 1"));
+    assert1.stderr(predicate::str::contains("count 1"));
 }
 
 #[test]
