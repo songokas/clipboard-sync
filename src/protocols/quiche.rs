@@ -13,13 +13,13 @@ use crate::errors::ConnectionError;
 use crate::fragmenter::{FrameDecryptor, FrameEncryptor};
 use crate::identity::Identity;
 use crate::message::MessageType;
-use crate::socket::receive_from_timeout;
+use crate::socket::{receive_from_timeout, Destination};
 
 pub async fn send_data(
     socket: Arc<UdpSocket>,
     encryptor: impl FrameEncryptor,
     data: Vec<u8>,
-    destination: SocketAddr,
+    destination: Destination,
     verify_path: Option<String>,
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
@@ -28,12 +28,7 @@ pub async fn send_data(
     let mut config = load_client_config(verify_path)?;
     let connection_id = ConnectionId::from_vec(scid.clone());
 
-    let mut conn = quiche::connect(
-        // Some("localhost"),
-        Some(&destination.ip().to_string()),
-        &connection_id,
-        &mut config,
-    )?;
+    let mut conn = quiche::connect(Some(destination.host()), &connection_id, &mut config)?;
 
     debug!(
         "Connecting to {:} from {:} with scid {}",
@@ -42,8 +37,14 @@ pub async fn send_data(
         hex_dump(&scid)
     );
 
-    let mut connection_sent =
-        send_handshake(&mut conn, &socket, destination, encryptor, timeout_callback).await?;
+    let mut connection_sent = send_handshake(
+        &mut conn,
+        &socket,
+        destination.addr().clone(),
+        encryptor,
+        timeout_callback,
+    )
+    .await?;
 
     debug!("Sent initial packet size {}", connection_sent);
 
@@ -57,7 +58,7 @@ pub async fn send_data(
             }
         }
 
-        connection_read += receive(&mut conn, &socket, Some(destination))?;
+        connection_read += receive(&mut conn, &socket, Some(destination.addr().clone()))?;
 
         if conn.is_established() {
             while let Ok(sent) = conn.stream_send(QUIC_STREAM as u64, &data[data_sent..], true) {
@@ -69,7 +70,7 @@ pub async fn send_data(
             }
         }
 
-        connection_sent += send(&mut conn, &socket, Some(destination))?;
+        connection_sent += send(&mut conn, &socket, Some(destination.addr().clone()))?;
 
         if conn.is_closed() {
             info!(
@@ -435,18 +436,14 @@ mod quichetest
         let enc_r = GroupsEncryptor::new(groups);
         let enc_s = IdentityEncryptor::new(group, Identity::from(&local_server));
 
-        client_sock.connect(local_server).await.unwrap();
-
         let data_sent = random(size);
         let for_sending = data_sent.clone();
         let r = tokio::spawn(async move {
             receive_data(
                 server_sock,
                 &enc_r,
-                // "/tmp/b",
-                // "/tmp/a",
-                "tests/certs/localhostkey.pem",
-                "tests/certs/localhostcert.pem",
+                "tests/certs/localhost.key",
+                "tests/certs/localhost.crt",
                 max_len,
                 |d: Duration| d > Duration::from_millis(5000),
             )
@@ -458,9 +455,8 @@ mod quichetest
                 client_sock,
                 enc_s,
                 for_sending,
-                local_server,
-                // Some("/tmp/certs".to_owned()),
-                Some("tests/certs/cert-verifys".to_owned()),
+                local_server.into(),
+                Some("tests/certs/cert-verify".to_owned()),
                 |d: Duration| d > Duration::from_millis(5000),
             )
             .await
@@ -500,8 +496,8 @@ mod quichetest
         let result = receive_data(
             server_sock,
             &enc_r,
-            "tests/certs/localhostkey.pem",
-            "tests/certs/localhostcert.pem",
+            "tests/certs/localhost.key",
+            "tests/certs/localhost.crt",
             10,
             |_: Duration| true,
         )

@@ -2,6 +2,14 @@ bind_addresses:
   # protocol: local socket address
   basic: "0.0.0.0:8900"
   frames: "0.0.0.0:8901"
+  laminar: "0.0.0.0:8902"
+  quic: "0.0.0.0:8903"
+
+# protocol specific configuration
+laminar:
+
+quic:
+#
 
 # optional unless using quic
 certificates:

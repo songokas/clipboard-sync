@@ -88,7 +88,8 @@ clean:
 
 test:
 	cargo test
-	cargo test --features quic
+	cargo test --features quic-quinn
+	cargo test --features quic-quiche
 
 sign: sign-windows sign-rpm
 

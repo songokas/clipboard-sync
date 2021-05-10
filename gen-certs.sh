@@ -44,9 +44,9 @@ openssl x509 -req -in $HOST.csr -CA rootca.crt -CAkey rootca.key -CAcreateserial
 # openssl req -config <(echo "$CONFIG") -new -newkey rsa:4096 -nodes \
 #   -subj "/CN=$HOST" -x509 -addext "subjectAltName = DNS:$HOST_ALT" -keyout key.pem -out cert.pem
 
-if [[ -d "$EXPECTED_DIR/cert-verify" ]]; then
-    cp rootca.crt "$EXPECTED_DIR/cert-verify"
-    c_rehash "$EXPECTED_DIR/cert-verify"
+if [[ -d "cert-verify" ]]; then
+    cp rootca.crt "cert-verify"
+    c_rehash "cert-verify"
 fi
 
 rm -f $HOST.csr

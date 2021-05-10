@@ -13,6 +13,7 @@ use crate::config::Certificates;
 use crate::defaults::MAX_FILE_SIZE;
 use crate::errors::{ConnectionError, EndpointError};
 use crate::filesystem::{dir_to_dir_structure, read_file};
+use crate::socket::Destination;
 
 // @TODO failures when using protocols
 // pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29", b"hq-28", b"hq-27", b"http/0.9"];
@@ -99,10 +100,10 @@ pub async fn obtain_client_endpoint(
 pub async fn send_data(
     endpoint: Endpoint,
     data: Vec<u8>,
-    remote_address: &SocketAddr,
+    destination: Destination,
 ) -> Result<usize, ConnectionError>
 {
-    let connect = endpoint.connect(&remote_address, "localhost")?; //&remote_address.ip().to_string())?;
+    let connect = endpoint.connect(destination.addr(), destination.host())?; //&remote_address.ip().to_string())?;
 
     let quinn::NewConnection { connection, .. } = connect.await?;
 
@@ -180,11 +181,11 @@ mod quinntest
 
     async fn send_receive(size: usize, max_len: usize)
     {
-        let local_server: SocketAddr = "127.0.0.1:9986".parse().unwrap();
-        let local_client: SocketAddr = "127.0.0.1:9987".parse().unwrap();
+        let local_server: SocketAddr = "127.0.0.1:9286".parse().unwrap();
+        let local_client: SocketAddr = "127.0.0.1:9287".parse().unwrap();
         let certs = Certificates {
-            private_key: "tests/certs/localhostkey.pem".to_owned(),
-            public_key: "tests/certs/localhostcert.pem".to_owned(),
+            private_key: "tests/certs/localhost.key".to_owned(),
+            public_key: "tests/certs/localhost.crt".to_owned(),
             verify_dir: Some("tests/certs/cert-verify".to_owned()),
         };
 
@@ -200,8 +201,14 @@ mod quinntest
             .await
         });
 
-        let s =
-            tokio::spawn(async move { send_data(client_sock, for_sending, &local_server).await });
+        let s = tokio::spawn(async move {
+            send_data(
+                client_sock,
+                for_sending,
+                Destination::new("localhost".to_owned(), local_server),
+            )
+            .await
+        });
 
         let res = try_join!(r, s).unwrap();
 
@@ -229,8 +236,8 @@ mod quinntest
     {
         let local_server: SocketAddr = "127.0.0.1:3986".parse().unwrap();
         let certs = Certificates {
-            private_key: "tests/certs/localhostkey.pem".to_owned(),
-            public_key: "tests/certs/localhostcert.pem".to_owned(),
+            private_key: "tests/certs/localhost.key".to_owned(),
+            public_key: "tests/certs/localhost.crt".to_owned(),
             verify_dir: Some("tests/certs/cert-verify".to_owned()),
         };
 

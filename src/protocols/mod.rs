@@ -25,7 +25,7 @@ use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
-// use crate::socket::Timeout;
+use crate::socket::Destination;
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
@@ -329,7 +329,7 @@ pub async fn send_data(
         + Clone
         + 'static,
     protocol: &Protocol,
-    destination: SocketAddr,
+    destination: Destination,
     data: Vec<u8>,
     timeout: impl Fn(Duration) -> bool + std::marker::Send + std::marker::Sync + 'static,
 ) -> Result<usize, ConnectionError>
@@ -345,7 +345,7 @@ pub async fn send_data(
                     ))?,
                 encryptor,
                 data,
-                destination,
+                destination.into(),
                 timeout,
             )
             .await
@@ -359,7 +359,7 @@ pub async fn send_data(
                         "Quic protocol client expected".to_owned(),
                     ))?,
                 data,
-                &destination,
+                destination,
             )
             .await
         }
@@ -387,7 +387,7 @@ pub async fn send_data(
                         "Basic protocol socket expected".to_owned(),
                     ))?,
                 data,
-                &destination,
+                &destination.into(),
                 timeout,
             )
             .await
@@ -398,7 +398,7 @@ pub async fn send_data(
                 .ok_or(ConnectionError::InvalidProtocol(
                     "Laminar protocol socket expected".to_owned(),
                 ))?;
-            laminarpr::send_data(socket, encryptor, data, &destination).await
+            laminarpr::send_data(socket, encryptor, data, &destination.into()).await
         }
         Protocol::Tcp => {
             let socket = local_socket
@@ -406,7 +406,7 @@ pub async fn send_data(
                 .ok_or(ConnectionError::InvalidProtocol(
                     "Basic protocol socket expected".to_owned(),
                 ))?;
-            tcp::send_data(socket, data, &destination).await
+            tcp::send_data(socket, data, &destination.into()).await
         }
     };
 }
