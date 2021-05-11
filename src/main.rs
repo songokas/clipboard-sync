@@ -40,8 +40,7 @@ use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 
 #[tokio::main]
-async fn main() -> Result<(), CliError>
-{
+async fn main() -> Result<(), CliError> {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
@@ -107,7 +106,9 @@ async fn main() -> Result<(), CliError>
     };
 
     let default_host = match matches.value_of("protocol") {
-        Some(v) if v == "basic" => DEFAULT_ALLOWED_HOST,
+        Some(v) if v == Protocol::Basic.to_string() || v == Protocol::Laminar.to_string() => {
+            DEFAULT_ALLOWED_HOST
+        }
         Some(_) => "",
         _ => DEFAULT_ALLOWED_HOST,
     };
@@ -123,7 +124,7 @@ async fn main() -> Result<(), CliError>
 
         if allowed_host.is_empty() {
             return Err(CliError::ArgumentError(format!(
-                "Please provide --allowed-host or use basic protocol",
+                "Please provide --allowed-host or use basic/laminar protocol",
             )));
         }
 

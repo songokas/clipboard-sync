@@ -88,8 +88,10 @@ clean:
 
 test:
 	cargo test
-	cargo test --features quic-quinn
+	echo "Testing quic quiche"
 	cargo test --features quic-quiche
+	echo "Testing quic quinn"
+	cargo test --features quic-quinn
 
 sign: sign-windows sign-rpm
 

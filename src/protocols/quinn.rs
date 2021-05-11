@@ -92,7 +92,7 @@ pub async fn obtain_client_endpoint(
         &certificates
             .verify_dir
             .as_ref()
-            .expect("Certificates verify dir expected"),
+            .expect("Please provide certificate verify directory"),
         MAX_FILE_SIZE,
     );
     let endpoint: Endpoint = make_client_endpoint(local_addr, certs).await?;

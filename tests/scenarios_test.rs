@@ -9,15 +9,19 @@ use std::time::Duration;
 
 const ANY_KEY: &'static str = "12345678912345678912345678912345";
 
-fn send_receive_once(protocol: &'static str, size: usize)
-{
+fn send_receive_once(protocol: &'static str, size: usize) {
+    let bind_to = match protocol {
+        #[cfg(feature = "quic-quinn")]
+        "quic" => "[::1]:8923",
+        _ => "127.0.0.1:8923",
+    };
     let t1 = thread::spawn(move || {
         run_command(
             vec![
                 "--key",
                 ANY_KEY,
                 "--bind-address",
-                "0.0.0.0:8923",
+                bind_to,
                 "--receive-once",
                 "--allowed-host",
                 "127.0.0.1:0",
@@ -61,7 +65,7 @@ fn send_receive_once(protocol: &'static str, size: usize)
                 "--key",
                 ANY_KEY,
                 "--bind-address",
-                "0.0.0.0:8924",
+                "127.0.0.1:8924",
                 "--send-once",
                 "--clipboard",
                 "/dev/stdin",
@@ -90,6 +94,9 @@ fn send_receive_once(protocol: &'static str, size: usize)
     let output1 = t1.join().unwrap().unwrap();
     let output2 = t2.join().unwrap().unwrap();
 
+    println!("{:?}", output1);
+    println!("{:?}", output2);
+
     let assert1 = Assert::new(output1);
     let assert2 = Assert::new(output2);
 
@@ -98,8 +105,7 @@ fn send_receive_once(protocol: &'static str, size: usize)
 }
 
 #[test]
-fn test_send_receive_once()
-{
+fn test_send_receive_once() {
     for (protocol, size) in [
         ("basic", 10),
         ("basic", 10 * 1024 * 10),
@@ -120,8 +126,7 @@ fn test_send_receive_once()
 #[test]
 #[ignore]
 //cargo test test_receive_once_multicast -- --ignored
-fn test_receive_once_multicast()
-{
+fn test_receive_once_multicast() {
     let t1 = thread::spawn(|| {
         run_command(
             vec![
@@ -146,8 +151,7 @@ fn test_receive_once_multicast()
 #[test]
 #[ignore]
 // cargo test test_send_once_multicast -- --ignored
-fn test_send_once_multicast()
-{
+fn test_send_once_multicast() {
     let t2 = thread::spawn(move || {
         run_command(
             vec!["--key", ANY_KEY, "--send-once", "--clipboard", "/dev/stdin"],
@@ -161,8 +165,7 @@ fn test_send_once_multicast()
     assert2.stderr(predicate::str::contains("count 1"));
 }
 
-fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output>
-{
+fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output> {
     let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();
     for arg in args {
         cmd.arg(arg);

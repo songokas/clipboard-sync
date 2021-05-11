@@ -8,8 +8,7 @@ certificates:
   public_key: tests/cert.crt
   verify_dir: tests/cert-verify
 
-send_using_address:
-  - "127.0.0.1:8901"
+send_using_address: "127.0.0.1:8901"
 
 visible_ip: "ifconfig.co"
 
@@ -27,7 +26,7 @@ groups:
     key: "32323232323232323232323232323232"
     visible_ip: "2.2.2.2"
     send_using_address:
-      - "127.0.0.1:9000"
+      - "0.0.0.0:9000"
     allowed_hosts:
       - "external.net:80"
   local_network_file: 

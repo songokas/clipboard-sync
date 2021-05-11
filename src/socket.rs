@@ -2,7 +2,7 @@ use cached::proc_macro::cached;
 use cached::TimedSizedCache;
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Instant;
 use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
@@ -13,50 +13,39 @@ use crate::errors::{ConnectionError, DnsError};
 //@TODO experimental
 // pub trait Timeout = Fn(Duration) -> bool;
 
-pub struct Destination
-{
+pub struct Destination {
     host: String,
     addr: SocketAddr,
 }
 
-impl Destination
-{
-    pub fn new(host: String, addr: SocketAddr) -> Self
-    {
+impl Destination {
+    pub fn new(host: String, addr: SocketAddr) -> Self {
         return Self { host, addr };
     }
 
-    pub fn host(&self) -> &str
-    {
+    pub fn host(&self) -> &str {
         return &self.host;
     }
 
-    pub fn addr(&self) -> &SocketAddr
-    {
+    pub fn addr(&self) -> &SocketAddr {
         return &self.addr;
     }
 }
 
-impl Into<SocketAddr> for Destination
-{
-    fn into(self) -> SocketAddr
-    {
+impl Into<SocketAddr> for Destination {
+    fn into(self) -> SocketAddr {
         return self.addr().clone();
     }
 }
 
-impl From<SocketAddr> for Destination
-{
-    fn from(item: SocketAddr) -> Self
-    {
+impl From<SocketAddr> for Destination {
+    fn from(item: SocketAddr) -> Self {
         return Self::new(item.ip().to_string(), item.clone());
     }
 }
 
-impl std::fmt::Display for Destination
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
-    {
+impl std::fmt::Display for Destination {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "host: {} destination: {}", self.host(), self.addr())
     }
 }
@@ -67,8 +56,7 @@ impl std::fmt::Display for Destination
     convert = r#"{ format!("{}", socket_addr.as_ref()) }"#,
     result = true
 )]
-pub async fn to_socket(socket_addr: impl AsRef<str>) -> Result<SocketAddr, DnsError>
-{
+pub async fn to_socket(socket_addr: impl AsRef<str>) -> Result<SocketAddr, DnsError> {
     let to_err = |e| {
         DnsError::Failed(format!(
             "Unable to retrieve ip for {}. Message: {}",
@@ -89,8 +77,7 @@ pub async fn receive_from_timeout(
     socket: &UdpSocket,
     buf: &mut [u8],
     timeout_callback: impl Fn(Duration) -> bool,
-) -> io::Result<(usize, SocketAddr)>
-{
+) -> io::Result<(usize, SocketAddr)> {
     let timeout_duration = Duration::from_millis(50);
     let now = Instant::now();
     loop {
@@ -118,8 +105,7 @@ pub async fn receive_from_timeout(
 pub async fn retrieve_local_address(
     local_addresses: &Vec<SocketAddr>,
     remote_address: &SocketAddr,
-) -> Result<SocketAddr, ConnectionError>
-{
+) -> Result<SocketAddr, ConnectionError> {
     let socket = obtain_socket(local_addresses, remote_address).await?;
     let sock_addr = socket.local_addr()?;
     return Ok(sock_addr);
@@ -127,8 +113,7 @@ pub async fn retrieve_local_address(
 
 #[cfg(feature = " public-ip")]
 #[cached(size = 1, time = 600)]
-pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
-{
+pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError> {
     return public_ip::addr()
         .await
         .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
@@ -137,8 +122,7 @@ pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
 pub fn get_matching_address<'a>(
     local_addresses: &'a Vec<SocketAddr>,
     remote_address: &SocketAddr,
-) -> Option<&'a SocketAddr>
-{
+) -> Option<&'a SocketAddr> {
     for local_address in local_addresses.iter() {
         if local_address.is_ipv4() == remote_address.is_ipv4()
             || local_address.is_ipv6() == remote_address.is_ipv6()
@@ -152,8 +136,7 @@ pub fn get_matching_address<'a>(
 pub async fn obtain_socket(
     local_addresses: &Vec<SocketAddr>,
     remote_address: &SocketAddr,
-) -> Result<UdpSocket, ConnectionError>
-{
+) -> Result<UdpSocket, ConnectionError> {
     let local_address = get_matching_address(local_addresses, remote_address).ok_or_else(|| {
         ConnectionError::FailedToConnect(format!(
             "Unable to find local address from {:?} that can connect to the remote address {}",
@@ -175,31 +158,43 @@ pub async fn obtain_socket(
     return Ok(sock);
 }
 
+pub fn remove_ipv4_mapping(addr: &SocketAddr) -> SocketAddr {
+    // https://github.com/rust-lang/rust/issues/27709
+    let to_ipv4_mapped = |ip: &Ipv6Addr| match ip.octets() {
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => Some(Ipv4Addr::new(a, b, c, d)),
+        _ => None,
+    };
+
+    let use_addr: SocketAddr = match addr {
+        SocketAddr::V6(a) => to_ipv4_mapped(a.ip())
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
+            .unwrap_or(SocketAddr::V6(a.clone())),
+        _ => addr.clone(),
+    };
+    return use_addr;
+}
+
 #[cfg(test)]
-mod sockettest
-{
+mod sockettest {
     use super::*;
     use crate::assert_error_type;
     use crate::wait;
 
     #[cfg(feature = " public-ip")]
     #[test]
-    fn test_retrieve_public_ip()
-    {
+    fn test_retrieve_public_ip() {
         assert!(wait!(retrieve_public_ip()).is_ok());
     }
 
     #[test]
-    fn test_retrieve_local_address()
-    {
+    fn test_retrieve_local_address() {
         let l = "127.0.0.1:0".parse().unwrap();
         let r = "127.0.0.1:0".parse().unwrap();
         assert!(wait!(retrieve_local_address(&vec![l], &r)).is_ok());
     }
 
     #[test]
-    fn test_to_socket()
-    {
+    fn test_to_socket() {
         wait!(to_socket("google.com:0")).unwrap();
         let s = wait!(to_socket("1.1.1.1:0")).unwrap();
         assert_eq!("1.1.1.1:0".parse::<SocketAddr>().unwrap(), s);

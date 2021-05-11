@@ -1,6 +1,6 @@
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
 // pub const BIND_ADDRESS: &str = "[::]:8900";
-pub const BIND_ADDRESS_IPV6: &str = "[::]:8900";
+// pub const BIND_ADDRESS_IPV6: &str = "[::]:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:0,[::]:0";
 // pub const SEND_ADDRESS: &str = "[::]:0";
 // pub const SEND_ADDRESS_IPV6: &str = "[::]:0";
@@ -26,17 +26,14 @@ pub const DATA_TIMEOUT: u64 = 5000;
 pub const RECEIVE_ONCE_WAIT: u64 = 45; //seconds
 pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 100;
 
-pub fn default_allowed_host() -> String
-{
+pub fn default_allowed_host() -> String {
     return DEFAULT_ALLOWED_HOST.to_owned();
 }
 
-pub fn default_allowed_hosts() -> Vec<String>
-{
+pub fn default_allowed_hosts() -> Vec<String> {
     return vec![default_allowed_host()];
 }
 
-pub fn default_clipboard() -> String
-{
+pub fn default_clipboard() -> String {
     return DEFAULT_CLIPBOARD.to_owned();
 }

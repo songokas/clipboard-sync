@@ -20,21 +20,25 @@ use crate::protocols::Protocol;
 // pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct Certificates
-{
+pub struct Certificates {
     pub private_key: String,
     pub public_key: String,
     pub verify_dir: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum SendAddress {
+    Socket(SocketAddr),
+    Multiple(Vec<SocketAddr>),
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UserConfig
-{
+pub struct UserConfig {
     pub bind_addresses: Option<IndexMap<String, SocketAddr>>,
     pub certificates: Option<Certificates>,
 
-    pub send_using_address: Option<Vec<SocketAddr>>,
-    pub send_using_address_ipv6: Option<SocketAddr>,
+    pub send_using_address: Option<SendAddress>,
     pub visible_ip: Option<String>,
 
     pub groups: IndexMap<String, ConfigGroup>,
@@ -43,8 +47,7 @@ pub struct UserConfig
 }
 
 #[derive(Debug, Clone)]
-pub struct FullConfig
-{
+pub struct FullConfig {
     pub bind_addresses: IndexMap<Protocol, SocketAddr>,
     pub groups: Vec<Group>,
     pub max_receive_buffer: usize,
@@ -52,8 +55,7 @@ pub struct FullConfig
     pub send_clipboard_on_startup: bool,
 }
 
-impl FullConfig
-{
+impl FullConfig {
     pub fn from_protocol_groups(
         protocol: Protocol,
         bind_address: SocketAddr,
@@ -61,8 +63,7 @@ impl FullConfig
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
-    ) -> Self
-    {
+    ) -> Self {
         let mut bind_addresses: IndexMap<Protocol, SocketAddr> = IndexMap::new();
         bind_addresses.insert(protocol, bind_address);
         return FullConfig {
@@ -80,8 +81,7 @@ impl FullConfig
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
-    ) -> Self
-    {
+    ) -> Self {
         return FullConfig {
             bind_addresses,
             groups,
@@ -91,13 +91,11 @@ impl FullConfig
         };
     }
 
-    pub fn get_bind_address(&self, protocol: &Protocol) -> Option<&SocketAddr>
-    {
+    pub fn get_bind_address(&self, protocol: &Protocol) -> Option<&SocketAddr> {
         return self.bind_addresses.get(protocol);
     }
 
-    pub fn get_first_bind_address(&self) -> Option<(&Protocol, &SocketAddr)>
-    {
+    pub fn get_first_bind_address(&self) -> Option<(&Protocol, &SocketAddr)> {
         return self.bind_addresses.iter().next();
     }
 }
@@ -107,8 +105,7 @@ pub fn load_default_certificates(
     private_key: Option<&str>,
     public_key: Option<&str>,
     verify_dir: Option<&str>,
-) -> Result<Certificates, CliError>
-{
+) -> Result<Certificates, CliError> {
     let config_path = || {
         dirs::config_dir()
             .map(|p| p.join(PACKAGE_NAME))
@@ -165,8 +162,7 @@ pub fn load_groups(
     send_clipboard_on_startup: bool,
     default_visible_ip: Option<String>,
     default_key: String,
-) -> Result<FullConfig, CliError>
-{
+) -> Result<FullConfig, CliError> {
     info!("Loading from {} config", file_path);
 
     let yaml_file = File::open(file_path)
@@ -199,7 +195,10 @@ pub fn load_groups(
         let send_using_address = if let Some(sd) = &group.send_using_address {
             sd.clone()
         } else if let Some(sd) = &user_config.send_using_address {
-            sd.clone()
+            match sd {
+                SendAddress::Socket(s) => vec![s.clone()],
+                SendAddress::Multiple(s) => s.clone(),
+            }
         } else {
             default_send_using_address
                 .split(",")
@@ -284,8 +283,7 @@ pub fn load_groups(
     return Ok(full_config);
 }
 
-pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
-{
+pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError> {
     let config_dir = dirs::config_dir()
         .map(|p| p.join(dir_name))
         .ok_or_else(|| {
@@ -317,8 +315,7 @@ fn create_bind_addresses(
     default_bind_address: &str,
     #[cfg(feature = "quic")] load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
     bind_default_protocol: Protocol,
-) -> Result<IndexMap<Protocol, SocketAddr>, CliError>
-{
+) -> Result<IndexMap<Protocol, SocketAddr>, CliError> {
     let mut hash = IndexMap::new();
     if let Some(addresses) = config_addresses {
         for (protocol_str, sock_addr) in addresses {
@@ -346,13 +343,11 @@ fn create_bind_addresses(
 }
 
 #[cfg(test)]
-mod configtest
-{
+mod configtest {
     use super::*;
 
     #[test]
-    fn test_load_groups()
-    {
+    fn test_load_groups() {
         #[cfg(feature = "quic")]
         let certificates = Certificates {
             private_key: "tests/cert.key".to_owned(),
@@ -423,7 +418,7 @@ mod configtest
         assert_eq!(group3.name, "external");
         assert_eq!(
             group3.send_using_address,
-            vec!["127.0.0.1:9000".parse::<SocketAddr>().unwrap()]
+            vec!["0.0.0.0:9000".parse::<SocketAddr>().unwrap()]
         );
         assert_eq!(group3.visible_ip, Some("2.2.2.2".to_owned()));
 
@@ -436,8 +431,7 @@ mod configtest
     }
 
     #[test]
-    fn test_generate_config()
-    {
+    fn test_generate_config() {
         let random_dir = "_random_clipbboard_sync_test_dir";
         let result = generate_config(random_dir).unwrap();
         assert!(result.ends_with("config.yml"));
@@ -446,8 +440,7 @@ mod configtest
     }
 
     #[test]
-    fn test_load_bad_config()
-    {
+    fn test_load_bad_config() {
         let socket_addr = "127.0.0.1:8080";
         let full_config = load_groups(
             "tests/config.failure.yaml",

@@ -1,3 +1,4 @@
+use log::debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,7 +11,7 @@ use tokio::time::{timeout, Duration};
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::errors::ConnectionError;
 use crate::protocols::tcp::{obtain_client_socket, obtain_server_socket, receive_stream};
-use crate::socket::receive_from_timeout;
+use crate::socket::{receive_from_timeout, remove_ipv4_mapping};
 
 pub async fn receive_data(
     socket: Arc<UdpSocket>,
@@ -27,10 +28,17 @@ pub async fn receive_data(
         let duration = Duration::from_millis(CONNECTION_TIMEOUT);
         let callback = |d: Duration| d > duration || timeout_callback(d);
         let local_addr = socket.local_addr()?;
+        let destination = remove_ipv4_mapping(&addr);
+
+        debug!(
+            "tcp receive local {} to destination {}",
+            local_addr, destination
+        );
+
         let stream = select! {
             biased;
             Ok(stream) = listen_stream(local_addr, callback) => Ok(stream),
-            Ok(stream) = connect_stream(local_addr, addr) => Ok(stream),
+            Ok(stream) = connect_stream(local_addr, destination) => Ok(stream),
             else => Err(ConnectionError::Timeout("basic receive".to_owned(), duration)),
         }?;
         return receive_stream(stream, addr, max_len, callback).await;
@@ -57,6 +65,12 @@ pub async fn send_data(
         let duration = Duration::from_millis(CONNECTION_TIMEOUT);
         let callback = |d: Duration| d > duration || timeout_callback(d);
         let local_addr = socket.local_addr()?;
+
+        debug!(
+            "tcp send local {} to destination {}",
+            local_addr, destination
+        );
+
         let mut stream = select! {
             biased;
             Ok(stream) = connect_stream(local_addr, destination.clone()) => Ok(stream),
@@ -94,7 +108,7 @@ async fn connect_stream(
     local_addr: SocketAddr,
     destination: SocketAddr,
 ) -> Result<TcpStream, ConnectionError> {
-    let socket = obtain_client_socket(SocketAddr::new(local_addr.ip(), 0))?;
+    let socket = obtain_client_socket(local_addr)?;
     let stream = socket.connect(destination).await?;
     return Ok(stream);
 }
