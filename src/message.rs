@@ -67,7 +67,15 @@ impl std::fmt::Display for MessageType
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
     {
-        write!(f, "{}", self)
+        return match self {
+            Self::Text => write!(f, "text"),
+            Self::File => write!(f, "file"),
+            Self::Files => write!(f, "files"),
+            Self::Directory => write!(f, "directory"),
+            Self::Frame => write!(f, "frame"),
+            Self::Handshake => write!(f, "handshake"),
+            Self::Heartbeat => write!(f, "heartbeat"),
+        };
     }
 }
 

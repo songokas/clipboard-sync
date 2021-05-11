@@ -1,3 +1,5 @@
+//@TODO client verification support
+
 use futures::StreamExt;
 use log::{debug, info};
 use quinn::{

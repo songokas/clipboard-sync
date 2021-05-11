@@ -50,6 +50,7 @@ pub async fn send_data(
 
     let mut connection_read = 0;
     let mut data_sent = 0;
+    let now = Instant::now();
 
     loop {
         if let Some(v) = conn.timeout() {
@@ -79,6 +80,12 @@ pub async fn send_data(
                 connection_read,
                 conn.stats()
             );
+            if !conn.is_established() {
+                return Err(ConnectionError::Timeout(
+                    "quic client packet".to_owned(),
+                    now.elapsed(),
+                ));
+            }
             return Ok(data_sent);
         }
     }
@@ -114,7 +121,7 @@ pub async fn receive_data(
         Ok(v) => v,
         Err(quiche::Error::Done) => 0,
         Err(e) => {
-            error!("Quic error occured while receiving {}", e);
+            error!("Quic error occured while receiving packet {}", e);
             return Err(ConnectionError::Http3(e));
         }
     };
@@ -153,7 +160,7 @@ pub async fn receive_data(
 
             if !conn.is_established() {
                 return Err(ConnectionError::Timeout(
-                    "quic receiving".to_owned(),
+                    "quic packet".to_owned(),
                     now.elapsed(),
                 ));
             }
@@ -163,7 +170,7 @@ pub async fn receive_data(
 
         if timeout_with_time(now.elapsed()) {
             return Err(ConnectionError::Timeout(
-                "quic receiving".to_owned(),
+                "quic packet".to_owned(),
                 now.elapsed(),
             ));
         }
@@ -248,7 +255,8 @@ async fn receive_handshake<'a>(
 {
     let mut buffer = [0; MAX_UDP_BUFFER];
     let (connection_read, addr) = receive_from_timeout(socket, &mut buffer, timeout).await?;
-    let (mut pkt_buf, _) = encryptor.decrypt(&buffer[..connection_read], &Identity::from(&addr))?;
+    let (mut pkt_buf, _) =
+        encryptor.decrypt(&buffer[..connection_read], &Identity::from_mapped(&addr))?;
     let header = match Header::from_slice(&mut pkt_buf, quiche::MAX_CONN_ID_LEN) {
         Ok(v) => v,
 
@@ -398,6 +406,8 @@ fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionE
 fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, ConnectionError>
 {
     let mut config = load_config()?;
+    //@TODO does not work client verification support
+    // config.verify_peer(true);
     config
         .load_cert_chain_from_pem_file(cert_path)
         .map_err(|e| {

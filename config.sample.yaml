@@ -5,12 +5,6 @@ bind_addresses:
   laminar: "0.0.0.0:8902"
   quic: "0.0.0.0:8903"
 
-# protocol specific configuration
-laminar:
-
-quic:
-#
-
 # optional unless using quic
 certificates:
   private_key: tests/cert.key
@@ -18,7 +12,8 @@ certificates:
   verify_dir: tests/cert-verify
 
 # send_using_address and visible_ip are per group as well
-send_using_address: "0.0.0.0:8901"
+send_using_address:
+  - "0.0.0.0:8901"
 
 visible_ip: "my-public-ip"
 
@@ -44,14 +39,16 @@ groups:
   external:
     key: "32323232323232323232323232323232"
     visible_ip: "2.2.2.2"
-    send_using_address: "0.0.0.0:8900"
+    send_using_address:
+      - "0.0.0.0:8900"
     heartbeat: 20
     allowed_hosts:
       - "external.net:8900"
   nat_traversal: # on the other host
     key: "32323232323232323232323232323232"
     visible_ip: "external.net"
-    send_using_address: "0.0.0.0:8900"
+    send_using_address:
+      - "0.0.0.0:8900"
     heartbeat: 20
     allowed_hosts:
       - "2.2.2.2:8900"

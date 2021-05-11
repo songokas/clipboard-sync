@@ -7,7 +7,7 @@ use tokio::time::{sleep, Duration};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::fs;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
 use crate::clipboards::{
@@ -73,7 +73,7 @@ pub async fn receive_clipboard(
                 continue;
             }
             Err(e) => {
-                error!("Error: {:?}", e);
+                error!("Error receiving: {}", e);
                 continue;
             }
         };
@@ -84,16 +84,14 @@ pub async fn receive_clipboard(
 
         debug!("Packet received from {} length {}", addr, len);
 
-        // let use_addr: SocketAddr = match addr {
-        //     SocketAddr::V6(a) => a
-        //         .ip()
-        //         .to_ipv4()
-        //         .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
-        //         .unwrap_or(SocketAddr::V6(a)),
-        //     _ => addr,
-        // };
+        // in ipv6 sockets ipv4 mapped address should be use as ipv4 address
 
-        let result = handle_receive(&mut clipboard, &buf[..len], &Identity::from(&addr), &groups);
+        let result = handle_receive(
+            &mut clipboard,
+            &buf[..len],
+            &Identity::from_mapped(&addr),
+            &groups,
+        );
 
         match result {
             Ok((hash, group_name)) => {
@@ -204,7 +202,7 @@ pub async fn send_clipboard(
             match send_clipboard_to_group(&pool, &data, &message_type, &group, timeout).await {
                 Ok(sent) if sent > 0 => debug!("Sent bytes {}", sent),
                 Ok(_) => (),
-                Err(err) => error!("{:?}", err),
+                Err(err) => error!("Error sending: {}", err),
             };
 
             if let Err(_) = status_channel.try_send((count, 0)) {
@@ -487,7 +485,7 @@ mod processtest
             &pool,
             b"test",
             &MessageType::Text,
-            &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:8093"),
+            &Group::from_addr("me", "127.0.0.1:0", "127.0.0.1:8093"),
             timeout,
         ));
         assert_eq!(result.unwrap(), 62);

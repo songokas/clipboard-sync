@@ -194,7 +194,7 @@ mod sockettest
     {
         let l = "127.0.0.1:0".parse().unwrap();
         let r = "127.0.0.1:0".parse().unwrap();
-        assert!(wait!(retrieve_local_address(&l, &r)).is_ok());
+        assert!(wait!(retrieve_local_address(&vec![l], &r)).is_ok());
     }
 
     #[test]

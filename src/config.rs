@@ -212,14 +212,6 @@ pub fn load_groups(
                     })
                 })
                 .collect::<Result<Vec<SocketAddr>, CliError>>()?
-            // default_send_using_address
-            //     .parse::<SocketAddr>()
-            //     .map_err(|_| {
-            //         CliError::ArgumentError(format!(
-            //             "Invalid send-using-address provided {}",
-            //             default_send_using_address
-            //         ))
-            //     })?
         };
 
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {
@@ -403,7 +395,7 @@ mod configtest
         assert_eq!(group1.name, "specific_hosts");
         assert_eq!(
             group1.send_using_address,
-            "127.0.0.1:8901".parse::<SocketAddr>().unwrap()
+            vec!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
@@ -417,7 +409,7 @@ mod configtest
         assert_eq!(group2.name, "local_network");
         assert_eq!(
             group2.send_using_address,
-            "127.0.0.1:8901".parse::<SocketAddr>().unwrap()
+            vec!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
@@ -431,7 +423,7 @@ mod configtest
         assert_eq!(group3.name, "external");
         assert_eq!(
             group3.send_using_address,
-            "127.0.0.1:9000".parse::<SocketAddr>().unwrap()
+            vec!["127.0.0.1:9000".parse::<SocketAddr>().unwrap()]
         );
         assert_eq!(group3.visible_ip, Some("2.2.2.2".to_owned()));
 

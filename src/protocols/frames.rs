@@ -54,7 +54,7 @@ pub async fn receive_data(
             ));
         }
 
-        let identity = Identity::from(&addr);
+        let identity = Identity::from_mapped(&addr);
 
         let (frame, group) = encryptor.decrypt_to_frame(&data, &identity)?;
 

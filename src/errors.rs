@@ -35,7 +35,7 @@ pub enum DnsError
 #[derive(Debug, Error)]
 pub enum ConnectionError
 {
-    #[error("Timeout occurred {}ms while waiting for {0}", .1.as_millis())]
+    #[error("Timeout of {} ms occurred while waiting for {0}", .1.as_millis())]
     Timeout(String, Duration),
     #[error("Connection limit reached: {max_len} received {received}")]
     LimitReached
@@ -54,20 +54,20 @@ pub enum ConnectionError
     // NoPublic(String),
     #[error("{0}")]
     InvalidProtocol(String),
-    #[error("Failed to validate data")]
+    #[error("Failed to validate data {0}")]
     ReceiveError(#[from] ValidationError),
-    #[error("Failed to encrypt")]
+    #[error("Failed to encrypt {0}")]
     Encryption(#[from] EncryptionError),
 
     #[error("Invalid key provided. {0}")]
     InvalidKey(String),
     #[error("Failed to join tasks")]
     JoinError(#[from] tokio::task::JoinError),
-    #[error("Dns error")]
+    #[error("Dns error {0}")]
     DnsError(#[from] DnsError),
 
     #[cfg(feature = "quiche")]
-    #[error("Quic error occurred")]
+    #[error("Quic error occurred {0}")]
     Http3(#[from] quiche::Error),
 
     #[cfg(feature = "quinn")]

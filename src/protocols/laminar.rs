@@ -116,7 +116,8 @@ pub async fn receive_data(
                     let addr: SocketAddr = packet.addr();
                     let data: &[u8] = packet.payload();
 
-                    let (frame, _) = encryptor.decrypt_to_frame(data, &Identity::from(&addr))?;
+                    let (frame, _) =
+                        encryptor.decrypt_to_frame(data, &Identity::from_mapped(&addr))?;
                     total_size += data.len();
 
                     if total_size > max_len {

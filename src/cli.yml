@@ -23,7 +23,6 @@ args:
         long: send-using-address
         help: "default: 0.0.0.0:0,[::]:0"
         takes_value: true
-        multiple: true
     - group:
         short: g
         long: group

@@ -1,5 +1,5 @@
 use std::fmt;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::errors::ConnectionError;
 use crate::message::Group;
@@ -9,6 +9,29 @@ use crate::socket::{retrieve_local_address, to_socket};
 pub struct Identity
 {
     addr: String,
+}
+
+impl Identity
+{
+    // for ipv6 sockets ipv4 mapped address should be use as ipv4 address
+    pub fn from_mapped(item: &SocketAddr) -> Self
+    {
+        // https://github.com/rust-lang/rust/issues/27709
+        let to_ipv4_mapped = |ip: &Ipv6Addr| match ip.octets() {
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                Some(Ipv4Addr::new(a, b, c, d))
+            }
+            _ => None,
+        };
+
+        let use_addr: SocketAddr = match item {
+            SocketAddr::V6(a) => to_ipv4_mapped(a.ip())
+                .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
+                .unwrap_or(SocketAddr::V6(a.clone())),
+            _ => item.clone(),
+        };
+        return Self::from(use_addr);
+    }
 }
 
 impl From<&IpAddr> for Identity
