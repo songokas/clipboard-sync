@@ -16,13 +16,14 @@ args:
     - bind-address:
         short: l
         long: bind-address
-        help: "default: 0.0.0.0:8900"
+        help: "default: [::]:8900"
         takes_value: true
     - send-using-address:
         short: s
         long: send-using-address
-        help: "default: 0.0.0.0:8901"
+        help: "default: 0.0.0.0:0,[::]:0"
         takes_value: true
+        multiple: true
     - group:
         short: g
         long: group

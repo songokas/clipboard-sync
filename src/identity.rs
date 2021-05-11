@@ -6,48 +6,61 @@ use crate::message::Group;
 use crate::socket::{retrieve_local_address, to_socket};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Identity {
+pub struct Identity
+{
     addr: String,
 }
 
-impl From<&IpAddr> for Identity {
-    fn from(item: &IpAddr) -> Self {
+impl From<&IpAddr> for Identity
+{
+    fn from(item: &IpAddr) -> Self
+    {
         return Self {
             addr: item.to_string(),
         };
     }
 }
 
-impl From<IpAddr> for Identity {
-    fn from(item: IpAddr) -> Self {
+impl From<IpAddr> for Identity
+{
+    fn from(item: IpAddr) -> Self
+    {
         return Self {
             addr: item.to_string(),
         };
     }
 }
 
-impl From<&SocketAddr> for Identity {
-    fn from(item: &SocketAddr) -> Self {
+impl From<&SocketAddr> for Identity
+{
+    fn from(item: &SocketAddr) -> Self
+    {
         return item.ip().into();
     }
 }
 
-impl From<SocketAddr> for Identity {
-    fn from(item: SocketAddr) -> Self {
+impl From<SocketAddr> for Identity
+{
+    fn from(item: SocketAddr) -> Self
+    {
         return item.ip().into();
     }
 }
 
-impl From<&str> for Identity {
-    fn from(item: &str) -> Self {
+impl From<&str> for Identity
+{
+    fn from(item: &str) -> Self
+    {
         return Identity {
             addr: item.to_owned(),
         };
     }
 }
 
-impl fmt::Display for Identity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Identity
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
         write!(f, "{}", self.addr)
     }
 }
@@ -55,7 +68,8 @@ impl fmt::Display for Identity {
 pub async fn retrieve_identity(
     remote_address: &SocketAddr,
     group: &Group,
-) -> Result<Identity, ConnectionError> {
+) -> Result<Identity, ConnectionError>
+{
     if let Some(host) = &group.visible_ip {
         return Ok(to_socket(format!("{}:0", host)).await.map(Identity::from)?);
     }
@@ -84,13 +98,15 @@ pub async fn retrieve_identity(
 }
 
 #[cfg(test)]
-mod identitytest {
+mod identitytest
+{
     use super::*;
     use crate::assert_error_type;
     use crate::message::Group;
     use crate::wait;
 
-    fn identity_provider() -> Vec<(&'static str, SocketAddr, Group)> {
+    fn identity_provider() -> Vec<(&'static str, SocketAddr, Group)>
+    {
         return vec![
             (
                 "127.0.0.1",
@@ -145,7 +161,8 @@ mod identitytest {
         ];
     }
     #[test]
-    fn test_retrieve_identity() {
+    fn test_retrieve_identity()
+    {
         for (expected, remote_addr, group) in identity_provider() {
             let res = wait!(retrieve_identity(&remote_addr, &group));
             assert_eq!(Identity::from(expected), res.unwrap());
@@ -153,7 +170,8 @@ mod identitytest {
     }
 
     #[test]
-    fn test_retrieve_identity_errors() {
+    fn test_retrieve_identity_errors()
+    {
         let r1 = (
             "1.1.1.1:0".parse().unwrap(),
             Group::from_visible("test1", "8.8.8.8.3"),

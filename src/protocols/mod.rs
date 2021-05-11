@@ -25,7 +25,7 @@ use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
-use crate::socket::Destination;
+use crate::socket::{get_matching_address, Destination};
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
@@ -203,11 +203,18 @@ impl SocketPool
 
     pub async fn obtain_client_socket(
         &self,
-        local_address: &SocketAddr,
+        local_addresses: &Vec<SocketAddr>,
         remote_address: &SocketAddr,
         protocol: &Protocol,
     ) -> Result<LocalSocket, ConnectionError>
     {
+        let local_address =
+            get_matching_address(local_addresses, remote_address).ok_or_else(|| {
+                ConnectionError::FailedToConnect(format!(
+                "Unable to find local address from {:?} that can connect to the remote address {}",
+                local_addresses, remote_address
+            ))
+            })?;
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {

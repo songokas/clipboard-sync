@@ -4,7 +4,8 @@ use thiserror::Error;
 use tokio::time::Duration;
 
 #[derive(Debug, Error)]
-pub enum EncryptionError {
+pub enum EncryptionError
+{
     #[error("{0}")]
     InvalidMessage(String),
     #[error("{0}")]
@@ -16,7 +17,8 @@ pub enum EncryptionError {
 }
 
 #[derive(Debug, Error)]
-pub enum ValidationError {
+pub enum ValidationError
+{
     #[error("{0}")]
     IncorrectGroup(String),
     #[error("{0}")]
@@ -24,17 +26,22 @@ pub enum ValidationError {
 }
 
 #[derive(Debug, Error, Clone)]
-pub enum DnsError {
+pub enum DnsError
+{
     #[error("{0}")]
     Failed(String),
 }
 
 #[derive(Debug, Error)]
-pub enum ConnectionError {
+pub enum ConnectionError
+{
     #[error("Timeout occurred {}ms while waiting for {0}", .1.as_millis())]
     Timeout(String, Duration),
     #[error("Connection limit reached: {max_len} received {received}")]
-    LimitReached { received: usize, max_len: usize },
+    LimitReached
+    {
+        received: usize, max_len: usize
+    },
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error("Failed to parse address")]
@@ -60,7 +67,7 @@ pub enum ConnectionError {
     DnsError(#[from] DnsError),
 
     #[cfg(feature = "quiche")]
-    #[error(transparent)]
+    #[error("Quic error occurred")]
     Http3(#[from] quiche::Error),
 
     #[cfg(feature = "quinn")]
@@ -81,7 +88,8 @@ pub enum ConnectionError {
 }
 
 #[derive(Debug, Error)]
-pub enum CliError {
+pub enum CliError
+{
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error("{0}")]
@@ -101,7 +109,8 @@ pub enum CliError {
 }
 
 #[derive(Debug, Error)]
-pub enum ClipboardError {
+pub enum ClipboardError
+{
     #[error("{0}")]
     IoError(#[from] io::Error),
     #[error("{0}")]
@@ -120,7 +129,8 @@ pub enum ClipboardError {
 
 #[cfg(feature = "quinn")]
 #[derive(Debug, Error)]
-pub enum EndpointError {
+pub enum EndpointError
+{
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error(transparent)]

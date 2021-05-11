@@ -127,12 +127,14 @@ async fn main() -> Result<(), CliError>
             )));
         }
 
-        let send_using_address = send_address.parse::<SocketAddr>().map_err(|_| {
-            CliError::ArgumentError(format!(
-                "Invalid send-using-address provided {}",
-                send_address
-            ))
-        })?;
+        let send_using_address: Vec<SocketAddr> = send_address
+            .split(",")
+            .map(|v| {
+                v.parse::<SocketAddr>().map_err(|_| {
+                    CliError::ArgumentError(format!("Invalid send-using-address provided {}", v))
+                })
+            })
+            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
 
         let key = Key::from_slice(key_data.as_bytes());
 

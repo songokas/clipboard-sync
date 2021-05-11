@@ -33,7 +33,8 @@ pub struct UserConfig
     pub bind_addresses: Option<IndexMap<String, SocketAddr>>,
     pub certificates: Option<Certificates>,
 
-    pub send_using_address: Option<SocketAddr>,
+    pub send_using_address: Option<Vec<SocketAddr>>,
+    pub send_using_address_ipv6: Option<SocketAddr>,
     pub visible_ip: Option<String>,
 
     pub groups: IndexMap<String, ConfigGroup>,
@@ -201,13 +202,24 @@ pub fn load_groups(
             sd.clone()
         } else {
             default_send_using_address
-                .parse::<SocketAddr>()
-                .map_err(|_| {
-                    CliError::ArgumentError(format!(
-                        "Invalid send-using-address provided {}",
-                        default_send_using_address
-                    ))
-                })?
+                .split(",")
+                .map(|v| {
+                    v.parse::<SocketAddr>().map_err(|_| {
+                        CliError::ArgumentError(format!(
+                            "Invalid send-using-address provided {}",
+                            v
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<SocketAddr>, CliError>>()?
+            // default_send_using_address
+            //     .parse::<SocketAddr>()
+            //     .map_err(|_| {
+            //         CliError::ArgumentError(format!(
+            //             "Invalid send-using-address provided {}",
+            //             default_send_using_address
+            //         ))
+            //     })?
         };
 
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {

@@ -112,15 +112,15 @@ pub async fn receive_from_timeout(
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(100, 600) }",
     type = "TimedSizedCache<String, SocketAddr>",
-    convert = r#"{ format!("{}{}", local_address.ip().to_string(), remote_address.ip().to_string()) }"#,
+    convert = r#"{ format!("{}", remote_address.ip().to_string()) }"#,
     result = true
 )]
 pub async fn retrieve_local_address(
-    local_address: &SocketAddr,
+    local_addresses: &Vec<SocketAddr>,
     remote_address: &SocketAddr,
 ) -> Result<SocketAddr, ConnectionError>
 {
-    let socket = obtain_socket(local_address, remote_address).await?;
+    let socket = obtain_socket(local_addresses, remote_address).await?;
     let sock_addr = socket.local_addr()?;
     return Ok(sock_addr);
 }
@@ -134,11 +134,32 @@ pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
         .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
 }
 
+pub fn get_matching_address<'a>(
+    local_addresses: &'a Vec<SocketAddr>,
+    remote_address: &SocketAddr,
+) -> Option<&'a SocketAddr>
+{
+    for local_address in local_addresses.iter() {
+        if local_address.is_ipv4() == remote_address.is_ipv4()
+            || local_address.is_ipv6() == remote_address.is_ipv6()
+        {
+            return Some(local_address);
+        }
+    }
+    return None;
+}
+
 pub async fn obtain_socket(
-    local_address: &SocketAddr,
+    local_addresses: &Vec<SocketAddr>,
     remote_address: &SocketAddr,
 ) -> Result<UdpSocket, ConnectionError>
 {
+    let local_address = get_matching_address(local_addresses, remote_address).ok_or_else(|| {
+        ConnectionError::FailedToConnect(format!(
+            "Unable to find local address from {:?} that can connect to the remote address {}",
+            local_addresses, remote_address
+        ))
+    })?;
     let sock = UdpSocket::bind(local_address).await.map_err(|e| {
         ConnectionError::FailedToConnect(format!(
             "Unable to bind local address {} {}",

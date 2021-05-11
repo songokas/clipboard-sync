@@ -7,7 +7,7 @@ use tokio::time::{sleep, Duration};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::fs;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicBool;
 
 use crate::clipboards::{
@@ -84,6 +84,15 @@ pub async fn receive_clipboard(
 
         debug!("Packet received from {} length {}", addr, len);
 
+        // let use_addr: SocketAddr = match addr {
+        //     SocketAddr::V6(a) => a
+        //         .ip()
+        //         .to_ipv4()
+        //         .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
+        //         .unwrap_or(SocketAddr::V6(a)),
+        //     _ => addr,
+        // };
+
         let result = handle_receive(&mut clipboard, &buf[..len], &Identity::from(&addr), &groups);
 
         match result {
@@ -96,7 +105,7 @@ pub async fn receive_clipboard(
                 }
             }
 
-            Err(err) => error!("{:?}", err),
+            Err(err) => error!("{}", err),
         };
         if let Err(_) = status_channel.try_send((0, count)) {
             // debug!("Unable to send status count {}", e);
@@ -193,7 +202,8 @@ pub async fn send_clipboard(
             count += 1;
 
             match send_clipboard_to_group(&pool, &data, &message_type, &group, timeout).await {
-                Ok(sent) => debug!("Sent bytes {}", sent),
+                Ok(sent) if sent > 0 => debug!("Sent bytes {}", sent),
+                Ok(_) => (),
                 Err(err) => error!("{:?}", err),
             };
 

@@ -33,7 +33,7 @@ pub struct AndroidConfig
     group: String,
     protocol: String,
     hosts: Vec<String>,
-    send_using_address: SocketAddr,
+    send_using_address: Vec<SocketAddr>,
     bind_address: SocketAddr,
     visible_ip: Option<String>,
     heartbeat: u64,

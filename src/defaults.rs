@@ -1,9 +1,9 @@
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
 // pub const BIND_ADDRESS: &str = "[::]:8900";
 pub const BIND_ADDRESS_IPV6: &str = "[::]:8900";
-pub const SEND_ADDRESS: &str = "0.0.0.0:0";
+pub const SEND_ADDRESS: &str = "0.0.0.0:0,[::]:0";
 // pub const SEND_ADDRESS: &str = "[::]:0";
-pub const SEND_ADDRESS_IPV6: &str = "[::]:0";
+// pub const SEND_ADDRESS_IPV6: &str = "[::]:0";
 pub const DEFAULT_GROUP: &str = "default";
 pub const CLIPBOARD_NAME: &str = "clipboard";
 pub const DEFAULT_CLIPBOARD: &str = CLIPBOARD_NAME;
