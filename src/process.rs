@@ -35,9 +35,10 @@ pub async fn receive_clipboard(
     protocol: Protocol,
     status_channel: Arc<Sender<(u64, u64)>>,
     receive_once: bool,
-) -> Result<u64, CliError>
-{
-    let mut local_socket = pool.obtain_server_socket(&local_address, &protocol).await?;
+) -> Result<u64, CliError> {
+    let mut local_socket = pool
+        .obtain_server_socket(local_address.clone(), &protocol)
+        .await?;
     let mut multicast = Multicast::new();
     let mut count = 0;
     let groups = config.groups;
@@ -127,8 +128,7 @@ pub async fn send_clipboard(
     config: FullConfig,
     status_channel: Arc<Sender<(u64, u64)>>,
     send_once: bool,
-) -> Result<u64, CliError>
-{
+) -> Result<u64, CliError> {
     let mut hash_cache: HashMap<String, String> = HashMap::new();
     let mut heartbeat_cache: HashMap<String, Instant> = HashMap::new();
     let mut count = 0;
@@ -231,8 +231,7 @@ pub async fn send_clipboard_contents(
     pool: &SocketPool,
     contents: String,
     group: &Group,
-) -> Result<usize, String>
-{
+) -> Result<usize, String> {
     let message_type = MessageType::Text;
     let bytes = contents.as_bytes();
     let data = match compress(&bytes) {
@@ -264,8 +263,7 @@ async fn send_heartbeat(
     group: &Group,
     heartbeat_cache: &mut HashMap<String, Instant>,
     timeout: impl Fn(Duration) -> bool,
-)
-{
+) {
     heartbeat_cache
         .entry(group.name.clone())
         .or_insert(Instant::now());
@@ -285,8 +283,7 @@ fn clipboard_group_to_bytes(
     clipboard: &mut Clipboard,
     group: &Group,
     existing_hash: Option<&String>,
-) -> Option<(String, MessageType, Vec<u8>)>
-{
+) -> Option<(String, MessageType, Vec<u8>)> {
     if group.clipboard == CLIPBOARD_NAME {
         return clipboard_to_bytes(clipboard, existing_hash);
     } else if group.clipboard.ends_with("/") {
@@ -307,8 +304,7 @@ fn clipboard_group_to_bytes(
 fn clipboard_to_bytes(
     clipboard: &mut Clipboard,
     existing_hash: Option<&String>,
-) -> Option<(String, MessageType, Vec<u8>)>
-{
+) -> Option<(String, MessageType, Vec<u8>)> {
     let files = clipboard.get_target_contents(ClipboardType::Files);
     match files {
         Ok(data) if data.len() > 0 => {
@@ -340,8 +336,7 @@ fn handle_receive(
     buffer: &[u8],
     identity: &Identity,
     groups: &[Group],
-) -> Result<(String, String), ClipboardError>
-{
+) -> Result<(String, String), ClipboardError> {
     let (message, group) = validate(buffer, groups)?;
     let bytes = decrypt(&message, identity, &group)?;
     let data = uncompress(bytes)?;
@@ -354,8 +349,7 @@ fn write_to(
     data: Vec<u8>,
     message_type: &MessageType,
     identity: &Identity,
-) -> Result<(String, String), ClipboardError>
-{
+) -> Result<(String, String), ClipboardError> {
     if message_type == &MessageType::Heartbeat {
         return Ok(("".to_owned(), group.name.clone()));
     }
@@ -407,8 +401,7 @@ async fn send_clipboard_to_group(
     group: &Group,
     //@TODO use _timeout_callback
     _timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ClipboardError>
-{
+) -> Result<usize, ClipboardError> {
     let mut sent = 0;
     let callback = |d: Duration| d > Duration::from_millis(2000);
 
@@ -459,8 +452,7 @@ async fn send_clipboard_to_group(
 }
 
 #[cfg(test)]
-mod processtest
-{
+mod processtest {
     use super::*;
     use crate::message::Group;
     use crate::wait;
@@ -468,8 +460,7 @@ mod processtest
     use tokio::try_join;
 
     #[test]
-    fn test_handle_clipboard_change()
-    {
+    fn test_handle_clipboard_change() {
         let pool = SocketPool::new();
         let timeout = |d: Duration| d > Duration::from_millis(2000);
         let result = wait!(send_clipboard_to_group(
@@ -512,8 +503,7 @@ mod processtest
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_send_clipboard()
-    {
+    async fn test_send_clipboard() {
         // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let clipboards = Clipboard::new().unwrap();
         let clipboardr = Clipboard::new().unwrap();
@@ -527,7 +517,7 @@ mod processtest
         let local_address: SocketAddr = "127.0.0.1:8392".parse().unwrap();
         let config = FullConfig::from_protocol_groups(
             Protocol::Basic,
-            local_address,
+            vec![local_address],
             vec![group.clone()],
             100,
             20,
@@ -582,8 +572,7 @@ mod processtest
     }
 
     #[tokio::test]
-    async fn test_receive_clipboard()
-    {
+    async fn test_receive_clipboard() {
         let clipboard = Clipboard::new().unwrap();
         let mut group = Group::from_addr("test1", "127.0.0.1:8393", "127.0.0.1:8394");
         group.clipboard = "/tmp/twtest1".to_owned();
@@ -595,7 +584,7 @@ mod processtest
         let local_address: SocketAddr = "127.0.0.1:8394".parse().unwrap();
         let config = FullConfig::from_protocol_groups(
             Protocol::Basic,
-            local_address,
+            vec![local_address],
             vec![group.clone()],
             100,
             20,
@@ -630,8 +619,7 @@ mod processtest
     }
 
     #[test]
-    fn test_clipboard_group_to_bytes()
-    {
+    fn test_clipboard_group_to_bytes() {
         let mut clipboard = Clipboard::new().unwrap();
         let mut group = Group::from_name("test1");
 

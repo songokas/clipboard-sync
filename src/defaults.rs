@@ -1,5 +1,5 @@
-pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
-// pub const BIND_ADDRESS: &str = "[::]:8900";
+// pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
+pub const BIND_ADDRESS: &str = "0.0.0.0:8900,[::]:8900";
 // pub const BIND_ADDRESS_IPV6: &str = "[::]:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:0,[::]:0";
 // pub const SEND_ADDRESS: &str = "[::]:0";

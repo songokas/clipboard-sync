@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use crate::errors::ConnectionError;
 use crate::message::Group;
-use crate::socket::{remove_ipv4_mapping, retrieve_local_address, to_socket};
+use crate::socket::{remove_ipv4_mapping, retrieve_local_address, to_socket, IpAddrExt};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
@@ -67,14 +67,7 @@ pub async fn retrieve_identity(
         return Ok(to_socket(format!("{}:0", host)).await.map(Identity::from)?);
     }
 
-    let remote_ip = remote_address.ip();
-    let is_private = match remote_ip {
-        IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
-        _ => false,
-    };
-    let is_local = remote_ip.is_multicast() || remote_ip.is_loopback() || is_private;
-
-    if !is_local {
+    if IpAddrExt::is_global(&remote_address.ip()) {
         #[cfg(feature = " public-ip")]
         return Ok(retrieve_public_ip().await.map(Identity::from)?);
         #[cfg(not(feature = " public-ip"))]

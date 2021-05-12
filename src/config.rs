@@ -28,17 +28,17 @@ pub struct Certificates {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum SendAddress {
+pub enum SocketConfigAddress {
     Socket(SocketAddr),
     Multiple(Vec<SocketAddr>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserConfig {
-    pub bind_addresses: Option<IndexMap<String, SocketAddr>>,
+    pub bind_addresses: Option<IndexMap<String, SocketConfigAddress>>,
     pub certificates: Option<Certificates>,
 
-    pub send_using_address: Option<SendAddress>,
+    pub send_using_address: Option<SocketConfigAddress>,
     pub visible_ip: Option<String>,
 
     pub groups: IndexMap<String, ConfigGroup>,
@@ -58,14 +58,16 @@ pub struct FullConfig {
 impl FullConfig {
     pub fn from_protocol_groups(
         protocol: Protocol,
-        bind_address: SocketAddr,
+        bind_all: Vec<SocketAddr>,
         groups: Vec<Group>,
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
     ) -> Self {
         let mut bind_addresses: IndexMap<Protocol, SocketAddr> = IndexMap::new();
-        bind_addresses.insert(protocol, bind_address);
+        for bind_address in bind_all {
+            bind_addresses.insert(protocol.clone(), bind_address);
+        }
         return FullConfig {
             bind_addresses,
             groups,
@@ -196,8 +198,8 @@ pub fn load_groups(
             sd.clone()
         } else if let Some(sd) = &user_config.send_using_address {
             match sd {
-                SendAddress::Socket(s) => vec![s.clone()],
-                SendAddress::Multiple(s) => s.clone(),
+                SocketConfigAddress::Socket(s) => vec![s.clone()],
+                SocketConfigAddress::Multiple(s) => s.clone(),
             }
         } else {
             default_send_using_address
@@ -311,14 +313,14 @@ pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError> {
 }
 
 fn create_bind_addresses(
-    config_addresses: &Option<IndexMap<String, SocketAddr>>,
+    config_addresses: &Option<IndexMap<String, SocketConfigAddress>>,
     default_bind_address: &str,
     #[cfg(feature = "quic")] load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
     bind_default_protocol: Protocol,
 ) -> Result<IndexMap<Protocol, SocketAddr>, CliError> {
     let mut hash = IndexMap::new();
     if let Some(addresses) = config_addresses {
-        for (protocol_str, sock_addr) in addresses {
+        for (protocol_str, sock_config_addr) in addresses {
             let protocol = match Protocol::from(
                 Some(protocol_str),
                 #[cfg(feature = "quic")]
@@ -330,13 +332,28 @@ fn create_bind_addresses(
                     continue;
                 }
             };
-            hash.insert(protocol, sock_addr.clone());
+
+            let addresses = match sock_config_addr {
+                SocketConfigAddress::Socket(s) => vec![s.clone()],
+                SocketConfigAddress::Multiple(s) => s.clone(),
+            };
+
+            for socket_address in addresses {
+                hash.insert(protocol.clone(), socket_address);
+            }
         }
     } else {
-        let socket: SocketAddr = default_bind_address
-            .parse()
-            .expect("Failed parsing default bind address");
-        hash.insert(bind_default_protocol, socket);
+        let socket_addresses: Vec<SocketAddr> = default_bind_address
+            .split(",")
+            .map(|v| {
+                v.parse::<SocketAddr>().map_err(|_| {
+                    CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
+                })
+            })
+            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
+        for socket_address in socket_addresses {
+            hash.insert(bind_default_protocol.clone(), socket_address);
+        }
     }
 
     return Ok(hash);

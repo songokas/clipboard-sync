@@ -66,7 +66,7 @@ pkg-in-vagrant:
 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 
 windows:
-	cross +nightly build --target x86_64-pc-windows-gnu --release
+	cross build --target x86_64-pc-windows-gnu --release
 	# @TODO more undefined references to `_Unwind_Resume' follow
 	# cross build --target i686-pc-windows-gnu --release
 
@@ -75,7 +75,7 @@ msi:
 	cargo wix
 
 android:
-	$(foreach arch, $(ANDROID_ARCHS), cross +nightly build --target $(arch) $(HEADLESS_OPTIONS);)
+	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(HEADLESS_OPTIONS);)
 
 android-copy: android
 	@cp target/i686-linux-android/release/libclipboard_sync.so $(ANDROID_APP)/app/src/main/jniLibs/x86/libclipboard_sync.so

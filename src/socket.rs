@@ -159,19 +159,87 @@ pub async fn obtain_socket(
 }
 
 pub fn remove_ipv4_mapping(addr: &SocketAddr) -> SocketAddr {
-    // https://github.com/rust-lang/rust/issues/27709
-    let to_ipv4_mapped = |ip: &Ipv6Addr| match ip.octets() {
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => Some(Ipv4Addr::new(a, b, c, d)),
-        _ => None,
-    };
-
     let use_addr: SocketAddr = match addr {
-        SocketAddr::V6(a) => to_ipv4_mapped(a.ip())
+        SocketAddr::V6(a) => Ipv6AddrExt::to_ipv4_mapped(a.ip())
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
             .unwrap_or(SocketAddr::V6(a.clone())),
         _ => addr.clone(),
     };
     return use_addr;
+}
+
+// @TODO remove once stable https://github.com/rust-lang/rust/issues/27709
+
+pub trait IpAddrExt {
+    fn is_global(&self) -> bool;
+}
+
+pub trait Ipv6AddrExt {
+    fn to_ipv4_mapped(&self) -> Option<Ipv4Addr>;
+}
+
+impl IpAddrExt for IpAddr {
+    // #[rustc_const_unstable(feature = "const_ip", issue = "76205")]
+    #[inline]
+    fn is_global(&self) -> bool {
+        match self {
+            IpAddr::V4(ip) => IpAddrExt::is_global(ip),
+            IpAddr::V6(ip) => IpAddrExt::is_global(ip),
+        }
+    }
+}
+
+impl IpAddrExt for Ipv4Addr {
+    // #[rustc_const_unstable(feature = "const_ipv4", issue = "76205")]
+    #[inline]
+    fn is_global(&self) -> bool {
+        // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
+        // globally routable addresses in the 192.0.0.0/24 range.
+        if u32::from_be_bytes(self.octets()) == 0xc0000009
+            || u32::from_be_bytes(self.octets()) == 0xc000000a
+        {
+            return true;
+        }
+        !self.is_private()
+            && !self.is_loopback()
+            && !self.is_link_local()
+            && !self.is_broadcast()
+            && !self.is_documentation()
+            // && !self.is_shared()
+            // && !self.is_ietf_protocol_assignment()
+            // && !self.is_reserved()
+            // && !self.is_benchmarking()
+            // Make sure the address is not in 0.0.0.0/8
+            && self.octets()[0] != 0
+    }
+}
+
+impl IpAddrExt for Ipv6Addr {
+    // @TODO include other ranges, wait for is_global stable
+    // #[rustc_const_unstable(feature = "const_ipv6", issue = "76205")]
+    #[inline]
+    fn is_global(&self) -> bool {
+        let first = self.segments()[0];
+        return first >= 0x2001 && first <= 0x3FFF;
+        // match self.multicast_scope() {
+        //     Some(Ipv6MulticastScope::Global) => true,
+        //     None => self.is_unicast_global(),
+        //     _ => false,
+        // }
+    }
+}
+
+impl Ipv6AddrExt for Ipv6Addr {
+    // #[rustc_const_unstable(feature = "const_ipv6", issue = "76205")]
+    #[inline]
+    fn to_ipv4_mapped(&self) -> Option<Ipv4Addr> {
+        match self.octets() {
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                Some(Ipv4Addr::new(a, b, c, d))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -201,5 +269,18 @@ mod sockettest {
 
         let s = wait!(to_socket("abc"));
         assert_error_type!(s, DnsError::Failed(_));
+    }
+
+    #[test]
+    fn test_ipv6_is_global() {
+        let ip: IpAddr = "2606:4700:4700::1111".parse().unwrap();
+        assert!(IpAddrExt::is_global(&ip));
+        let ip: IpAddr = "2a00:1450:401b:800::200e".parse().unwrap();
+        assert!(IpAddrExt::is_global(&ip));
+
+        let ip: IpAddr = "fd6d:8d64:af0c::1".parse().unwrap();
+        assert!(!IpAddrExt::is_global(&ip));
+        let ip: IpAddr = "fe80::1".parse().unwrap();
+        assert!(!IpAddrExt::is_global(&ip));
     }
 }

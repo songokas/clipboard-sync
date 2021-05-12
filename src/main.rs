@@ -139,9 +139,14 @@ async fn main() -> Result<(), CliError> {
 
         let key = Key::from_slice(key_data.as_bytes());
 
-        let socket_address = local_address.parse::<SocketAddr>().map_err(|_| {
-            CliError::ArgumentError(format!("Invalid bind address provided {}", local_address))
-        })?;
+        let socket_addresses: Vec<SocketAddr> = local_address
+            .split(",")
+            .map(|v| {
+                v.parse::<SocketAddr>().map_err(|_| {
+                    CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
+                })
+            })
+            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
 
         let groups = vec![Group {
             name: group.to_owned(),
@@ -156,7 +161,7 @@ async fn main() -> Result<(), CliError> {
 
         let full_config = FullConfig::from_protocol_groups(
             cli_protocol,
-            socket_address,
+            socket_addresses,
             groups,
             MAX_RECEIVE_BUFFER,
             matches
