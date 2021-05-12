@@ -94,11 +94,11 @@ impl fmt::Display for Protocol {
 
 pub enum LocalSocket {
     Socket(Arc<UdpSocket>),
-    Laminar(laminarpr::LaminarSocket>),
+    Laminar(laminarpr::LaminarSocket),
     Tcp(Mutex<TcpSocket>),
     TcpListener(TcpListener),
     #[cfg(feature = "quinn")]
-    Quinn((Endpoint, Mutex<Incoming>)),
+    Quinn((Endpoint, Arc<Mutex<Incoming>>)),
 }
 
 #[allow(irrefutable_let_patterns)]
@@ -140,16 +140,16 @@ impl LocalSocket {
 
     #[cfg(feature = "quinn")]
     pub fn quinn_client(&self) -> Option<&Endpoint> {
-        if let Self::Quinn((c, s)) = self {
+        if let Self::Quinn((c, _)) = self {
             return Some(c);
         }
         return None;
     }
 
     #[cfg(feature = "quinn")]
-    pub fn quinn_server(&mut self) -> Option<&mut Incoming> {
+    pub fn quinn_server(&self) -> Option<Arc<Mutex<Incoming>>> {
         if let Self::Quinn((_, s)) = self {
-            return Some(s.lock().await.get_mut());
+            return Some(s.clone());
         }
         return None;
     }
@@ -190,14 +190,10 @@ impl SocketPool {
             Protocol::Quic(c) => {
                 let (endpoint, incoming) =
                     quinnpr::obtain_client_endpoint(local_address, &c).await?;
-                return Ok(
-                    Arc::new(
-                        LocalSocket::Quinn((
-                            endpoint,
-                            Mutex::new(incoming),
-                        ))
-                    )
-                );
+                return Ok(Arc::new(LocalSocket::Quinn((
+                    endpoint,
+                    Arc::new(Mutex::new(incoming)),
+                ))));
             }
             Protocol::Laminar => {
                 let socket = laminarpr::run_laminar(local_address)?;
@@ -223,20 +219,20 @@ impl SocketPool {
         &self,
         local_address: SocketAddr,
         protocol: &Protocol,
-    ) -> Result<Arc<LocalSocket>,, ConnectionError> {
+    ) -> Result<Arc<LocalSocket>, ConnectionError> {
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {
-                let socket = quinnpr::obtain_server_endpoint(&local_address, c).await?;
-                let lsocket = Arc::new(LocalSocket::Quinn(socket));
-                let rsocket = Arc::clone(lsocket);
+                let (e, i) = quinnpr::obtain_server_endpoint(&local_address, c).await?;
+                let lsocket = Arc::new(LocalSocket::Quinn((e, Arc::new(Mutex::new(i)))));
+                let rsocket = Arc::clone(&lsocket);
                 self.pool.lock().await.insert(local_address, lsocket);
                 return Ok(rsocket);
             }
             Protocol::Laminar => {
                 let socket = laminarpr::run_laminar(&local_address)?;
                 let lsocket = Arc::new(LocalSocket::Laminar(socket));
-                let rsocket = Arc::clone(lsocket);
+                let rsocket = Arc::clone(&lsocket);
                 self.pool.lock().await.insert(local_address, lsocket);
                 return Ok(rsocket);
             }
@@ -246,68 +242,13 @@ impl SocketPool {
             }
             _ => {
                 let socket = UdpSocket::bind(&local_address).await?;
-                let socket_wrapped = Arc::new(socket);
-                let socket_return = Arc::clone(&socket_wrapped);
-                let lsocket = Arc::new(LocalSocket::Socket(socket_wrapped));
-                let rsocket = Arc::clone(lsocket);
+                let lsocket = Arc::new(LocalSocket::Socket(Arc::new(socket)));
+                let rsocket = Arc::clone(&lsocket);
                 self.pool.lock().await.insert(local_address, lsocket);
                 return Ok(rsocket);
             }
         }
     }
-
-    // pub async fn release_socket(&self, local_address: &SocketAddr) -> bool {
-    //     if self.udp_pool.lock().await.contains_key(local_address) {
-    //         return self.udp_pool.lock().await.remove(local_address).is_some();
-    //     } else if self.laminar_pool.lock().await.contains_key(local_address) {
-    //         self.laminar_pool
-    //             .lock()
-    //             .await
-    //             .remove(local_address)
-    //             .map(|_| true)
-    //             .unwrap_or(false);
-    //     }
-    //     return false;
-    // }
-
-    // async fn get_laminar_socket(
-    //     &self,
-    //     local_address: &SocketAddr,
-    // ) -> Result<Arc<laminarpr::LaminarSocket>, ConnectionError> {
-    //     {
-    //         let hash = self.laminar_pool.lock().await;
-    //         if let Some(sock) = hash.get(local_address) {
-    //             return Ok(Arc::clone(sock));
-    //         }
-    //     }
-
-    //     let sock = Arc::new(laminarpr::run_laminar(local_address)?);
-    //     let ret = Arc::clone(&sock);
-    //     self.laminar_pool
-    //         .lock()
-    //         .await
-    //         .insert(local_address.clone(), sock);
-    //     return Ok(ret);
-    // }
-
-    // async fn get_socket(
-    //     &self,
-    //     local_address: &SocketAddr,
-    // ) -> Result<LocalSocket, ConnectionError> {
-    //     let hash = self.pool.lock().await;
-    //     if let Some(sock) = hash.get(local_address) {
-    //         return Ok(sock);
-    //     }
-
-    // let socket = UdpSocket::bind(local_address).await?;
-    // let sock = Arc::new(socket);
-    // let ret = Arc::clone(&sock);
-    // self.udp_pool
-    //     .lock()
-    //     .await
-    //     .insert(local_address.clone(), sock);
-    // return Ok(ret);
-    // }
 }
 
 pub async fn send_data(
@@ -391,12 +332,10 @@ pub async fn send_data(
             laminarpr::send_data(&socket, encryptor, data, &destination.into()).await
         }
         Protocol::Tcp => {
-            let socket = local_socket
-                .try_unwrap().ok_or(
-                    ConnectionError::InvalidProtocol(
-                        "unable to use tcp socket".to_owned(),
-                    )
-                )
+            let socket = Arc::try_unwrap(local_socket)
+                .map_err(|_| {
+                    ConnectionError::InvalidProtocol("unable to use tcp socket".to_owned())
+                })?
                 .tcp_consume()
                 .ok_or(ConnectionError::InvalidProtocol(
                     "Basic protocol socket expected".to_owned(),
@@ -430,16 +369,13 @@ pub async fn receive_data(
         }
         #[cfg(feature = "quinn")]
         Protocol::Quic(_) => {
-            quinnpr::receive_data(
-                local_socket
-                    .quinn_server()
-                    .ok_or(ConnectionError::InvalidProtocol(
-                        "Quic protocol server expected".to_owned(),
-                    ))?,
-                max_len,
-                timeout,
-            )
-            .await
+            let inc = local_socket
+                .quinn_server()
+                .ok_or(ConnectionError::InvalidProtocol(
+                    "Quic protocol server expected".to_owned(),
+                ))?;
+            let mut incoming = inc.lock().await;
+            quinnpr::receive_data(&mut *incoming, max_len, timeout).await
         }
         #[cfg(feature = "quiche")]
         Protocol::Quic(c) => {

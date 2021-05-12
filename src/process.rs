@@ -36,7 +36,7 @@ pub async fn receive_clipboard(
     status_channel: Arc<Sender<(u64, u64)>>,
     receive_once: bool,
 ) -> Result<u64, CliError> {
-    let mut local_socket = pool
+    let local_socket = pool
         .obtain_server_socket(local_address.clone(), &protocol)
         .await?;
     let mut multicast = Multicast::new();
@@ -56,7 +56,7 @@ pub async fn receive_clipboard(
 
     while running.load(Ordering::Relaxed) {
         let (buf, addr) = match receive_data(
-            &mut local_socket,
+            Arc::clone(&local_socket),
             &encryptor,
             &protocol,
             config.max_receive_buffer,

@@ -64,7 +64,8 @@ pub async fn make_client_endpoint(
     let client_cfg = configure_client(server_certs)?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.default_client_config(client_cfg);
-    return endpoint_builder.bind(bind_addr)?;
+    let (e, s) = endpoint_builder.bind(bind_addr)?;
+    return Ok((e, s));
 }
 
 pub async fn obtain_server_endpoint(
@@ -74,7 +75,8 @@ pub async fn obtain_server_endpoint(
     let server_config = configure_server(certificates).await?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.listen(server_config);
-    return endpoint_builder.bind(bind_addr)?;
+    let (e, s) = endpoint_builder.bind(bind_addr)?;
+    return Ok((e, s));
 }
 
 pub async fn obtain_client_endpoint(
@@ -88,7 +90,7 @@ pub async fn obtain_client_endpoint(
             .expect("Please provide certificate verify directory"),
         MAX_FILE_SIZE,
     );
-    return make_client_endpoint(local_addr, certs).await?;
+    return Ok(make_client_endpoint(local_addr, certs).await?);
 }
 
 pub async fn send_data(
@@ -179,13 +181,13 @@ mod quinntest {
             verify_dir: Some("tests/certs/cert-verify".to_owned()),
         };
 
-        let mut server_sock = obtain_server_endpoint(&local_server, &certs).await.unwrap();
-        let client_sock = obtain_client_endpoint(&local_client, &certs).await.unwrap();
+        let (_, mut incoming) = obtain_server_endpoint(&local_server, &certs).await.unwrap();
+        let (endpoint, _) = obtain_client_endpoint(&local_client, &certs).await.unwrap();
 
         let data_sent = random(size);
         let for_sending = data_sent.clone();
         let r = tokio::spawn(async move {
-            receive_data(&mut server_sock, max_len, |d: Duration| {
+            receive_data(&mut incoming, max_len, |d: Duration| {
                 d > Duration::from_millis(5000)
             })
             .await
@@ -193,7 +195,7 @@ mod quinntest {
 
         let s = tokio::spawn(async move {
             send_data(
-                client_sock,
+                &endpoint,
                 for_sending,
                 // no support for ip
                 Destination::new("localhost".to_owned(), local_server),
@@ -230,9 +232,9 @@ mod quinntest {
             verify_dir: Some("tests/certs/cert-verify".to_owned()),
         };
 
-        let mut server_sock = obtain_server_endpoint(&local_server, &certs).await.unwrap();
+        let (_, mut incoming) = obtain_server_endpoint(&local_server, &certs).await.unwrap();
 
-        let result = receive_data(&mut server_sock, 10, |_: Duration| true).await;
+        let result = receive_data(&mut incoming, 10, |_: Duration| true).await;
 
         assert_error_type!(result, ConnectionError::Timeout(..));
     }

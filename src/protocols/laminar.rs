@@ -13,18 +13,15 @@ use crate::errors::ConnectionError;
 use crate::fragmenter::{size_to_indexes, FrameDecryptor, FrameIndexEncryptor};
 use crate::identity::Identity;
 
-pub struct LaminarSocket
-{
+pub struct LaminarSocket {
     sender: Sender<Packet>,
     receiver: Receiver<SocketEvent>,
     socket: Arc<Mutex<Socket>>,
     config: Config,
 }
 
-impl LaminarSocket
-{
-    pub fn get_sender(&self) -> LaminarSender
-    {
+impl LaminarSocket {
+    pub fn get_sender(&self) -> LaminarSender {
         return LaminarSender {
             sender: self.sender.clone(),
             config: self.config.clone(),
@@ -32,8 +29,7 @@ impl LaminarSocket
         };
     }
 
-    pub fn get_receiver(&self) -> LaminarReceiver
-    {
+    pub fn get_receiver(&self) -> LaminarReceiver {
         return LaminarReceiver {
             receiver: self.receiver.clone(),
             config: self.config.clone(),
@@ -42,41 +38,34 @@ impl LaminarSocket
     }
 }
 
-pub struct LaminarReceiver
-{
+pub struct LaminarReceiver {
     pub receiver: Receiver<SocketEvent>,
     pub config: Config,
     socket: Arc<Mutex<Socket>>,
 }
 
-pub struct LaminarSender
-{
+pub struct LaminarSender {
     pub sender: Sender<Packet>,
     pub config: Config,
     socket: Arc<Mutex<Socket>>,
 }
 
-impl LaminarReceiver
-{
-    pub async fn recv(&self) -> Option<SocketEvent>
-    {
+impl LaminarReceiver {
+    pub async fn recv(&self) -> Option<SocketEvent> {
         self.socket.lock().await.manual_poll(Instant::now());
-        return self.socket.lock().await.recv();
+        return self.receiver.try_recv().ok();
     }
 }
 
-impl LaminarSender
-{
-    pub async fn send(&self, packet: Packet) -> bool
-    {
-        let result = self.socket.lock().await.send(packet);
+impl LaminarSender {
+    pub async fn send(&self, packet: Packet) -> bool {
+        let result = self.sender.send(packet);
         self.socket.lock().await.manual_poll(Instant::now());
         return result.is_ok();
     }
 }
 
-pub fn run_laminar(local_address: &SocketAddr) -> Result<LaminarSocket, ConnectionError>
-{
+pub fn run_laminar(local_address: &SocketAddr) -> Result<LaminarSocket, ConnectionError> {
     let (socket, config) = obtain_socket(local_address)?;
     let sender = socket.get_packet_sender();
     let receiver = socket.get_event_receiver();
@@ -100,8 +89,7 @@ pub async fn receive_data(
     encryptor: &impl FrameDecryptor,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
-{
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
     let mut now = Instant::now();
     let mut received_frames: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
     let mut total_size = 0;
@@ -172,8 +160,7 @@ pub async fn send_data(
     encryptor: impl FrameIndexEncryptor,
     data: Vec<u8>,
     destination_addr: &SocketAddr,
-) -> Result<usize, ConnectionError>
-{
+) -> Result<usize, ConnectionError> {
     let max_payload = socket.config.max_packet_size - MAX_ENCRYPTION_HEADER_SIZE as usize;
     let indexes = size_to_indexes(data.len(), max_payload);
     let reliable = !destination_addr.ip().is_multicast();
@@ -199,8 +186,7 @@ pub async fn send_data(
     return Ok(size);
 }
 
-pub fn obtain_socket(local_address: &SocketAddr) -> Result<(Socket, Config), ConnectionError>
-{
+pub fn obtain_socket(local_address: &SocketAddr) -> Result<(Socket, Config), ConnectionError> {
     let config = Config::default();
     let sock = Socket::bind_with_config(local_address, config.clone()).map_err(|e| {
         ConnectionError::FailedToConnect(format!(
@@ -212,8 +198,7 @@ pub fn obtain_socket(local_address: &SocketAddr) -> Result<(Socket, Config), Con
 }
 
 #[cfg(test)]
-mod laminartest
-{
+mod laminartest {
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
@@ -221,8 +206,7 @@ mod laminartest
     use crate::message::Group;
     use futures::try_join;
 
-    async fn send_receive(size: usize, max_len: usize)
-    {
+    async fn send_receive(size: usize, max_len: usize) {
         let local_server: SocketAddr = "127.0.0.1:39835".parse().unwrap();
         let local_client: SocketAddr = "127.0.0.1:39836".parse().unwrap();
         let server_sock = run_laminar(&local_server).unwrap();
@@ -265,16 +249,14 @@ mod laminartest
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_data()
-    {
+    async fn test_data() {
         send_receive(5, 100).await;
         send_receive(16 * 1024 * 10, 16 * 1024 * 10 + 1000).await;
         send_receive(10, 5).await;
     }
 
     #[tokio::test]
-    async fn test_timeout()
-    {
+    async fn test_timeout() {
         let local_server: SocketAddr = "127.0.0.1:3835".parse().unwrap();
         let server_sock = run_laminar(&local_server).unwrap();
 
