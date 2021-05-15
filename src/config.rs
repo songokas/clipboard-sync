@@ -33,6 +33,8 @@ pub enum SocketConfigAddress {
     Multiple(Vec<SocketAddr>),
 }
 
+type BindAddresses = IndexMap<Protocol, Vec<SocketAddr>>;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserConfig {
     pub bind_addresses: Option<IndexMap<String, SocketConfigAddress>>,
@@ -48,7 +50,7 @@ pub struct UserConfig {
 
 #[derive(Debug, Clone)]
 pub struct FullConfig {
-    pub bind_addresses: IndexMap<Protocol, SocketAddr>,
+    pub bind_addresses: BindAddresses,
     pub groups: Vec<Group>,
     pub max_receive_buffer: usize,
     pub receive_once_wait: u64,
@@ -64,10 +66,8 @@ impl FullConfig {
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
     ) -> Self {
-        let mut bind_addresses: IndexMap<Protocol, SocketAddr> = IndexMap::new();
-        for bind_address in bind_all {
-            bind_addresses.insert(protocol.clone(), bind_address);
-        }
+        let mut bind_addresses: BindAddresses = IndexMap::new();
+        bind_addresses.insert(protocol.clone(), bind_all);
         return FullConfig {
             bind_addresses,
             groups,
@@ -78,7 +78,7 @@ impl FullConfig {
     }
 
     pub fn from_config(
-        bind_addresses: IndexMap<Protocol, SocketAddr>,
+        bind_addresses: BindAddresses,
         groups: Vec<Group>,
         max_receive_buffer: usize,
         receive_once_wait: u64,
@@ -93,12 +93,18 @@ impl FullConfig {
         };
     }
 
-    pub fn get_bind_address(&self, protocol: &Protocol) -> Option<&SocketAddr> {
-        return self.bind_addresses.get(protocol);
+    pub fn get_bind_adresses(&self) -> Vec<(Protocol, SocketAddr)> {
+        self.bind_addresses
+            .iter()
+            .flat_map(|(p, v)| {
+                let protocol = p.clone();
+                v.iter().map(move |s| (protocol.clone(), s.clone()))
+            })
+            .collect()
     }
 
-    pub fn get_first_bind_address(&self) -> Option<(&Protocol, &SocketAddr)> {
-        return self.bind_addresses.iter().next();
+    pub fn get_first_bind_address(&self) -> Option<(Protocol, SocketAddr)> {
+        return self.get_bind_adresses().into_iter().next();
     }
 }
 
@@ -218,7 +224,10 @@ pub fn load_groups(
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {
             sd.clone()
         } else {
-            vec![String::from(default_allowed_host_address)]
+            default_allowed_host_address
+                .split(",")
+                .map(String::from)
+                .collect()
         };
 
         let visible_ip = if let Some(pub_ip) = &group.visible_ip {
@@ -317,7 +326,7 @@ fn create_bind_addresses(
     default_bind_address: &str,
     #[cfg(feature = "quic")] load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
     bind_default_protocol: Protocol,
-) -> Result<IndexMap<Protocol, SocketAddr>, CliError> {
+) -> Result<BindAddresses, CliError> {
     let mut hash = IndexMap::new();
     if let Some(addresses) = config_addresses {
         for (protocol_str, sock_config_addr) in addresses {
@@ -338,9 +347,7 @@ fn create_bind_addresses(
                 SocketConfigAddress::Multiple(s) => s.clone(),
             };
 
-            for socket_address in addresses {
-                hash.insert(protocol.clone(), socket_address);
-            }
+            hash.insert(protocol.clone(), addresses);
         }
     } else {
         let socket_addresses: Vec<SocketAddr> = default_bind_address
@@ -351,11 +358,8 @@ fn create_bind_addresses(
                 })
             })
             .collect::<Result<Vec<SocketAddr>, CliError>>()?;
-        for socket_address in socket_addresses {
-            hash.insert(bind_default_protocol.clone(), socket_address);
-        }
+        hash.insert(bind_default_protocol, socket_addresses);
     }
-
     return Ok(hash);
 }
 
@@ -390,16 +394,16 @@ mod configtest {
         let mut hash = IndexMap::new();
         hash.insert(
             Protocol::Basic,
-            "127.0.0.1:8910".parse::<SocketAddr>().unwrap(),
+            vec!["127.0.0.1:8910".parse::<SocketAddr>().unwrap()],
         );
         hash.insert(
             Protocol::Frames,
-            "127.0.0.1:9010".parse::<SocketAddr>().unwrap(),
+            vec!["127.0.0.1:9010".parse::<SocketAddr>().unwrap()],
         );
         #[cfg(feature = "quic")]
         hash.insert(
             Protocol::Quic(certificates),
-            "127.0.0.1:9110".parse::<SocketAddr>().unwrap(),
+            vec!["127.0.0.1:9110".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(full_config.bind_addresses, hash);
 

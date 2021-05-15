@@ -38,9 +38,11 @@ use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
+use crate::socket::has_ipv6_support;
 
 #[tokio::main]
-async fn main() -> Result<(), CliError> {
+async fn main() -> Result<(), CliError>
+{
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
@@ -76,11 +78,21 @@ async fn main() -> Result<(), CliError> {
         }
     };
 
-    let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
+    let local_address = matches.value_of("bind-address").unwrap_or_else(|| {
+        if has_ipv6_support() {
+            BIND_ADDRESS_IPV6
+        } else {
+            BIND_ADDRESS
+        }
+    });
 
-    let send_address = matches
-        .value_of("send-using-address")
-        .unwrap_or(SEND_ADDRESS);
+    let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
+        if has_ipv6_support() {
+            SEND_ADDRESS_IPV6
+        } else {
+            SEND_ADDRESS
+        }
+    });
     let visible_ip = matches.value_of("visible-ip").map(|ip| ip.to_owned());
 
     let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
@@ -105,12 +117,14 @@ async fn main() -> Result<(), CliError> {
         return load_default_certificates(private_key, public_key, cert_dir);
     };
 
+    let system_default_host = || DEFAULT_ALLOWED_HOST;
+
     let default_host = match matches.value_of("protocol") {
         Some(v) if v == Protocol::Basic.to_string() || v == Protocol::Laminar.to_string() => {
-            DEFAULT_ALLOWED_HOST
+            system_default_host()
         }
         Some(_) => "",
-        _ => DEFAULT_ALLOWED_HOST,
+        _ => system_default_host(),
     };
 
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
@@ -124,7 +138,7 @@ async fn main() -> Result<(), CliError> {
 
         if allowed_host.is_empty() {
             return Err(CliError::ArgumentError(format!(
-                "Please provide --allowed-host or use basic/laminar protocol",
+                "Please provide --allowed-host or use basic/laminar protocol for multicast support",
             )));
         }
 
@@ -150,7 +164,7 @@ async fn main() -> Result<(), CliError> {
 
         let groups = vec![Group {
             name: group.to_owned(),
-            allowed_hosts: vec![allowed_host.to_owned()],
+            allowed_hosts: allowed_host.split(",").map(String::from).collect(),
             key: key.clone(),
             visible_ip: visible_ip.clone(),
             send_using_address,
@@ -177,7 +191,7 @@ async fn main() -> Result<(), CliError> {
         return load_groups(
             config_path,
             if allowed_host.is_empty() {
-                DEFAULT_ALLOWED_HOST
+                system_default_host()
             } else {
                 allowed_host
             },
@@ -199,10 +213,7 @@ async fn main() -> Result<(), CliError> {
     let running = Arc::new(AtomicBool::new(true));
 
     let (tx, rx) = flume::bounded(MAX_CHANNEL);
-    let atx = Arc::new(tx);
-
     let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
-    let stat_sender = Arc::new(stat_sender);
 
     let send_once = matches.is_present("send-once");
     let receive_once = matches.is_present("receive-once");
@@ -213,19 +224,19 @@ async fn main() -> Result<(), CliError> {
     let pool = Arc::new(SocketPool::new());
 
     if launch_receiver {
-        for (protocol, bind_address) in &full_config.bind_addresses {
+        for (protocol, bind_address) in full_config.get_bind_adresses() {
             let clipboard = Clipboard::new().expect(
                 "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
             );
             let receive = receive_clipboard(
                 Arc::clone(&pool),
                 clipboard,
-                Arc::clone(&atx),
-                bind_address.clone(),
+                tx.clone(),
+                bind_address,
                 Arc::clone(&running),
                 full_config.clone(),
-                protocol.clone(),
-                Arc::clone(&stat_sender),
+                protocol,
+                stat_sender.clone(),
                 receive_once,
             );
             handles.push(tokio::spawn(receive));
@@ -242,7 +253,7 @@ async fn main() -> Result<(), CliError> {
             rx,
             Arc::clone(&running),
             full_config.clone(),
-            Arc::clone(&stat_sender),
+            stat_sender,
             send_once,
         );
         handles.push(tokio::spawn(send));
@@ -251,17 +262,19 @@ async fn main() -> Result<(), CliError> {
     let result = futures::future::try_join_all(handles).await;
     match result {
         Ok(items) => {
+            let mut result = Ok(());
             for res in items {
                 match res {
                     Ok(c) => {
                         info!("count {}", c);
                     }
                     Err(e) => {
-                        error!("error: {:?}", e)
+                        error!("error: {:?}", e);
+                        result = Err(e);
                     }
                 }
             }
-            return Ok(());
+            return result;
         }
         Err(err) => {
             error!("{}", err);

@@ -46,7 +46,10 @@ impl Multicast {
             }
         };
         if let Err(_) = op {
-            warn!("Unable to join multicast network {}", remote_ip);
+            warn!(
+                "Unable to join multicast network {} using {}",
+                remote_ip, interface_addr,
+            );
             return false;
         } else {
             debug!("Joined multicast {}", remote_ip);
@@ -65,7 +68,11 @@ impl Multicast {
                         continue;
                     }
                 };
-                if addr.ip().is_multicast() {
+
+                if addr.ip().is_multicast()
+                    && (local_addr.is_ipv4() == addr.is_ipv4()
+                        || local_addr.is_ipv6() == addr.is_ipv6())
+                {
                     self.join_group(sock, local_addr, &addr.ip());
                 }
             }

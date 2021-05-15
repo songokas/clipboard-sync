@@ -64,8 +64,8 @@ fn send_receive_once(protocol: &'static str, size: usize) {
             vec![
                 "--key",
                 ANY_KEY,
-                "--bind-address",
-                "127.0.0.1:8924",
+                "--send-using-address",
+                "127.0.0.1:8934,[::1]:8934",
                 "--send-once",
                 "--clipboard",
                 "/dev/stdin",
@@ -94,8 +94,8 @@ fn send_receive_once(protocol: &'static str, size: usize) {
     let output1 = t1.join().unwrap().unwrap();
     let output2 = t2.join().unwrap().unwrap();
 
-    println!("{:?}", output1);
-    println!("{:?}", output2);
+    println!("{} {:?}", protocol, output1);
+    println!("{} {:?}", protocol, output2);
 
     let assert1 = Assert::new(output1);
     let assert2 = Assert::new(output2);
@@ -109,6 +109,7 @@ fn test_send_receive_once() {
     for (protocol, size) in [
         ("basic", 10),
         ("basic", 10 * 1024 * 10),
+        ("tcp", 10 * 1024 * 10),
         #[cfg(feature = "frames")]
         ("frames", 10 * 1024 * 10),
         ("laminar", 10 * 1024 * 10),

@@ -73,13 +73,15 @@ optional = true
 # path = "../rust-clipboard"
 
 [features]
-default = ["frames", "clipboard", "public-ip"]
 
 # default quic implementations
 quic = []
 quic-quiche = ["quic", "quiche"]
 quic-quinn = ["quic", "quinn", "rustls"]
+
 frames = []
+default = ["frames", "clipboard", "public-ip"]
+
 
 [package.metadata.deb]
 maintainer = "Tomas Jakstas <tom.jakstas@gmail.com>"
@@ -102,7 +104,7 @@ assets = [
 depends = "libxcb-render0 (>= 1.13.1), libxcb-shape0 (>= 1.13.1), libxcb1 (>= 1.13.1), libbsd0 (>= 0.9.1), libxdmcp6 (>= 1:1.1.2), libxau6 (>= 1:1.0.8), libc6 (>= 2.28), libxcb-xfixes0 (>= 1.13.1)"
 
 [package.metadata.deb.variants.headless]
-features = ["frames", "public-ip", "quic"]
+features = ["frames", "public-ip"]
 default-features = false
 depends = "libc6 (>= 2.28)"
 

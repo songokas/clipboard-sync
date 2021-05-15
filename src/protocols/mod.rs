@@ -249,6 +249,22 @@ impl SocketPool {
             }
         }
     }
+
+    #[cfg(test)]
+    fn has_socket(&self, socket_addr: &SocketAddr) -> bool {
+        return match self.pool.try_lock() {
+            Ok(h) => h.contains_key(socket_addr),
+            _ => false,
+        };
+    }
+
+    #[cfg(test)]
+    fn count(&self) -> usize {
+        return match self.pool.try_lock() {
+            Ok(h) => h.len(),
+            _ => 0,
+        };
+    }
 }
 
 pub async fn send_data(
@@ -374,7 +390,11 @@ pub async fn receive_data(
                 .ok_or(ConnectionError::InvalidProtocol(
                     "Quic protocol server expected".to_owned(),
                 ))?;
-            let mut incoming = inc.lock().await;
+            let mut incoming = inc.try_lock().map_err(|_| {
+                ConnectionError::InvalidProtocol(format!(
+                    "Quic server is locked and can not be used multiple times"
+                ))
+            })?;
             quinnpr::receive_data(&mut *incoming, max_len, timeout).await
         }
         #[cfg(feature = "quiche")]
@@ -427,4 +447,115 @@ pub async fn receive_data(
             .await
         }
     };
+}
+
+#[cfg(test)]
+mod protocolstest {
+    use super::*;
+    #[cfg(feature = "quic")]
+    use crate::config::Certificates;
+    #[cfg(feature = "quic-quinn")]
+    use tokio::time::sleep;
+
+    async fn test_pool_client_socket_can_be_obtained_once(protocol: Protocol, port: u32) {
+        let pool = SocketPool::new();
+        let local_addresses = vec![format!("127.0.0.1:{}", port).parse().unwrap()];
+        let remote_address = "127.0.0.1:8000".parse().unwrap();
+
+        assert_eq!(pool.count(), 0);
+        let _1 = pool
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .await
+            .unwrap();
+        assert_eq!(pool.count(), 0);
+        let local_socket2 = pool
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .await;
+        assert_eq!(pool.count(), 0);
+        assert!(local_socket2.is_err());
+    }
+
+    async fn test_pool_client_socket_can_be_obtained_many_times_if_server_socket_is_used(
+        protocol: Protocol,
+        port: u32,
+    ) {
+        let pool = SocketPool::new();
+        let local_addresses = vec![format!("127.0.0.1:{}", port).parse().unwrap()];
+        let remote_address = "127.0.0.1:8000".parse().unwrap();
+
+        assert_eq!(pool.count(), 0);
+
+        let _1 = pool
+            .obtain_server_socket(local_addresses[0], &protocol)
+            .await
+            .unwrap();
+        assert_eq!(pool.count(), 1);
+
+        let _2 = pool
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .await
+            .unwrap();
+        assert_eq!(pool.count(), 1);
+        let _3 = pool
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .await
+            .unwrap();
+        assert_eq!(pool.count(), 1);
+    }
+
+    async fn test_pool_client_socket_can_be_obtained_once_its_dropped(
+        protocol: Protocol,
+        port: u32,
+    ) {
+        let pool = SocketPool::new();
+        let local_addresses = vec![format!("127.0.0.1:{}", port).parse().unwrap()];
+        let remote_address = "127.0.0.1:8000".parse().unwrap();
+        assert_eq!(pool.count(), 0);
+        {
+            let _1 = pool
+                .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "quic-quinn")]
+        sleep(Duration::from_millis(100)).await;
+        let _2 = pool
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .await
+            .unwrap();
+        let local_socket3 = pool
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .await;
+        assert!(local_socket3.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_socket_pool_all_protos() {
+        #[cfg(feature = "quic")]
+        let certs = Certificates {
+            private_key: "tests/certs/localhost.key".to_owned(),
+            public_key: "tests/certs/localhost.crt".to_owned(),
+            verify_dir: Some("tests/certs/cert-verify".to_owned()),
+        };
+        for (protocol, port) in [
+            (Protocol::Basic, 9811),
+            #[cfg(feature = "frames")]
+            (Protocol::Frames, 9911),
+            (Protocol::Laminar, 9912),
+            #[cfg(feature = "quic-quinn")]
+            (Protocol::Quic(certs), 7313),
+            #[cfg(feature = "quic-quiche")]
+            (Protocol::Quic(certs), 7913),
+        ]
+        .to_vec()
+        {
+            test_pool_client_socket_can_be_obtained_once(protocol.clone(), 1 + port).await;
+            test_pool_client_socket_can_be_obtained_many_times_if_server_socket_is_used(
+                protocol.clone(),
+                2 + port,
+            )
+            .await;
+            test_pool_client_socket_can_be_obtained_once_its_dropped(protocol, 3 + port).await;
+        }
+    }
 }

@@ -44,7 +44,8 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_startSync(
     env: JNIEnv,
     _: JClass,
     input: JString,
-) -> jstring {
+) -> jstring
+{
     #[cfg(target_os = "android")]
     android_logger::init_once(Config::default().with_min_level(Level::Debug));
 
@@ -72,7 +73,8 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_startSync(
 pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_stopSync(
     env: JNIEnv,
     _: JClass,
-) -> jstring {
+) -> jstring
+{
     let result = CURRENT_RUNTIME.block_on(stop());
 
     let message = if result {
@@ -97,7 +99,8 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_stopSync(
 pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_status(
     env: JNIEnv,
     _: JClass,
-) -> jstring {
+) -> jstring
+{
     let status = CURRENT_RUNTIME.block_on(status());
 
     let message = if let Some(status_count) = status {
@@ -129,7 +132,8 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_queue(
     env: JNIEnv,
     _: JClass,
     input: JString,
-) -> jstring {
+) -> jstring
+{
     let contents: String = env
         .get_string(input)
         .expect("Couldn't get java string!")
@@ -151,7 +155,10 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
     _: JClass,
     config_json: JString,
     input: JString,
-) -> jstring {
+) -> jstring
+{
+    #[cfg(target_os = "android")]
+    android_logger::init_once(Config::default().with_min_level(Level::Debug));
     let config_str: String = env
         .get_string(config_json)
         .expect("Couldn't get java string!")
@@ -171,7 +178,8 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
     output.into_inner()
 }
 
-pub async fn start(config_str: String) -> Result<String, String> {
+pub async fn start(config_str: String) -> Result<String, String>
+{
     if (*(CURRENT_RUNNER.lock().await)).len() > 0 {
         stop().await;
     }
@@ -185,7 +193,8 @@ pub async fn start(config_str: String) -> Result<String, String> {
     };
 }
 
-pub async fn send(config_str: String, clipboard: String) -> Result<usize, String> {
+pub async fn send(config_str: String, clipboard: String) -> Result<usize, String>
+{
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
     let pool = SocketPool::new();
@@ -193,7 +202,8 @@ pub async fn send(config_str: String, clipboard: String) -> Result<usize, String
 }
 
 #[cfg(target_os = "android")]
-pub async fn queue(clipboard: String) -> Result<(), String> {
+pub async fn queue(clipboard: String) -> Result<(), String>
+{
     let mut guard = CURRENT_RUNNER.lock().await;
     if (*guard).len() == 0 {
         return Err(format!("Unable to queue. Not running"));
@@ -201,7 +211,8 @@ pub async fn queue(clipboard: String) -> Result<(), String> {
     return (*guard)[0].queue(clipboard);
 }
 
-pub async fn status() -> Option<StatusCount> {
+pub async fn status() -> Option<StatusCount>
+{
     let mut guard = CURRENT_RUNNER.lock().await;
     if (*guard).len() == 0 {
         return None;
@@ -209,7 +220,8 @@ pub async fn status() -> Option<StatusCount> {
     return Some((*guard)[0].status());
 }
 
-pub async fn stop() -> bool {
+pub async fn stop() -> bool
+{
     let mut guard = CURRENT_RUNNER.lock().await;
 
     if (*guard).len() > 0 {
@@ -224,11 +236,13 @@ pub async fn stop() -> bool {
 }
 
 #[cfg(test)]
-mod runnertest {
+mod runnertest
+{
     use super::*;
 
     #[test]
-    fn test_start() {
+    fn test_start()
+    {
         let config = r#"{"key":"32323232323232323232323232323232","group":"","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":["0.0.0.0:15331"],"bind_address":["0.0.0.0:15330"],"heartbeat":0}"#;
         assert_eq!(
             Ok(String::from("Started")),

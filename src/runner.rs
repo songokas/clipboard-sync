@@ -27,7 +27,8 @@ use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 
 #[derive(Serialize, Deserialize)]
-pub struct AndroidConfig {
+pub struct AndroidConfig
+{
     key: String,
     group: String,
     protocol: String,
@@ -39,21 +40,25 @@ pub struct AndroidConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Status {
+pub struct Status
+{
     state: bool,
     message: String,
     clipboard: String,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct StatusCount {
+pub struct StatusCount
+{
     pub sent: u64,
     pub received: u64,
     pub clipboard: String,
 }
 
-impl Status {
-    pub fn on(s: String, clipboard: String) -> Self {
+impl Status
+{
+    pub fn on(s: String, clipboard: String) -> Self
+    {
         return Status {
             state: true,
             message: s,
@@ -61,7 +66,8 @@ impl Status {
         };
     }
 
-    pub fn off(s: String) -> Self {
+    pub fn off(s: String) -> Self
+    {
         return Status {
             state: false,
             message: s,
@@ -70,8 +76,10 @@ impl Status {
     }
 }
 
-impl From<Result<String, String>> for Status {
-    fn from(result: Result<String, String>) -> Self {
+impl From<Result<String, String>> for Status
+{
+    fn from(result: Result<String, String>) -> Self
+    {
         match result {
             Ok(s) => Status::on(s, String::from("")),
             Err(e) => Status::off(e),
@@ -79,7 +87,10 @@ impl From<Result<String, String>> for Status {
     }
 }
 
-pub fn create_config(config_str: String) -> Result<FullConfig, String> {
+pub fn create_config(config_str: String) -> Result<FullConfig, String>
+{
+    debug!("Start with config {}", config_str);
+
     let config: AndroidConfig = match serde_json::from_str(&config_str) {
         Ok(c) => c,
         Err(e) => return Err(format!("Failed to parse config {}", e)),
@@ -91,6 +102,18 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String> {
             KEY_SIZE,
             config.key.len()
         ));
+    }
+    if !(config.group.len() > 0) {
+        return Err(format!("Please provide any group name"));
+    }
+    if !(config.hosts.len() > 0) {
+        return Err(format!("Please host where to send clipboard"));
+    }
+    if !(config.send_using_address.len() > 0) {
+        return Err(format!("Please provide socket send address"));
+    }
+    if !(config.bind_address.len() > 0) {
+        return Err(format!("Please provide socket bind address"));
     }
 
     let key = Key::clone_from_slice(config.key.as_bytes());
@@ -128,14 +151,15 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String> {
     return Ok(full_config);
 }
 
-pub async fn create_runner(config_str: String) -> Result<(Runner, String), String> {
-    debug!("Start with config {}", config_str);
+pub async fn create_runner(config_str: String) -> Result<(Runner, String), String>
+{
     let full_config = create_config(config_str)?;
     let runner = Runner::start(full_config).await;
     return Ok((runner, String::from("Started")));
 }
 
-pub struct Runner {
+pub struct Runner
+{
     sender: JoinHandle<Result<u64, CliError>>,
     receiver: JoinHandle<Result<u64, CliError>>,
     running: Arc<AtomicBool>,
@@ -149,8 +173,10 @@ pub struct Runner {
     pool: Arc<SocketPool>,
 }
 
-impl Runner {
-    pub fn status(&mut self) -> StatusCount {
+impl Runner
+{
+    pub fn status(&mut self) -> StatusCount
+    {
         while let Ok((sent, received)) = self.stats.try_recv() {
             if received > 0 {
                 self.received_count = received;
@@ -177,14 +203,16 @@ impl Runner {
     }
 
     #[cfg(target_os = "android")]
-    pub fn queue(&mut self, contents: String) -> Result<(), String> {
+    pub fn queue(&mut self, contents: String) -> Result<(), String>
+    {
         return self
             .queue_sender
             .try_send(contents)
             .map_err(|e| format!("Unable to queue contents {}", e));
     }
 
-    pub async fn stop(self) -> Result<String, CliError> {
+    pub async fn stop(self) -> Result<String, CliError>
+    {
         debug!("Stopping runner");
 
         self.running.store(false, Ordering::Relaxed);
@@ -193,12 +221,12 @@ impl Runner {
             Ok((receive_result, send_result)) => {
                 let reiceive_message = match receive_result {
                     Ok(c) => format!("receive count {}", c),
-                    Err(e) => format!("receive error: {:?}", e),
+                    Err(e) => format!("receive error: {}", e),
                 };
 
                 let send_message = match send_result {
                     Ok(c) => format!("send count {}", c),
-                    Err(e) => format!("send error: {:?}", e),
+                    Err(e) => format!("send error: {}", e),
                 };
                 let result = format!("Finished running. {} {}", reiceive_message, send_message);
                 info!("{}", result);
@@ -211,17 +239,14 @@ impl Runner {
         };
     }
 
-    pub async fn start(full_config: FullConfig) -> Self {
+    pub async fn start(full_config: FullConfig) -> Self
+    {
         debug!("Starting runner");
 
         let running = Arc::new(AtomicBool::new(true));
 
         let (tx, rx) = flume::bounded(MAX_CHANNEL);
-        let atx = Arc::new(tx);
-
         let (stat_sender, stat_receiver) = flume::bounded(MAX_CHANNEL);
-
-        let stat_sender = Arc::new(stat_sender);
 
         #[cfg(target_os = "android")]
         let mut clipboard_receive: Clipboard = ChannelClipboardContext::new().unwrap();
@@ -238,6 +263,7 @@ impl Runner {
         #[cfg(target_os = "android")]
         let queue_receiver = clipboard_receive.get_receiver().unwrap();
 
+        // @TODO add support for multiple bind addresses
         let (protocol, bind_address) = full_config
             .get_first_bind_address()
             .expect("Protocol bind addresses required");
@@ -245,12 +271,12 @@ impl Runner {
         let receive = receive_clipboard(
             Arc::clone(&pool),
             clipboard_receive,
-            Arc::clone(&atx),
-            bind_address.clone(),
+            tx,
+            bind_address,
             Arc::clone(&running),
             full_config.clone(),
-            protocol.clone(),
-            Arc::clone(&stat_sender),
+            protocol,
+            stat_sender.clone(),
             false,
         );
 
@@ -260,7 +286,7 @@ impl Runner {
             rx,
             Arc::clone(&running),
             full_config.clone(),
-            Arc::clone(&stat_sender),
+            stat_sender.clone(),
             false,
         );
 

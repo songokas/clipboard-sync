@@ -1,6 +1,7 @@
 use cached::proc_macro::cached;
 use cached::TimedSizedCache;
 
+use log::debug;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Instant;
@@ -65,6 +66,7 @@ pub async fn to_socket(socket_addr: impl AsRef<str>) -> Result<SocketAddr, DnsEr
         ))
     };
     for addr in lookup_host(socket_addr.as_ref()).await.map_err(to_err)? {
+        debug!("Retrieved socket {} for dns {}", addr, socket_addr.as_ref());
         return Ok(addr);
     }
     return Err(DnsError::Failed(format!(
@@ -111,12 +113,16 @@ pub async fn retrieve_local_address(
     return Ok(sock_addr);
 }
 
-#[cfg(feature = " public-ip")]
+#[cfg(feature = "public-ip")]
 #[cached(size = 1, time = 600)]
 pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError> {
-    return public_ip::addr()
+    let result = public_ip::addr()
         .await
         .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
+    if let Ok(ip) = result {
+        debug!("Retrieved public ip {}", ip);
+    }
+    return result;
 }
 
 pub fn get_matching_address<'a>(
@@ -131,6 +137,11 @@ pub fn get_matching_address<'a>(
         }
     }
     return None;
+}
+
+#[cached(size = 1, time = 1000000)]
+pub fn has_ipv6_support() -> bool {
+    std::net::UdpSocket::bind("[::]:0").is_ok()
 }
 
 pub async fn obtain_socket(
@@ -205,6 +216,7 @@ impl IpAddrExt for Ipv4Addr {
             && !self.is_link_local()
             && !self.is_broadcast()
             && !self.is_documentation()
+            && !self.is_multicast()
             // && !self.is_shared()
             // && !self.is_ietf_protocol_assignment()
             // && !self.is_reserved()
@@ -248,7 +260,7 @@ mod sockettest {
     use crate::assert_error_type;
     use crate::wait;
 
-    #[cfg(feature = " public-ip")]
+    #[cfg(feature = "public-ip")]
     #[test]
     fn test_retrieve_public_ip() {
         assert!(wait!(retrieve_public_ip()).is_ok());
