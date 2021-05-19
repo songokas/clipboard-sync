@@ -75,6 +75,9 @@ pub async fn receive_clipboard(
                 running.store(false, Ordering::Relaxed);
                 return Err(CliError::ArgumentError(e));
             }
+            Err(ConnectionError::Timeout(..)) => {
+                continue;
+            }
             Err(ConnectionError::IoError(e)) if e.kind() == std::io::ErrorKind::TimedOut => {
                 continue;
             }
@@ -317,8 +320,8 @@ async fn send_heartbeat(
         .or_insert(Instant::now());
 
     let last = heartbeat_cache[&group.name];
-    if last.elapsed().as_secs() > group.heartbeat {
-        let data = vec![1];
+    if last.elapsed().as_secs() >= group.heartbeat {
+        let data = last.elapsed().as_secs().to_be_bytes();
         heartbeat_cache.insert(group.name.clone(), Instant::now());
         match send_clipboard_to_group(pool, &data, &MessageType::Heartbeat, &group, timeout).await {
             Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
@@ -398,7 +401,10 @@ fn handle_receive(
 {
     let (message, group) = validate(buffer, groups)?;
     let bytes = decrypt(&message, identity, &group)?;
-    let data = uncompress(bytes)?;
+    let data = match message.message_type {
+        MessageType::Heartbeat => bytes,
+        _ => uncompress(bytes)?,
+    };
     return write_to(clipboard, &group, data, &message.message_type, identity);
 }
 

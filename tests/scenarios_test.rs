@@ -9,7 +9,8 @@ use std::time::Duration;
 
 const ANY_KEY: &'static str = "12345678912345678912345678912345";
 
-fn send_receive_once(protocol: &'static str, size: usize) {
+fn send_receive_once(protocol: &'static str, size: usize)
+{
     let bind_to = match protocol {
         #[cfg(feature = "quic-quinn")]
         "quic" => "[::1]:8923",
@@ -105,7 +106,8 @@ fn send_receive_once(protocol: &'static str, size: usize) {
 }
 
 #[test]
-fn test_send_receive_once() {
+fn test_send_receive_once()
+{
     for (protocol, size) in [
         ("basic", 10),
         ("basic", 10 * 1024 * 10),
@@ -127,7 +129,8 @@ fn test_send_receive_once() {
 #[test]
 #[ignore]
 //cargo test test_receive_once_multicast -- --ignored
-fn test_receive_once_multicast() {
+fn test_receive_once_multicast()
+{
     let t1 = thread::spawn(|| {
         run_command(
             vec![
@@ -152,7 +155,8 @@ fn test_receive_once_multicast() {
 #[test]
 #[ignore]
 // cargo test test_send_once_multicast -- --ignored
-fn test_send_once_multicast() {
+fn test_send_once_multicast()
+{
     let t2 = thread::spawn(move || {
         run_command(
             vec!["--key", ANY_KEY, "--send-once", "--clipboard", "/dev/stdin"],
@@ -166,7 +170,34 @@ fn test_send_once_multicast() {
     assert2.stderr(predicate::str::contains("count 1"));
 }
 
-fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output> {
+#[test]
+fn test_send_heartbeat()
+{
+    let t2 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--clipboard",
+                "/dev/stdin",
+                "--ignore-initial-clipboard",
+                "--heartbeat",
+                "1",
+                "--verbosity",
+                "debug",
+            ],
+            "hello",
+            3000,
+        )
+    });
+
+    let output2 = t2.join().unwrap().unwrap();
+    let assert2 = Assert::new(output2);
+    assert2.stderr(predicate::str::contains("heartbeat"));
+}
+
+fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output>
+{
     let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();
     for arg in args {
         cmd.arg(arg);
