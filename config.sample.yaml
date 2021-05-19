@@ -5,7 +5,8 @@ bind_addresses:
     - "[::]:8900"
   frames: "0.0.0.0:8901"
   laminar: "0.0.0.0:8902"
-  quic: "0.0.0.0:8903"
+  tcp: "0.0.0.0:8903" 
+  #quic: "0.0.0.0:8904"
 
 # optional unless using quic
 certificates:
@@ -16,6 +17,7 @@ certificates:
 # send_using_address and visible_ip are per group as well
 send_using_address: "0.0.0.0:8901"
 
+# if behind nat/incorrect ip is used
 visible_ip: "my-public-ip"
 
 # max bytes to receive per connection
