@@ -6,7 +6,7 @@ use std::time::Instant;
 use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
@@ -151,13 +151,21 @@ pub async fn send_clipboard(
     let timeout = |_: Duration| !running.load(Ordering::Relaxed);
     let mut last_error = None;
 
+    let paths_to_watch: HashSet<&str> = groups
+        .iter()
+        .filter(|g| g.clipboard != CLIPBOARD_NAME)
+        .map(|g| g.clipboard.as_ref())
+        .collect();
     let (fs_sender, fs_receiver) = fs_channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(100))?;
-    for group in &groups {
-        if group.clipboard != CLIPBOARD_NAME {
-            watcher.watch(&group.clipboard, RecursiveMode::NonRecursive)?;
+    let _watcher = if paths_to_watch.len() > 0 {
+        let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(100))?;
+        for path in paths_to_watch {
+            watcher.watch(path, RecursiveMode::NonRecursive)?;
         }
-    }
+        Some(watcher)
+    } else {
+        None
+    };
 
     while running.load(Ordering::Relaxed) {
         // filesystem events
@@ -200,7 +208,6 @@ pub async fn send_clipboard(
                     continue;
                 }
             };
-
             let entry_value = match hash_cache.get(&group.name) {
                 Some(val) => val.to_owned(),
                 None => {
@@ -315,7 +322,7 @@ async fn send_heartbeat(
         heartbeat_cache.insert(group.name.clone(), Instant::now());
         match send_clipboard_to_group(pool, &data, &MessageType::Heartbeat, &group, timeout).await {
             Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
-            Err(err) => error!("{:?}", err),
+            Err(err) => error!("Error heartbeat: {}", err),
         };
     }
 }
@@ -364,7 +371,15 @@ fn clipboard_to_bytes(
         }
         _ => {
             match clipboard.get_target_contents(ClipboardType::Text) {
-                Ok(contents) => return Some((hash(&contents), MessageType::Text, contents)),
+                Ok(contents) => {
+                    let hash = hash(&contents);
+                    if let Some(h) = existing_hash {
+                        if h == &hash {
+                            return None;
+                        }
+                    }
+                    return Some((hash, MessageType::Text, contents));
+                }
                 _ => {
                     warn!("Failed to retrieve contents");
                     return None;

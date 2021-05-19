@@ -68,7 +68,7 @@ async fn main() -> Result<(), CliError>
                         Some(path)
                     }
                     Err(e) => {
-                        error!("Unable to generate config {:?}", e);
+                        error!("Unable to generate config {}", e);
                         None
                     }
                 }
@@ -129,6 +129,11 @@ async fn main() -> Result<(), CliError>
 
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
+    let heartbeat = matches
+        .value_of("heartbeat")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let cli_protocol = Protocol::from(
             matches.value_of("protocol"),
@@ -170,7 +175,7 @@ async fn main() -> Result<(), CliError>
             send_using_address,
             clipboard: clipboard_type.to_owned(),
             protocol: cli_protocol.clone(),
-            heartbeat: 0,
+            heartbeat,
         }];
 
         let full_config = FullConfig::from_protocol_groups(
@@ -269,7 +274,7 @@ async fn main() -> Result<(), CliError>
                         info!("count {}", c);
                     }
                     Err(e) => {
-                        error!("error: {:?}", e);
+                        error!("error: {}", e);
                         result = Err(e);
                     }
                 }

@@ -84,3 +84,7 @@ args:
         long: receive-once-wait
         help: how many seconds to wait before quitting
         takes_value: true
+    - heartbeat:
+        long: heartbeat
+        help: "send heartbeat messages. default : 0"
+        takes_value: true
