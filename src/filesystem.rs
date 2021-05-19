@@ -15,7 +15,8 @@ use crate::errors::*;
 
 pub type DirStructure = Vec<(String, Vec<u8>)>;
 
-pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Vec<u8>, io::Error> {
+pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Vec<u8>, io::Error>
+{
     let mut f = File::open(path)?;
     let mut buffer = vec![0; max_size];
     let size_read = f.read(&mut buffer)?;
@@ -24,7 +25,8 @@ pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Vec<u8>, io
 }
 
 #[allow(unused_variables)]
-pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>, mode: u32) -> io::Result<()> {
+pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>, mode: u32) -> io::Result<()>
+{
     let mut opts = OpenOptions::new();
     opts.write(true).create(true).truncate(true);
 
@@ -34,13 +36,14 @@ pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>, mode: u32)
     opts.open(path.as_ref())?.write_all(contents.as_ref())
 }
 
-pub fn read_file_to_string<P: AsRef<Path>>(path: P, max_size: usize) -> Result<String, io::Error> {
+pub fn read_file_to_string<P: AsRef<Path>>(path: P, max_size: usize) -> Result<String, io::Error>
+{
     let buffer = read_file(path, max_size)?;
     return Ok(String::from_utf8_lossy(&buffer).to_string());
 }
 
-pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructure {
-
+pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructure
+{
     let mut hash = DirStructure::new();
     let walk = WalkDir::new(directory)
         .follow_links(false)
@@ -74,7 +77,8 @@ pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructu
     return hash;
 }
 
-pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError> {
+pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
+{
     if !Path::new(directory).exists() {
         return Err(EncryptionError::InvalidMessage(format!(
             "Directory {} does not exist",
@@ -90,7 +94,8 @@ pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError> {
     return Ok(add_bytes);
 }
 
-pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure {
+pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure
+{
     let mut hash = DirStructure::new();
     for file in files {
         let normalized_path = file.strip_prefix("file://").unwrap_or(file);
@@ -124,7 +129,8 @@ pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure {
     return hash;
 }
 
-pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError> {
+pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError>
+{
     let hash = files_to_dir_structure(files);
     if hash.is_empty() {
         return Ok(vec![]);
@@ -134,7 +140,8 @@ pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError> {
     return Ok(add_bytes);
 }
 
-pub fn bytes_to_dir(directory: &str, data: Vec<u8>, from: &str) -> Result<Vec<PathBuf>, io::Error> {
+pub fn bytes_to_dir(directory: &str, data: Vec<u8>, from: &str) -> Result<Vec<PathBuf>, io::Error>
+{
     if !Path::new(directory).exists() {
         fs::create_dir_all(directory)?;
     }
@@ -143,24 +150,26 @@ pub fn bytes_to_dir(directory: &str, data: Vec<u8>, from: &str) -> Result<Vec<Pa
     if let Ok(hash) = bincode::deserialize::<DirStructure>(&data) {
         for (file_name, data) in hash {
             let path = Path::new(directory).join(file_name);
-            fs::write(&path, data)?;
+            write_file(&path, data, 0o600)?;
             files_created.push(path);
         }
         return Ok(files_created);
     }
     let path = Path::new(directory).join(from);
-    fs::write(&path, data)?;
+    write_file(&path, data, 0o600)?;
     files_created.push(path);
     return Ok(files_created);
 }
 
 #[cfg(test)]
-mod filesystemtest {
+mod filesystemtest
+{
     use super::*;
     use std::str::FromStr;
 
     #[test]
-    fn test_read_file() {
+    fn test_read_file()
+    {
         let d: Vec<u8> = Vec::new();
         assert_eq!(d, read_file("./tests/temp1", 0).unwrap());
         assert_eq!(vec![116], read_file("./tests/temp1", 1).unwrap());
@@ -176,7 +185,8 @@ mod filesystemtest {
     }
 
     #[test]
-    fn test_read_to_string() {
+    fn test_read_to_string()
+    {
         assert_eq!("", read_file_to_string("./tests/temp1", 0).unwrap());
         assert_eq!("temp1", read_file_to_string("./tests/temp1", 5).unwrap());
         assert_eq!(
@@ -190,7 +200,8 @@ mod filesystemtest {
         assert_eq!(false, read_file_to_string("./tests/t1", 20).is_ok());
     }
 
-    fn dir_to_bytes_provider() -> Vec<(&'static str, Vec<u8>)> {
+    fn dir_to_bytes_provider() -> Vec<(&'static str, Vec<u8>)>
+    {
         fs::create_dir("./tests/empty/").unwrap_or(());
         return vec![
             ("./tests/empty/", vec![]),
@@ -204,7 +215,8 @@ mod filesystemtest {
         ];
     }
 
-    fn bytes_to_dir_provider() -> Vec<(Vec<PathBuf>, &'static str, Vec<u8>)> {
+    fn bytes_to_dir_provider() -> Vec<(Vec<PathBuf>, &'static str, Vec<u8>)>
+    {
         return vec![
             (
                 vec![
@@ -226,7 +238,8 @@ mod filesystemtest {
     }
 
     #[test]
-    fn test_dir_to_bytes() {
+    fn test_dir_to_bytes()
+    {
         for (path, expected_data) in dir_to_bytes_provider() {
             assert_eq!(expected_data, dir_to_bytes(path).unwrap());
         }
@@ -234,7 +247,8 @@ mod filesystemtest {
     }
 
     #[test]
-    fn test_bytes_to_dir() {
+    fn test_bytes_to_dir()
+    {
         for (expected_data, path, data_to_use) in bytes_to_dir_provider() {
             assert_eq!(
                 expected_data,

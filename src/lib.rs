@@ -243,7 +243,7 @@ mod runnertest
     #[test]
     fn test_start()
     {
-        let config = r#"{"key":"32323232323232323232323232323232","group":"","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":["0.0.0.0:15331"],"bind_address":["0.0.0.0:15330"],"heartbeat":0}"#;
+        let config = r#"{"key":"32323232323232323232323232323232","group":"default","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":["0.0.0.0:15331"],"bind_address":["0.0.0.0:15330"],"heartbeat":0}"#;
         assert_eq!(
             Ok(String::from("Started")),
             CURRENT_RUNTIME.block_on(start(config.to_owned()))

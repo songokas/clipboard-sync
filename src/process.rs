@@ -1,4 +1,5 @@
 use flume::{Receiver, Sender};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
@@ -6,9 +7,11 @@ use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
-use std::fs;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
+
+use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use std::sync::mpsc::channel as fs_channel;
 
 use crate::clipboards::{
     create_targets_for_cut_files, create_text_targets, Clipboard, ClipboardType,
@@ -148,7 +151,26 @@ pub async fn send_clipboard(
     let timeout = |_: Duration| !running.load(Ordering::Relaxed);
     let mut last_error = None;
 
+    let (fs_sender, fs_receiver) = fs_channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(100))?;
+    for group in &groups {
+        if group.clipboard != CLIPBOARD_NAME {
+            watcher.watch(&group.clipboard, RecursiveMode::NonRecursive)?;
+        }
+    }
+
     while running.load(Ordering::Relaxed) {
+        // filesystem events
+        while let Ok(DebouncedEvent::Write(path)) = fs_receiver.try_recv() {
+            let group_names = groups
+                .iter()
+                .filter(|group| PathBuf::from(&group.clipboard) == path)
+                .map(|g| &g.name);
+            for group_name in group_names {
+                hash_cache.remove(group_name);
+            }
+        }
+
         while let Ok((group_name, rhash)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
@@ -306,19 +328,19 @@ fn clipboard_group_to_bytes(
 {
     if group.clipboard == CLIPBOARD_NAME {
         return clipboard_to_bytes(clipboard, existing_hash);
-    } else if group.clipboard.ends_with("/") {
-        //@TODO do not read directory every time
-        match dir_to_bytes(&group.clipboard) {
-            Ok(bytes) => return Some((hash(&bytes), MessageType::Directory, bytes)),
-            Err(_) => return None,
-        };
-    } else {
-        //@TODO do not read file every time
+    } else if existing_hash.is_none() && Path::new(&group.clipboard).exists() {
+        if Path::new(&group.clipboard).is_dir() {
+            match dir_to_bytes(&group.clipboard) {
+                Ok(bytes) => return Some((hash(&bytes), MessageType::Directory, bytes)),
+                Err(_) => return None,
+            };
+        }
         match read_file(&group.clipboard, MAX_FILE_SIZE) {
             Ok(bytes) => return Some((hash(&bytes), MessageType::File, bytes)),
             Err(_) => return None,
         };
     }
+    return None;
 }
 
 fn clipboard_to_bytes(
@@ -407,13 +429,13 @@ fn write_to(
                 return Ok((hash, group.name.clone()));
             }
         };
-    } else if group.clipboard.ends_with("/") {
+    } else if group.clipboard.ends_with("/") || Path::new(&group.clipboard).is_dir() {
         let hash = hash(&data);
         bytes_to_dir(&group.clipboard, data, &identity.to_string())?;
         return Ok((hash, group.name.clone()));
     }
     let hash = hash(&data);
-    fs::write(&group.clipboard, data)?;
+    write_file(&group.clipboard, data, 0o600)?;
     return Ok((hash, group.name.clone()));
 }
 
@@ -515,17 +537,6 @@ mod processtest
             timeout,
         ));
         assert_eq!(result.unwrap(), 0);
-
-        // let result = wait!(send_clipboard_to_group(
-        //     b"test",
-        //     &MessageType::Text,
-        //     &Group::from_addr("me", "0.0.0.0:8801", "1.1.1.1:8093"),
-        //     timeout,
-        // ));
-        // assert_error_type!(
-        //     result,
-        //     ClipboardError::ConnectionError(ConnectionError::NoPublic(_))
-        // );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -537,9 +548,7 @@ mod processtest
         let mut group = Group::from_addr("test1", "127.0.0.1:8391", "127.0.0.1:8392");
         group.clipboard = "/tmp/twtest1".to_owned();
         let (tx, rx) = flume::bounded(MAX_CHANNEL);
-        let atx = Arc::new(tx);
         let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
-        let sender = Arc::new(stat_sender);
         let running = Arc::new(AtomicBool::new(true));
         let local_address: SocketAddr = "127.0.0.1:8392".parse().unwrap();
         let config = FullConfig::from_protocol_groups(
@@ -557,12 +566,12 @@ mod processtest
         let r = tokio::spawn(receive_clipboard(
             pool.clone(),
             clipboards,
-            atx,
+            tx,
             local_address,
             Arc::clone(&running),
             config.clone(),
             protocol,
-            Arc::clone(&sender),
+            stat_sender.clone(),
             false,
         ));
         let s = tokio::spawn(send_clipboard(
@@ -571,7 +580,7 @@ mod processtest
             rx,
             Arc::clone(&running),
             config,
-            Arc::clone(&sender),
+            stat_sender.clone(),
             false,
         ));
         let t: JoinHandle<Result<(), String>> = tokio::spawn(async move {
@@ -605,9 +614,7 @@ mod processtest
         let mut group = Group::from_addr("test1", "127.0.0.1:8393", "127.0.0.1:8394");
         group.clipboard = "/tmp/twtest1".to_owned();
         let (tx, _rx) = flume::bounded(MAX_CHANNEL);
-        let atx = Arc::new(tx);
         let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
-        let sender = Arc::new(stat_sender);
         let running = Arc::new(AtomicBool::new(true));
         let local_address: SocketAddr = "127.0.0.1:8394".parse().unwrap();
         let config = FullConfig::from_protocol_groups(
@@ -625,12 +632,12 @@ mod processtest
         let r = tokio::spawn(receive_clipboard(
             pool.clone(),
             clipboard,
-            atx,
+            tx,
             local_address,
             running,
             config,
             protocol,
-            sender,
+            stat_sender,
             false,
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
@@ -695,11 +702,29 @@ mod processtest
         );
 
         group.clipboard = "tests/test-dir".to_owned();
+
         let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
-        assert_eq!(res, None);
+        assert_eq!(
+            res,
+            Some((
+                "12908774274447230140".to_owned(),
+                MessageType::Directory,
+                vec![
+                    2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 97, 1, 0, 0, 0, 0, 0, 0, 0, 97,
+                    1, 0, 0, 0, 0, 0, 0, 0, 98, 1, 0, 0, 0, 0, 0, 0, 0, 98
+                ]
+            ))
+        );
 
         group.clipboard = "tests/non-existing".to_owned();
         let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
         assert_eq!(res, None);
+    }
+
+    #[test]
+    fn test_path_buf_comparison()
+    {
+        assert!(PathBuf::from("/tmp/") == PathBuf::from("/tmp"));
+        assert!(Path::new("/tmp/").is_dir());
     }
 }
