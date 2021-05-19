@@ -161,7 +161,7 @@ pub async fn send_clipboard(
         .collect();
     let (fs_sender, fs_receiver) = fs_channel();
     let _watcher = if paths_to_watch.len() > 0 {
-        let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(100))?;
+        let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(1))?;
         for path in paths_to_watch {
             watcher.watch(path, RecursiveMode::NonRecursive)?;
         }
@@ -172,13 +172,20 @@ pub async fn send_clipboard(
 
     while running.load(Ordering::Relaxed) {
         // filesystem events
-        while let Ok(DebouncedEvent::Write(path)) = fs_receiver.try_recv() {
-            let group_names = groups
+        loop {
+            let path = match fs_receiver.try_recv() {
+                Ok(DebouncedEvent::Write(path)) => path,
+                _ => break,
+            };
+
+            let group_names: Vec<String> = groups
                 .iter()
                 .filter(|group| PathBuf::from(&group.clipboard) == path)
-                .map(|g| &g.name);
+                .map(|g| g.name.clone())
+                .collect();
+
             for group_name in group_names {
-                hash_cache.remove(group_name);
+                hash_cache.remove(&group_name);
             }
         }
 
