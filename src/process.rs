@@ -6,12 +6,9 @@ use std::time::Instant;
 use tokio::time::{sleep, Duration};
 
 use log::{debug, error, info, warn};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
-
-use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use std::sync::mpsc::channel as fs_channel;
 
 use crate::clipboards::{
     create_targets_for_cut_files, create_text_targets, Clipboard, ClipboardType,
@@ -25,6 +22,7 @@ use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
 use crate::identity::{retrieve_identity, Identity};
 use crate::message::*;
 use crate::multicast::Multicast;
+use crate::notify::{create_watch_paths, watch_changed_paths};
 use crate::protocols::{receive_data, send_data, Protocol, SocketPool};
 use crate::socket::*;
 
@@ -48,7 +46,7 @@ pub async fn receive_clipboard(
     let groups = config.groups;
     let encryptor = GroupsEncryptor::new(groups.clone());
 
-    info!("Listen on {}", local_address);
+    info!("Listen on {} protocol {}", local_address, protocol);
 
     if let Some(s) = local_socket.socket() {
         multicast
@@ -154,38 +152,23 @@ pub async fn send_clipboard(
     let timeout = |_: Duration| !running.load(Ordering::Relaxed);
     let mut last_error = None;
 
-    let paths_to_watch: HashSet<&str> = groups
-        .iter()
-        .filter(|g| g.clipboard != CLIPBOARD_NAME)
-        .map(|g| g.clipboard.as_ref())
-        .collect();
-    let (fs_sender, fs_receiver) = fs_channel();
-    let _watcher = if paths_to_watch.len() > 0 {
-        let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(1))?;
-        for path in paths_to_watch {
-            watcher.watch(path, RecursiveMode::NonRecursive)?;
-        }
-        Some(watcher)
-    } else {
-        None
-    };
+    let mut paths_to_watch: HashMap<PathBuf, Vec<&str>> = HashMap::new();
+
+    for group in &groups {
+        let key = PathBuf::from(&group.clipboard);
+        paths_to_watch
+            .entry(key)
+            .and_modify(|v| v.push(group.name.as_ref()))
+            .or_insert(vec![group.name.as_ref()]);
+    }
+    let mut watcher = create_watch_paths(&paths_to_watch);
 
     while running.load(Ordering::Relaxed) {
-        // filesystem events
-        loop {
-            let path = match fs_receiver.try_recv() {
-                Ok(DebouncedEvent::Write(path)) => path,
-                _ => break,
-            };
-
-            let group_names: Vec<String> = groups
-                .iter()
-                .filter(|group| PathBuf::from(&group.clipboard) == path)
-                .map(|g| g.name.clone())
-                .collect();
-
-            for group_name in group_names {
-                hash_cache.remove(&group_name);
+        if let Ok((ref mut watcher, ref receiver)) = watcher {
+            for (_, group_names) in watch_changed_paths(watcher, receiver, &paths_to_watch) {
+                for group_name in group_names {
+                    hash_cache.insert(group_name.to_owned().to_string(), "".to_owned());
+                }
             }
         }
 
@@ -345,7 +328,12 @@ fn clipboard_group_to_bytes(
 {
     if group.clipboard == CLIPBOARD_NAME {
         return clipboard_to_bytes(clipboard, existing_hash);
-    } else if existing_hash.is_none() && Path::new(&group.clipboard).exists() {
+    } else if Path::new(&group.clipboard).exists() {
+        if let Some(h) = existing_hash {
+            if h.len() > 0 {
+                return None;
+            }
+        }
         if Path::new(&group.clipboard).is_dir() {
             match dir_to_bytes(&group.clipboard) {
                 Ok(bytes) => return Some((hash(&bytes), MessageType::Directory, bytes)),

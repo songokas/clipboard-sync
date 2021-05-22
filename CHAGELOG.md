@@ -1,7 +1,6 @@
 ## [Unreleased]
 - quic quinn protocol implementation lacks client verification, version negotiation, retry token
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
-- 
 
 ## [1.2.0] - 2021-05-19
 

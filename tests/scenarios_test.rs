@@ -2,6 +2,7 @@ use assert_cmd::assert::Assert;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use rand::{distributions::Alphanumeric, Rng};
+use std::fs::{create_dir_all, remove_dir, remove_file, write};
 use std::io;
 use std::process;
 use std::thread;
@@ -44,7 +45,7 @@ fn send_receive_once(protocol: &'static str, size: usize)
                 "tests/certs/localhost.crt",
             ],
             "",
-            4000,
+            7000,
         )
     });
 
@@ -110,7 +111,7 @@ fn test_send_receive_once()
 {
     for (protocol, size) in [
         ("basic", 10),
-        ("basic", 10 * 1024 * 10),
+        // ("basic", 10 * 1024 * 10),
         ("tcp", 10 * 1024 * 10),
         #[cfg(feature = "frames")]
         ("frames", 10 * 1024 * 10),
@@ -194,6 +195,130 @@ fn test_send_heartbeat()
     let output2 = t2.join().unwrap().unwrap();
     let assert2 = Assert::new(output2);
     assert2.stderr(predicate::str::contains("heartbeat"));
+}
+
+#[test]
+fn test_file_changes()
+{
+    let file = "/tmp/test_file_changes";
+    write(file, b"testdata1").unwrap();
+    let t2 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--clipboard",
+                file,
+                "--ignore-initial-clipboard",
+                "--verbosity",
+                "debug",
+            ],
+            "hello",
+            3000,
+        )
+    });
+    thread::sleep(Duration::from_millis(100));
+    write(file, b"testdata2").unwrap();
+    let output2 = t2.join().unwrap().unwrap();
+    remove_file(file).unwrap();
+
+    let assert2 = Assert::new(output2);
+    assert2.stderr(predicate::str::contains("Sent bytes"));
+}
+
+#[test]
+fn test_file_changes_created_after_startup()
+{
+    let file = "/tmp/test_file_changes_created_after_startup";
+    let t2 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--clipboard",
+                file,
+                "--ignore-initial-clipboard",
+                "--verbosity",
+                "debug",
+            ],
+            "hello",
+            3000,
+        )
+    });
+    thread::sleep(Duration::from_millis(100));
+    write(file, b"testdata2").unwrap();
+    let output2 = t2.join().unwrap().unwrap();
+    remove_file(file).unwrap();
+
+    let assert2 = Assert::new(output2);
+    assert2.stderr(predicate::str::contains("Sent bytes"));
+}
+
+#[test]
+fn test_directory_changes()
+{
+    let dir = "/tmp/test_directory_changes";
+    create_dir_all(dir).unwrap();
+    let file = format!("{}/_random_file", dir);
+    write(&file, b"testdata1").unwrap();
+    let t2 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--clipboard",
+                dir,
+                "--ignore-initial-clipboard",
+                "--verbosity",
+                "debug",
+            ],
+            "hello",
+            3000,
+        )
+    });
+    thread::sleep(Duration::from_millis(200));
+    write(&file, b"testdata2").unwrap();
+    let output2 = t2.join().unwrap().unwrap();
+    remove_file(&file).unwrap();
+    remove_dir(dir).unwrap();
+
+    let assert2 = Assert::new(output2);
+    assert2.stderr(predicate::str::contains("Sent bytes"));
+}
+
+#[test]
+fn test_directory_changes_created_after_startup()
+{
+    let dir = "/tmp/test_directory_changes_created_after_startup";
+    let file = format!("{}/file", dir);
+    remove_file(&file).unwrap_or(());
+    remove_dir(dir).unwrap_or(());
+    let t2 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--clipboard",
+                dir,
+                "--ignore-initial-clipboard",
+                "--verbosity",
+                "debug",
+            ],
+            "hello",
+            6000,
+        )
+    });
+    thread::sleep(Duration::from_millis(1000));
+    create_dir_all(dir).unwrap();
+    // there is a delay between listen for directory and writting to file in that directory
+    thread::sleep(Duration::from_millis(3000));
+    write(&file, b"testdata1").unwrap();
+    let output2 = t2.join().unwrap().unwrap();
+    remove_file(&file).unwrap();
+    remove_dir(dir).unwrap();
+
+    let assert2 = Assert::new(output2);
+    assert2.stderr(predicate::str::contains("Sent bytes"));
 }
 
 fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output>

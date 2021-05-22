@@ -24,6 +24,7 @@ mod fragmenter;
 mod identity;
 mod message;
 mod multicast;
+mod notify;
 mod process;
 mod protocols;
 mod runner;
