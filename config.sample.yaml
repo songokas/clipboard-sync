@@ -36,19 +36,18 @@ groups:
       - "192.168.0.153:8900"
       - "192.168.0.54:20034"
     clipboard: clipboard # can be clipboard, /path/to/file , /path/to/directory/
-  local_network: 
+  local_network:  # allowed_hosts default to local network multicast
     key: "32323232323232323232323232323232"
-    # allowed_hosts default to local network multicast
-  external:
+  nat_traversal_client1:
     key: "32323232323232323232323232323232"
-    visible_ip: "2.2.2.2"
+    visible_ip: "2.2.2.2" # if not provided defaults to public ip when sending to external networks
     send_using_address:
       - "0.0.0.0:8900"
       - "[::]:8900"
-    heartbeat: 20
+    heartbeat: 20 # send dummy packet every 20 seconds
     allowed_hosts:
       - "external.net:8900"
-  nat_traversal: # on the other host
+  nat_traversal_client2: # on the other host
     key: "32323232323232323232323232323232"
     visible_ip: "external.net"
     send_using_address: "0.0.0.0:8900"

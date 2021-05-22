@@ -45,7 +45,7 @@ fn send_receive_once(protocol: &'static str, size: usize)
                 "tests/certs/localhost.crt",
             ],
             "",
-            7000,
+            10000,
         )
     });
 
@@ -60,6 +60,8 @@ fn send_receive_once(protocol: &'static str, size: usize)
         "quic" => "localhost:8923",
         _ => "127.0.0.1:8923",
     };
+
+    thread::sleep(Duration::from_millis(100));
 
     let t2 = thread::spawn(move || {
         run_command(
