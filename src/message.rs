@@ -1,4 +1,4 @@
-use chacha20poly1305::{Key, Nonce};
+use chacha20poly1305::{Key, XNonce};
 use serde::{de, Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -39,15 +39,15 @@ mod serde_nonce
     use super::*;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(nonce: &Nonce, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S: Serializer>(nonce: &XNonce, serializer: S) -> Result<S::Ok, S::Error>
     {
         serializer.serialize_bytes(nonce)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Nonce, D::Error>
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<XNonce, D::Error>
     {
         let nonce_data: Vec<u8> = Deserialize::deserialize(deserializer)?;
-        Ok(Nonce::from_slice(&nonce_data).clone())
+        Ok(XNonce::from_slice(&nonce_data).clone())
     }
 }
 
@@ -83,7 +83,7 @@ impl std::fmt::Display for MessageType
 pub struct Message
 {
     #[serde(with = "serde_nonce")]
-    pub nonce: Nonce,
+    pub nonce: XNonce,
     pub group: String,
     pub text: Vec<u8>,
     pub message_type: MessageType,
@@ -130,7 +130,7 @@ impl Message
     pub fn from_group(name: &str) -> Self
     {
         return Message {
-            nonce: Nonce::from_slice(b"123456789101").clone(),
+            nonce: XNonce::from_slice(b"123456789101123456789101").clone(),
             group: name.to_owned(),
             text: [1, 2, 4].to_vec(),
             message_type: MessageType::Text,

@@ -440,7 +440,7 @@ mod quichetest
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
 
-        let group = Group::from_name("test1");
+        let group = Group::from_addr("test1", "127.0.0.1:9957", "127.0.0.1:9957");
         let groups = vec![group.clone()];
 
         let enc_r = GroupsEncryptor::new(groups);

@@ -394,7 +394,7 @@ fn handle_receive(
     groups: &[Group],
 ) -> Result<(String, String), ClipboardError>
 {
-    let (message, group) = validate(buffer, groups)?;
+    let (message, group) = validate(buffer, groups, identity)?;
     let bytes = decrypt(&message, identity, &group)?;
     let data = match message.message_type {
         MessageType::Heartbeat => bytes,
@@ -543,7 +543,7 @@ mod processtest
             &Group::from_addr("me", "127.0.0.1:0", "127.0.0.1:8093"),
             timeout,
         ));
-        assert_eq!(result.unwrap(), 62);
+        assert_eq!(result.unwrap(), 74);
 
         let result = wait!(send_clipboard_to_group(
             &pool,
@@ -658,7 +658,7 @@ mod processtest
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let sent = send_clipboard_contents(&pool, "test1".to_string(), &group).await;
-            assert_eq!(74, sent.unwrap());
+            assert_eq!(86, sent.unwrap());
             srunning.store(false, Ordering::Relaxed);
             sleep(Duration::from_millis(100)).await;
             Ok(())

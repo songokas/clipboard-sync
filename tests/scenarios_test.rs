@@ -17,6 +17,12 @@ fn send_receive_once(protocol: &'static str, size: usize)
         "quic" => "[::1]:8923",
         _ => "127.0.0.1:8923",
     };
+
+    let allowed_host = match protocol {
+        #[cfg(feature = "quic-quinn")]
+        "quic" => "[::1]:0",
+        _ => "127.0.0.1:0",
+    };
     let t1 = thread::spawn(move || {
         run_command(
             vec![
@@ -26,7 +32,7 @@ fn send_receive_once(protocol: &'static str, size: usize)
                 bind_to,
                 "--receive-once",
                 "--allowed-host",
-                "127.0.0.1:0",
+                allowed_host,
                 "--receive-once-wait",
                 "1",
                 "--protocol",
@@ -98,8 +104,8 @@ fn send_receive_once(protocol: &'static str, size: usize)
     let output1 = t1.join().unwrap().unwrap();
     let output2 = t2.join().unwrap().unwrap();
 
-    println!("{} {:?}", protocol, output1);
-    println!("{} {:?}", protocol, output2);
+    // println!("{} {:?}", protocol, output1);
+    // println!("{} {:?}", protocol, output2);
 
     let assert1 = Assert::new(output1);
     let assert2 = Assert::new(output2);

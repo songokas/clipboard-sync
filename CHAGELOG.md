@@ -13,6 +13,30 @@
 
 ### Changed
 - reuse receiver socket for sending
-- configuration bind_address, send_using_address can take multiple values
-- cli arguments bind-address, send-using-address can take multiple values separated by comma
+- cli and configuration bind_address, send_using_address can take multiple values
 
+## [1.1.0] - 2021-02-27
+
+### Added
+
+* linux handle different clipboards
+* ipv6 multicast
+* use bind address from cli as default
+* default key from cli
+### Fixed
+
+* frames protocol
+
+## [1.0.0] - 2021-02-01
+
+### Added
+
+* linux copy files
+* visible ip added
+* receive once timeout
+* path synchronization
+* message type to identify clipboard format added
+* clipboard using targets
+### Fixed
+
+* multicast ignore loop

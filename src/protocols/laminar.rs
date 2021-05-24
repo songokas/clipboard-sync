@@ -231,7 +231,7 @@ mod laminartest
         let data_sent = random(size);
         let for_sending = data_sent.clone();
 
-        let group = Group::from_name("test1");
+        let group = Group::from_addr("test1", "127.0.0.1:39836", "127.0.0.1:39836");
         let groups = vec![group.clone()];
 
         let enc_r = GroupsEncryptor::new(groups);

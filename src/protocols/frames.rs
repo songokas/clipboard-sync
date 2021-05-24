@@ -288,11 +288,12 @@ mod framestest
     )
     {
         // env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+        let client_str = format!("127.0.0.1:993{}", port + 1);
         let local_server: SocketAddr = format!("127.0.0.1:993{}", port).parse().unwrap();
-        let local_client: SocketAddr = format!("127.0.0.1:993{}", port + 1).parse().unwrap();
+        let local_client: SocketAddr = client_str.parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
-        let group = Group::from_name("test1");
+        let group = Group::from_addr("test1", &client_str, &client_str);
         let groups = vec![group.clone()];
 
         let enc_r = GroupsEncryptor::new(groups);
@@ -341,7 +342,7 @@ mod framestest
         let (data_received, addr) = res.1.unwrap();
 
         assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, 10498210);
+        assert_eq!(data_len_sent, 10500202);
         assert_eq!(expected_data.len(), data_received.len());
         assert_eq!(expected_data, data_received);
     }
