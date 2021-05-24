@@ -5,7 +5,6 @@ use log::debug;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::time::Instant;
-use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
@@ -60,31 +59,6 @@ impl std::fmt::Display for Destination
     {
         write!(f, "host: {} destination: {}", self.host(), self.addr())
     }
-}
-
-#[cached(
-    create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
-    type = "TimedSizedCache<String, SocketAddr>",
-    convert = r#"{ format!("{}", socket_addr.as_ref()) }"#,
-    result = true
-)]
-pub async fn to_socket(socket_addr: impl AsRef<str>) -> Result<SocketAddr, DnsError>
-{
-    let to_err = |e| {
-        DnsError::Failed(format!(
-            "Unable to retrieve ip for {}. Message: {}",
-            socket_addr.as_ref(),
-            e
-        ))
-    };
-    for addr in lookup_host(socket_addr.as_ref()).await.map_err(to_err)? {
-        debug!("Retrieved socket {} for dns {}", addr, socket_addr.as_ref());
-        return Ok(addr);
-    }
-    return Err(DnsError::Failed(format!(
-        "Unable to retrieve ip for {}",
-        socket_addr.as_ref()
-    )));
 }
 
 #[cached(
@@ -330,16 +304,16 @@ mod sockettest
         assert!(wait!(retrieve_local_address(&vec![l], &r)).is_ok());
     }
 
-    #[test]
-    fn test_to_socket()
-    {
-        wait!(to_socket("google.com:0")).unwrap();
-        let s = wait!(to_socket("1.1.1.1:0")).unwrap();
-        assert_eq!("1.1.1.1:0".parse::<SocketAddr>().unwrap(), s);
+    // #[test]
+    // fn test_to_socket()
+    // {
+    //     wait!(to_socket("google.com:0")).unwrap();
+    //     let s = wait!(to_socket("1.1.1.1:0")).unwrap();
+    //     assert_eq!("1.1.1.1:0".parse::<SocketAddr>().unwrap(), s);
 
-        let s = wait!(to_socket("abc"));
-        assert_error_type!(s, DnsError::Failed(_));
-    }
+    //     let s = wait!(to_socket("abc"));
+    //     assert_error_type!(s, DnsError::Failed(_));
+    // }
 
     #[test]
     fn test_to_socket_addr()

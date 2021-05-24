@@ -163,15 +163,7 @@ pub async fn send_clipboard(
     }
     let mut watcher = create_watch_paths(&paths_to_watch);
 
-    while running.load(Ordering::Relaxed) {
-        if let Ok((ref mut watcher, ref receiver)) = watcher {
-            for (_, group_names) in watch_changed_paths(watcher, receiver, &paths_to_watch) {
-                for group_name in group_names {
-                    hash_cache.insert(group_name.to_owned().to_string(), "".to_owned());
-                }
-            }
-        }
-
+    let hash_update = |hash_cache: &mut HashMap<String, String>| {
         while let Ok((group_name, rhash)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
@@ -185,6 +177,18 @@ pub async fn send_clipboard(
                 );
             }
         }
+    };
+
+    while running.load(Ordering::Relaxed) {
+        if let Ok((ref mut watcher, ref receiver)) = watcher {
+            for (_, group_names) in watch_changed_paths(watcher, receiver, &paths_to_watch) {
+                for group_name in group_names {
+                    hash_cache.insert(group_name.to_owned().to_string(), "".to_owned());
+                }
+            }
+        }
+
+        hash_update(&mut hash_cache);
 
         for group in &groups {
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
@@ -201,6 +205,8 @@ pub async fn send_clipboard(
                     continue;
                 }
             };
+            hash_update(&mut hash_cache);
+
             let entry_value = match hash_cache.get(&group.name) {
                 Some(val) => val.to_owned(),
                 None => {
@@ -468,7 +474,7 @@ async fn send_clipboard_to_group(
     let callback = |d: Duration| d > Duration::from_millis(2000);
 
     for remote_host in &group.allowed_hosts {
-        let addr = match to_socket(remote_host).await {
+        let addr = match to_socket_address(remote_host) {
             Ok(a) => a,
             Err(e) => {
                 warn!("{:?}", e);

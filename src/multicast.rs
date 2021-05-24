@@ -6,14 +6,17 @@ use std::net::IpAddr;
 use tokio::net::UdpSocket;
 
 use crate::message::Group;
-use crate::socket::to_socket;
+use crate::socket::to_socket_address;
 
-pub struct Multicast {
+pub struct Multicast
+{
     cache: HashMap<IpAddr, bool>,
 }
 
-impl Multicast {
-    pub fn new() -> Self {
+impl Multicast
+{
+    pub fn new() -> Self
+    {
         return Multicast {
             cache: HashMap::new(),
         };
@@ -24,7 +27,8 @@ impl Multicast {
         sock: &UdpSocket,
         interface_addr: &IpAddr,
         remote_ip: &IpAddr,
-    ) -> bool {
+    ) -> bool
+    {
         if self.cache.contains_key(&remote_ip) {
             return true;
         }
@@ -58,10 +62,11 @@ impl Multicast {
         }
     }
 
-    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr) {
+    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
+    {
         for group in groups {
             for remote_host in &group.allowed_hosts {
-                let addr = match to_socket(remote_host).await {
+                let addr = match to_socket_address(remote_host) {
                     Ok(a) => a,
                     _ => {
                         warn!("Unable to parse or retrieve address for {}", remote_host);

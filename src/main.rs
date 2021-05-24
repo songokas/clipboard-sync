@@ -121,9 +121,7 @@ async fn main() -> Result<(), CliError>
     let system_default_host = || DEFAULT_ALLOWED_HOST;
 
     let default_host = match matches.value_of("protocol") {
-        Some(v) if v == Protocol::Basic.to_string() || v == Protocol::Laminar.to_string() => {
-            system_default_host()
-        }
+        Some(v) if v == Protocol::Basic.to_string() => system_default_host(),
         Some(_) => "",
         _ => system_default_host(),
     };
