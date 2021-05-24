@@ -1,6 +1,5 @@
 use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
-// use crate::socket::Timeout;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Instant;
