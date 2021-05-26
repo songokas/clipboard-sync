@@ -3,6 +3,7 @@
 use flume::Receiver;
 #[cfg(target_os = "android")]
 use flume::Sender;
+use indexmap::{indexmap, IndexSet};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -32,9 +33,9 @@ pub struct AndroidConfig
     key: String,
     group: String,
     protocol: String,
-    hosts: Vec<String>,
-    send_using_address: Vec<SocketAddr>,
-    bind_address: Vec<SocketAddr>,
+    hosts: IndexSet<String>,
+    send_using_address: IndexSet<SocketAddr>,
+    bind_address: IndexSet<SocketAddr>,
     visible_ip: Option<String>,
     heartbeat: u64,
 }
@@ -129,7 +130,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
     .map_err(|e| e.to_string())?;
 
     let group = Group {
-        name: config.group,
+        name: config.group.clone(),
         allowed_hosts: config.hosts,
         key: key,
         visible_ip: config.visible_ip,
@@ -138,7 +139,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         protocol: protocol.clone(),
         heartbeat: config.heartbeat,
     };
-    let groups = vec![group];
+    let groups = indexmap! { config.group => group };
     let full_config = FullConfig::from_protocol_groups(
         protocol,
         socket_address,

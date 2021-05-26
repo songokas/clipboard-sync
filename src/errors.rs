@@ -44,7 +44,10 @@ pub enum ConnectionError
     },
     #[error(transparent)]
     IoError(#[from] io::Error),
-    #[error("Failed to parse address")]
+
+    #[error("Failed to bind {0}. {1}")]
+    BindError(std::net::SocketAddr, io::Error),
+    #[error(transparent)]
     SocketError(#[from] std::net::AddrParseError),
     #[error("{0}")]
     FailedToConnect(String),

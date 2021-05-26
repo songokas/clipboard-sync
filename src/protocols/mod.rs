@@ -1,3 +1,4 @@
+use indexmap::IndexSet;
 use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
@@ -31,7 +32,8 @@ use crate::socket::{get_matching_address, Destination};
 use quinn::{Endpoint, Incoming};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Protocol {
+pub enum Protocol
+{
     Basic,
     #[cfg(feature = "frames")]
     Frames,
@@ -41,8 +43,10 @@ pub enum Protocol {
     Tcp,
 }
 
-impl Protocol {
-    pub fn requires_public_key(&self) -> bool {
+impl Protocol
+{
+    pub fn requires_public_key(&self) -> bool
+    {
         #[cfg(feature = "quic")]
         if let Self::Quic(_) = self {
             return true;
@@ -54,7 +58,8 @@ impl Protocol {
     pub fn from(
         protocol_opt: Option<&str>,
         #[cfg(feature = "quic")] certs_callback: impl Fn() -> Result<Certificates, CliError>,
-    ) -> Result<Protocol, CliError> {
+    ) -> Result<Protocol, CliError>
+    {
         let protocol = match protocol_opt {
             #[cfg(feature = "quic")]
             Some(v) if v == "quic" => {
@@ -78,8 +83,10 @@ impl Protocol {
     }
 }
 
-impl fmt::Display for Protocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Protocol
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
         return match self {
             #[cfg(feature = "quic")]
             Self::Quic(_) => write!(f, "quic"),
@@ -92,7 +99,8 @@ impl fmt::Display for Protocol {
     }
 }
 
-pub enum LocalSocket {
+pub enum LocalSocket
+{
     Socket(Arc<UdpSocket>),
     Laminar(laminarpr::LaminarSocket),
     Tcp(Mutex<TcpSocket>),
@@ -102,36 +110,42 @@ pub enum LocalSocket {
 }
 
 #[allow(irrefutable_let_patterns)]
-impl LocalSocket {
-    pub fn socket(&self) -> Option<Arc<UdpSocket>> {
+impl LocalSocket
+{
+    pub fn socket(&self) -> Option<Arc<UdpSocket>>
+    {
         if let Self::Socket(s) = self {
             return Some(Arc::clone(&s));
         }
         return None;
     }
 
-    pub fn tcp_listener(&self) -> Option<&TcpListener> {
+    pub fn tcp_listener(&self) -> Option<&TcpListener>
+    {
         if let Self::TcpListener(s) = self {
             return Some(&s);
         }
         return None;
     }
 
-    pub fn tcp_consume(self) -> Option<TcpSocket> {
+    pub fn tcp_consume(self) -> Option<TcpSocket>
+    {
         if let Self::Tcp(s) = self {
             return Some(s.into_inner());
         }
         return None;
     }
 
-    pub fn laminar_sender(&self) -> Option<laminarpr::LaminarSender> {
+    pub fn laminar_sender(&self) -> Option<laminarpr::LaminarSender>
+    {
         if let Self::Laminar(a) = self {
             return Some(a.get_sender());
         }
         return None;
     }
 
-    pub fn laminar_receiver(&self) -> Option<laminarpr::LaminarReceiver> {
+    pub fn laminar_receiver(&self) -> Option<laminarpr::LaminarReceiver>
+    {
         if let Self::Laminar(a) = self {
             return Some(a.get_receiver());
         }
@@ -139,7 +153,8 @@ impl LocalSocket {
     }
 
     #[cfg(feature = "quinn")]
-    pub fn quinn_client(&self) -> Option<&Endpoint> {
+    pub fn quinn_client(&self) -> Option<&Endpoint>
+    {
         if let Self::Quinn((c, _)) = self {
             return Some(c);
         }
@@ -147,7 +162,8 @@ impl LocalSocket {
     }
 
     #[cfg(feature = "quinn")]
-    pub fn quinn_server(&self) -> Option<Arc<Mutex<Incoming>>> {
+    pub fn quinn_server(&self) -> Option<Arc<Mutex<Incoming>>>
+    {
         if let Self::Quinn((_, s)) = self {
             return Some(s.clone());
         }
@@ -157,12 +173,15 @@ impl LocalSocket {
 
 type LocalSocketPool = HashMap<SocketAddr, Arc<LocalSocket>>;
 
-pub struct SocketPool {
+pub struct SocketPool
+{
     pool: Mutex<LocalSocketPool>,
 }
 
-impl SocketPool {
-    pub fn new() -> Self {
+impl SocketPool
+{
+    pub fn new() -> Self
+    {
         return SocketPool {
             pool: Mutex::new(LocalSocketPool::new()),
         };
@@ -170,10 +189,11 @@ impl SocketPool {
 
     pub async fn obtain_client_socket(
         &self,
-        local_addresses: &Vec<SocketAddr>,
+        local_addresses: &IndexSet<SocketAddr>,
         remote_address: &SocketAddr,
         protocol: &Protocol,
-    ) -> Result<Arc<LocalSocket>, ConnectionError> {
+    ) -> Result<Arc<LocalSocket>, ConnectionError>
+    {
         let local_address =
             get_matching_address(local_addresses, remote_address).ok_or_else(|| {
                 ConnectionError::FailedToConnect(format!(
@@ -219,7 +239,8 @@ impl SocketPool {
         &self,
         local_address: SocketAddr,
         protocol: &Protocol,
-    ) -> Result<Arc<LocalSocket>, ConnectionError> {
+    ) -> Result<Arc<LocalSocket>, ConnectionError>
+    {
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {
@@ -241,7 +262,9 @@ impl SocketPool {
                 return Ok(Arc::new(LocalSocket::TcpListener(listener)));
             }
             _ => {
-                let socket = UdpSocket::bind(&local_address).await?;
+                let socket = UdpSocket::bind(&local_address)
+                    .await
+                    .map_err(|e| ConnectionError::BindError(local_address.clone(), e))?;
                 let lsocket = Arc::new(LocalSocket::Socket(Arc::new(socket)));
                 let rsocket = Arc::clone(&lsocket);
                 self.pool.lock().await.insert(local_address, lsocket);
@@ -251,7 +274,8 @@ impl SocketPool {
     }
 
     #[cfg(test)]
-    fn has_socket(&self, socket_addr: &SocketAddr) -> bool {
+    fn has_socket(&self, socket_addr: &SocketAddr) -> bool
+    {
         return match self.pool.try_lock() {
             Ok(h) => h.contains_key(socket_addr),
             _ => false,
@@ -259,7 +283,8 @@ impl SocketPool {
     }
 
     #[cfg(test)]
-    fn count(&self) -> usize {
+    fn count(&self) -> usize
+    {
         return match self.pool.try_lock() {
             Ok(h) => h.len(),
             _ => 0,
@@ -280,7 +305,8 @@ pub async fn send_data(
     destination: Destination,
     data: Vec<u8>,
     timeout: impl Fn(Duration) -> bool + std::marker::Send + std::marker::Sync + 'static,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
@@ -367,7 +393,8 @@ pub async fn receive_data(
     protocol: &Protocol,
     max_len: usize,
     timeout: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+{
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
@@ -450,16 +477,19 @@ pub async fn receive_data(
 }
 
 #[cfg(test)]
-mod protocolstest {
+mod protocolstest
+{
     use super::*;
     #[cfg(feature = "quic")]
     use crate::config::Certificates;
+    use indexmap::indexset;
     #[cfg(feature = "quic-quinn")]
     use tokio::time::sleep;
 
-    async fn test_pool_client_socket_can_be_obtained_once(protocol: Protocol, port: u32) {
+    async fn test_pool_client_socket_can_be_obtained_once(protocol: Protocol, port: u32)
+    {
         let pool = SocketPool::new();
-        let local_addresses = vec![format!("127.0.0.1:{}", port).parse().unwrap()];
+        let local_addresses = indexset! {format!("127.0.0.1:{}", port).parse().unwrap()};
         let remote_address = "127.0.0.1:8000".parse().unwrap();
 
         assert_eq!(pool.count(), 0);
@@ -478,9 +508,10 @@ mod protocolstest {
     async fn test_pool_client_socket_can_be_obtained_many_times_if_server_socket_is_used(
         protocol: Protocol,
         port: u32,
-    ) {
+    )
+    {
         let pool = SocketPool::new();
-        let local_addresses = vec![format!("127.0.0.1:{}", port).parse().unwrap()];
+        let local_addresses = indexset! {format!("127.0.0.1:{}", port).parse().unwrap()};
         let remote_address = "127.0.0.1:8000".parse().unwrap();
 
         assert_eq!(pool.count(), 0);
@@ -503,12 +534,10 @@ mod protocolstest {
         assert_eq!(pool.count(), 1);
     }
 
-    async fn test_pool_client_socket_can_be_obtained_once_its_dropped(
-        protocol: Protocol,
-        port: u32,
-    ) {
+    async fn test_pool_client_socket_can_be_obtained_once_its_dropped(protocol: Protocol, port: u32)
+    {
         let pool = SocketPool::new();
-        let local_addresses = vec![format!("127.0.0.1:{}", port).parse().unwrap()];
+        let local_addresses = indexset! {format!("127.0.0.1:{}", port).parse().unwrap()};
         let remote_address = "127.0.0.1:8000".parse().unwrap();
         assert_eq!(pool.count(), 0);
         {
@@ -530,7 +559,8 @@ mod protocolstest {
     }
 
     #[tokio::test]
-    async fn test_socket_pool_all_protos() {
+    async fn test_socket_pool_all_protos()
+    {
         #[cfg(feature = "quic")]
         let certs = Certificates {
             private_key: "tests/certs/localhost.key".to_owned(),

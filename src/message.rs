@@ -1,6 +1,10 @@
 use chacha20poly1305::{Key, XNonce};
+use indexmap::IndexSet;
 use serde::{de, Deserialize, Serialize};
 use std::net::SocketAddr;
+
+#[cfg(test)]
+use indexmap::indexset;
 
 use crate::defaults::KEY_SIZE;
 use crate::protocols::Protocol;
@@ -101,10 +105,10 @@ pub struct AdditionalData
 pub struct Group
 {
     pub name: String,
-    pub allowed_hosts: Vec<String>,
+    pub allowed_hosts: IndexSet<String>,
     pub key: Key,
     pub visible_ip: Option<String>,
-    pub send_using_address: Vec<SocketAddr>,
+    pub send_using_address: IndexSet<SocketAddr>,
     pub clipboard: String,
     pub protocol: Protocol,
     pub heartbeat: u64,
@@ -113,11 +117,11 @@ pub struct Group
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigGroup
 {
-    pub allowed_hosts: Option<Vec<String>>,
+    pub allowed_hosts: Option<IndexSet<String>>,
     #[serde(default, with = "serde_key_str")]
     pub key: Option<Key>,
     pub visible_ip: Option<String>,
-    pub send_using_address: Option<Vec<SocketAddr>>,
+    pub send_using_address: Option<IndexSet<SocketAddr>>,
     pub clipboard: Option<String>,
     pub protocol: Option<String>,
     #[serde(default)]
@@ -145,10 +149,10 @@ impl Group
     {
         return Group {
             name: name.to_owned(),
-            allowed_hosts: Vec::new(),
+            allowed_hosts: IndexSet::new(),
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
             visible_ip: None,
-            send_using_address: vec!["127.0.0.1:2993".parse::<SocketAddr>().unwrap()],
+            send_using_address: indexset! {"127.0.0.1:2993".parse::<SocketAddr>().unwrap()},
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
             heartbeat: 0,
@@ -159,10 +163,10 @@ impl Group
     {
         return Group {
             name: name.to_owned(),
-            allowed_hosts: vec![allowed_host.to_owned()],
+            allowed_hosts: indexset! {allowed_host.to_owned()},
             key: Key::from_slice(b"23232323232323232323232323232323").clone(),
             visible_ip: None,
-            send_using_address: vec![send_address.parse().unwrap()],
+            send_using_address: indexset! {send_address.parse().unwrap()},
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
             heartbeat: 0,

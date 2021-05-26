@@ -273,6 +273,7 @@ mod framestest
     use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
     use crate::message::Group;
     use futures::try_join;
+    use indexmap::indexmap;
 
     async fn test_send_receive(
         data_len: usize,
@@ -294,7 +295,7 @@ mod framestest
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
         let group = Group::from_addr("test1", &client_str, &client_str);
-        let groups = vec![group.clone()];
+        let groups = indexmap! {group.name.clone() => group.clone()};
 
         let enc_r = GroupsEncryptor::new(groups);
         let enc_s = IdentityEncryptor::new(group, Identity::from(&local_server));
@@ -353,7 +354,7 @@ mod framestest
         let local_server: SocketAddr = "127.0.0.1:3987".parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let group = Group::from_name("test1");
-        let groups = vec![group.clone()];
+        let groups = indexmap! {group.name.clone() => group.clone()};
 
         let enc_r = GroupsEncryptor::new(groups);
         let result = receive_data(server_sock, &enc_r, 10, |_: Duration| true).await;

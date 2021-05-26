@@ -85,21 +85,35 @@ pub async fn send_data(
 
 pub fn obtain_client_socket(local_address: SocketAddr) -> Result<TcpSocket, ConnectionError>
 {
-    let socket = TcpSocket::new_v4()?;
+    let socket = if local_address.is_ipv6() {
+        TcpSocket::new_v6()?
+    } else {
+        TcpSocket::new_v4()?
+    };
     socket.set_reuseaddr(true)?;
     #[cfg(target_os = "linux")]
     socket.set_reuseport(true)?;
-    socket.bind(local_address)?;
+    socket
+        .bind(local_address)
+        .map_err(|e| ConnectionError::BindError(local_address, e))?;
     return Ok(socket);
 }
 
 pub fn obtain_server_socket(local_address: SocketAddr) -> Result<TcpListener, ConnectionError>
 {
-    let socket = TcpSocket::new_v4()?;
+    let socket = if local_address.is_ipv6() {
+        TcpSocket::new_v6()?
+    } else {
+        TcpSocket::new_v4()?
+    };
     socket.set_reuseaddr(true)?;
     #[cfg(target_os = "linux")]
     socket.set_reuseport(true)?;
-    socket.bind(local_address)?;
+
+    socket
+        .bind(local_address)
+        .map_err(|e| ConnectionError::BindError(local_address, e))?;
+
     let listener = socket.listen(1024)?;
     return Ok(listener);
 }

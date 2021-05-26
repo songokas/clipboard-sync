@@ -1,5 +1,7 @@
+use indexmap::indexmap;
 use serde::{Deserialize, Serialize};
 
+use crate::config::Groups;
 use crate::encryption::{decrypt, encrypt_to_bytes, validate, DataEncryptor};
 use crate::errors::ConnectionError;
 use crate::identity::Identity;
@@ -57,12 +59,12 @@ pub trait FrameIndexEncryptor
 
 pub struct GroupsEncryptor
 {
-    groups: Vec<Group>,
+    groups: Groups,
 }
 
 impl GroupsEncryptor
 {
-    pub fn new(groups: Vec<Group>) -> Self
+    pub fn new(groups: Groups) -> Self
     {
         return Self { groups };
     }
@@ -150,7 +152,7 @@ impl FrameDataDecryptor for IdentityEncryptor
 {
     fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ConnectionError>
     {
-        let groups = vec![self.group.clone()];
+        let groups = indexmap! { self.group.name.clone() => self.group.clone() };
         let (message, group) = validate(&data, &groups, &self.identity)?;
         let bytes = decrypt(&message, &self.identity, &group)?;
         return Ok(bytes);

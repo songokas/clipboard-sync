@@ -13,7 +13,7 @@ use std::sync::atomic::AtomicBool;
 use crate::clipboards::{
     create_targets_for_cut_files, create_text_targets, Clipboard, ClipboardType,
 };
-use crate::config::FullConfig;
+use crate::config::{FullConfig, Groups};
 use crate::defaults::*;
 use crate::encryption::*;
 use crate::errors::*;
@@ -38,9 +38,16 @@ pub async fn receive_clipboard(
     receive_once: bool,
 ) -> Result<u64, CliError>
 {
-    let local_socket = pool
+    let local_socket = match pool
         .obtain_server_socket(local_address.clone(), &protocol)
-        .await?;
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            running.store(false, Ordering::Relaxed);
+            return Err(CliError::from(e));
+        }
+    };
     let mut multicast = Multicast::new();
     let mut count = 0;
     let groups = config.groups;
@@ -72,9 +79,6 @@ pub async fn receive_clipboard(
                 error!("Unable to continue. {}", e);
                 running.store(false, Ordering::Relaxed);
                 return Err(CliError::ArgumentError(e));
-            }
-            Err(ConnectionError::Timeout(..)) => {
-                continue;
             }
             Err(ConnectionError::IoError(e)) if e.kind() == std::io::ErrorKind::TimedOut => {
                 continue;
@@ -154,7 +158,7 @@ pub async fn send_clipboard(
 
     let mut paths_to_watch: HashMap<PathBuf, Vec<&str>> = HashMap::new();
 
-    for group in &groups {
+    for (_, group) in &groups {
         let key = PathBuf::from(&group.clipboard);
         paths_to_watch
             .entry(key)
@@ -172,7 +176,7 @@ pub async fn send_clipboard(
             if &current_hash != &rhash {
                 hash_cache.insert(group_name.clone(), rhash.clone());
                 debug!(
-                    "Updated current hash {} to {} for group {}",
+                    "Client updated current hash {} to {} for group {}",
                     current_hash, rhash, group_name
                 );
             }
@@ -190,7 +194,7 @@ pub async fn send_clipboard(
 
         hash_update(&mut hash_cache);
 
-        for group in &groups {
+        for (_, group) in &groups {
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
                 &mut clipboard,
                 group,
@@ -259,7 +263,6 @@ pub async fn send_clipboard(
             break;
         }
 
-        //@TODO think about the events
         let mut wait_count = 20;
         while wait_count > 0 {
             sleep(Duration::from_millis(50)).await;
@@ -397,7 +400,7 @@ fn handle_receive(
     clipboard: &mut Clipboard,
     buffer: &[u8],
     identity: &Identity,
-    groups: &[Group],
+    groups: &Groups,
 ) -> Result<(String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups, identity)?;
@@ -525,6 +528,7 @@ mod processtest
     use super::*;
     use crate::message::Group;
     use crate::wait;
+    use indexmap::{indexmap, indexset};
     use tokio::task::JoinHandle;
     use tokio::try_join;
 
@@ -575,8 +579,8 @@ mod processtest
         let local_address: SocketAddr = "127.0.0.1:8392".parse().unwrap();
         let config = FullConfig::from_protocol_groups(
             Protocol::Basic,
-            vec![local_address],
-            vec![group.clone()],
+            indexset! {local_address},
+            indexmap! { group.name.clone() => group.clone() },
             100,
             20,
             true,
@@ -641,8 +645,8 @@ mod processtest
         let local_address: SocketAddr = "127.0.0.1:8394".parse().unwrap();
         let config = FullConfig::from_protocol_groups(
             Protocol::Basic,
-            vec![local_address],
-            vec![group.clone()],
+            indexset! {local_address},
+            indexmap! { group.name.clone() => group.clone() },
             100,
             20,
             false,

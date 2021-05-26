@@ -10,6 +10,7 @@ use std::hash::Hasher;
 use std::io::prelude::*;
 use std::io::{self, Read};
 
+use crate::config::Groups;
 use crate::errors::*;
 use crate::identity::Identity;
 use crate::message::*;
@@ -92,14 +93,14 @@ pub fn encrypt_to_bytes(
 
 pub fn validate(
     buffer: &[u8],
-    groups: &[Group],
+    groups: &Groups,
     identity: &Identity,
 ) -> Result<(Message, Group), ValidationError>
 {
     let message: Message = bincode::deserialize(buffer)
         .map_err(|err| ValidationError::DeserializeFailed((*err).to_string()))?;
-    let group = match groups.iter().find(|group| group.name == message.group) {
-        Some(group) => group,
+    let group = match groups.iter().find(|(_, group)| group.name == message.group) {
+        Some((_, group)) => group,
         _ => {
             return Err(ValidationError::IncorrectGroup(format!(
                 "Group {} does not exist",
@@ -189,6 +190,7 @@ pub fn hex_dump(buf: &[u8]) -> String
 mod encryptiontest
 {
     use super::*;
+    use indexmap::indexmap;
 
     #[test]
     fn test_encryption()
@@ -253,10 +255,10 @@ mod encryptiontest
     #[test]
     fn test_validate()
     {
-        let groups = vec![
-            Group::from_addr("test1", "127.0.0.1:8900", "127.0.0.1:8900"),
-            Group::from_name("test2"),
-        ];
+        let groups = indexmap! {
+            "test1".to_owned() => Group::from_addr("test1", "127.0.0.1:8900", "127.0.0.1:8900"),
+            "test2".to_owned() => Group::from_name("test2"),
+        };
         let sequences: Vec<(&'static str, Vec<u8>, &'static str, bool)> = vec![
             (
                 "group name and ip match",

@@ -1,5 +1,6 @@
 use cached::proc_macro::cached;
 use cached::TimedSizedCache;
+use indexmap::IndexSet;
 
 use log::debug;
 use std::io;
@@ -117,7 +118,7 @@ pub async fn receive_from_timeout(
     result = true
 )]
 pub async fn retrieve_local_address(
-    local_addresses: &Vec<SocketAddr>,
+    local_addresses: &IndexSet<SocketAddr>,
     remote_address: &SocketAddr,
 ) -> Result<SocketAddr, ConnectionError>
 {
@@ -140,7 +141,7 @@ pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
 }
 
 pub fn get_matching_address<'a>(
-    local_addresses: &'a Vec<SocketAddr>,
+    local_addresses: &'a IndexSet<SocketAddr>,
     remote_address: &SocketAddr,
 ) -> Option<&'a SocketAddr>
 {
@@ -154,14 +155,20 @@ pub fn get_matching_address<'a>(
     return None;
 }
 
-#[cached(size = 1, time = 1000000)]
-pub fn has_ipv6_support() -> bool
+pub fn ipv6_support() -> (bool, bool)
 {
-    std::net::UdpSocket::bind("[::]:0").is_ok()
+    let sock_addr = match "[::]:0".parse() {
+        Ok(a) => a,
+        Err(_) => return (false, false),
+    };
+    match mio::net::UdpSocket::bind(sock_addr) {
+        Ok(s) => (true, s.only_v6().unwrap_or(false)),
+        Err(_) => (false, false),
+    }
 }
 
 pub async fn obtain_socket(
-    local_addresses: &Vec<SocketAddr>,
+    local_addresses: &IndexSet<SocketAddr>,
     remote_address: &SocketAddr,
 ) -> Result<UdpSocket, ConnectionError>
 {
@@ -288,6 +295,7 @@ mod sockettest
     use super::*;
     use crate::assert_error_type;
     use crate::wait;
+    use indexmap::indexset;
 
     #[cfg(feature = "public-ip")]
     #[test]
@@ -299,21 +307,12 @@ mod sockettest
     #[test]
     fn test_retrieve_local_address()
     {
+        std::net::UdpSocket::bind("[::]:0").unwrap();
         let l = "127.0.0.1:0".parse().unwrap();
         let r = "127.0.0.1:0".parse().unwrap();
-        assert!(wait!(retrieve_local_address(&vec![l], &r)).is_ok());
+        let addrs = indexset! {l};
+        assert!(wait!(retrieve_local_address(&addrs, &r)).is_ok());
     }
-
-    // #[test]
-    // fn test_to_socket()
-    // {
-    //     wait!(to_socket("google.com:0")).unwrap();
-    //     let s = wait!(to_socket("1.1.1.1:0")).unwrap();
-    //     assert_eq!("1.1.1.1:0".parse::<SocketAddr>().unwrap(), s);
-
-    //     let s = wait!(to_socket("abc"));
-    //     assert_error_type!(s, DnsError::Failed(_));
-    // }
 
     #[test]
     fn test_to_socket_addr()

@@ -1,6 +1,7 @@
 use crossbeam_channel::{Receiver, Sender};
 use laminar::{Config, Packet, Socket, SocketEvent};
 use std::collections::BTreeMap;
+use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
@@ -138,6 +139,13 @@ pub async fn receive_data(
                     }
                 }
                 SocketEvent::Timeout(_) => {
+                    //for some reason timeout returned event if no data is received
+                    if total_size == 0 {
+                        return Err(ConnectionError::IoError(Error::new(
+                            ErrorKind::TimedOut,
+                            format!("laminar timeout"),
+                        )));
+                    }
                     return Err(ConnectionError::Timeout(
                         "laminar received".to_owned(),
                         now.elapsed(),
@@ -220,6 +228,7 @@ mod laminartest
     use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
     use crate::message::Group;
     use futures::try_join;
+    use indexmap::indexmap;
 
     async fn send_receive(size: usize, max_len: usize)
     {
@@ -232,8 +241,7 @@ mod laminartest
         let for_sending = data_sent.clone();
 
         let group = Group::from_addr("test1", "127.0.0.1:39836", "127.0.0.1:39836");
-        let groups = vec![group.clone()];
-
+        let groups = indexmap! {group.name.clone() => group.clone()};
         let enc_r = GroupsEncryptor::new(groups);
         let enc_s = IdentityEncryptor::new(group, Identity::from(&local_server));
 
@@ -279,7 +287,7 @@ mod laminartest
         let server_sock = run_laminar(&local_server).unwrap();
 
         let group = Group::from_name("test1");
-        let groups = vec![group.clone()];
+        let groups = indexmap! {group.name.clone() => group.clone()};
         let enc_r = GroupsEncryptor::new(groups);
 
         let result =

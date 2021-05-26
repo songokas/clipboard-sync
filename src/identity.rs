@@ -117,41 +117,6 @@ mod identitytest
                 "127.0.0.1:0".parse().unwrap(),
                 Group::from_addr("test1", "127.0.0.1:9811", "127.0.0.1"),
             ),
-            // (
-            //     "192.168.0.154",
-            //     "172.16.0.1:0".parse().unwrap(),
-            //     Group::from_addr("test1", "0.0.0.0:9811", "192.168.0.1"),
-            // ),
-            // (
-            //     "127.0.0.2".parse().unwrap(),
-            //     "224.0.0.1:0".parse().unwrap(),
-            //     // Some("127.0.0.2".parse().unwrap()),
-            //     Group::from_name("test3"),
-            // ),
-            // (
-            //     "127.0.0.2".parse().unwrap(),
-            //     "169.254.0.1:0".parse().unwrap(),
-            //     // Some("127.0.0.2".parse().unwrap()),
-            //     Group::from_name("test4"),
-            // ),
-            // (
-            //     "127.0.0.3".parse().unwrap(),
-            //     "169.254.0.1:0".parse().unwrap(),
-            //     // None,
-            //     Group::from_addr("test5", "127.0.0.3:9811", "192.168.0.1"),
-            // ),
-            // (
-            //     "192.168.0.1".parse().unwrap(),
-            //     "127.0.0.1:0".parse().unwrap(),
-            //     // Some("192.168.0.1".parse().unwrap()),
-            //     Group::from_name("test4"),
-            // ),
-            // (
-            //     "192.168.0.1".parse().unwrap(),
-            //     "127.0.0.1:0".parse().unwrap(),
-            //     // None,
-            //     Group::from_addr("test5", "192.168.0.1:9811", "192.168.0.1"),
-            // ),
             (
                 "8.8.8.8",
                 "1.1.1.1:0".parse().unwrap(),
@@ -196,9 +161,5 @@ mod identitytest
         );
         let res = wait!(retrieve_identity(&r1.0, &r1.1));
         assert_error_type!(res, ConnectionError::FailedToConnect(_));
-
-        // let r1 = ("1.1.1.1:0".parse().unwrap(), Group::from_name("test5"));
-        // let res = wait!(retrieve_identity(&r1.0, &r1.1));
-        // assert_error_type!(res, ConnectionError::FailedToConnect(_));
     }
 }

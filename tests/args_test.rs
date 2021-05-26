@@ -5,7 +5,8 @@ use std::time::Duration;
 const ANY_KEY: &'static str = "12345678912345678912345678912345";
 
 #[test]
-fn test_send_once() {
+fn test_send_once()
+{
     check_success(
         vec![
             "--key",
@@ -19,7 +20,8 @@ fn test_send_once() {
 }
 
 #[test]
-fn test_bind_send_multiple_addresses() {
+fn test_bind_send_multiple_addresses()
+{
     check_success(
         vec![
             "--key",
@@ -38,7 +40,8 @@ fn test_bind_send_multiple_addresses() {
 }
 
 #[test]
-fn test_send_once_not_immediate() {
+fn test_send_once_not_immediate()
+{
     check_success(
         vec![
             "--key",
@@ -53,7 +56,8 @@ fn test_send_once_not_immediate() {
 }
 
 #[test]
-fn test_receive_once() {
+fn test_receive_once()
+{
     check_success(
         vec![
             "--key",
@@ -67,7 +71,8 @@ fn test_receive_once() {
 }
 
 #[test]
-fn test_config() {
+fn test_config()
+{
     check_success(
         vec!["--config", "tests/config.sample.yaml"],
         "from tests/config.sample.yaml",
@@ -75,23 +80,27 @@ fn test_config() {
 }
 
 #[test]
-fn test_autogenerate() {
+fn test_autogenerate()
+{
     check_success(vec!["--autogenerate"], "clipboard changes");
 }
 
 #[test]
-fn test_blank() {
+fn test_blank()
+{
     check_success(vec![], "clipboard changes");
 }
 
 #[test]
-fn test_failure_args() {
+fn test_failure_args()
+{
     for (args, expect) in get_failure_provider() {
         check_failure_arg(args, expect);
     }
 }
 
-fn check_failure_arg(args: Vec<&'static str>, expect: &str) -> Command {
+fn check_failure_arg(args: Vec<&'static str>, expect: &str) -> Command
+{
     let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();
     for arg in args {
         cmd.arg(arg);
@@ -102,7 +111,8 @@ fn check_failure_arg(args: Vec<&'static str>, expect: &str) -> Command {
     return cmd;
 }
 
-fn check_success(args: Vec<&'static str>, expect: &str) {
+fn check_success(args: Vec<&'static str>, expect: &str)
+{
     let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();
     for arg in args {
         cmd.arg(arg);
@@ -112,7 +122,8 @@ fn check_success(args: Vec<&'static str>, expect: &str) {
     output.stderr(predicate::str::contains(expect));
 }
 
-fn get_failure_provider() -> Vec<(Vec<&'static str>, &'static str)> {
+fn get_failure_provider() -> Vec<(Vec<&'static str>, &'static str)>
+{
     return vec![
         (vec!["--key", "3232"], "Current: 4"),
         (vec!["--config", "_1_unknow_path"], "_1_unknow_path"),
@@ -133,4 +144,27 @@ fn get_failure_provider() -> Vec<(Vec<&'static str>, &'static str)> {
             "non-existing",
         ),
     ];
+}
+
+#[test]
+fn test_default_with_protocols()
+{
+    for protocol in [
+        "basic",
+        "tcp",
+        #[cfg(feature = "frames")]
+        "frames",
+        "laminar",
+        #[cfg(feature = "quic-quinn")]
+        "quic",
+        #[cfg(feature = "quic-quiche")]
+        "quic",
+    ]
+    .to_vec()
+    {
+        check_success(
+            vec!["--protocol", protocol, "--bind-address", "[::]:0"],
+            &format!("protocol {}", protocol),
+        );
+    }
 }

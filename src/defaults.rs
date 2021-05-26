@@ -1,5 +1,6 @@
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
 pub const BIND_ADDRESS_IPV6: &str = "0.0.0.0:8900,[::]:8900";
+pub const BIND_ADDRESS_IPV6_ONLY: &str = "[::]:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:0";
 pub const SEND_ADDRESS_IPV6: &str = "0.0.0.0:0,[::]:0";
 pub const DEFAULT_ALLOWED_HOST: &str = "224.0.0.89:8900";
@@ -24,6 +25,7 @@ pub const DATA_TIMEOUT: u64 = 5000;
 pub const RECEIVE_ONCE_WAIT: u64 = 45; //seconds
 pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 100;
 
-pub fn default_clipboard() -> String {
+pub fn default_clipboard() -> String
+{
     return DEFAULT_CLIPBOARD.to_owned();
 }

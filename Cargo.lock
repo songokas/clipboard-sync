@@ -403,6 +403,7 @@ dependencies = [
  "laminar",
  "lazy_static",
  "log",
+ "mio 0.7.7",
  "notify",
  "predicates",
  "public-ip",

@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use clap::{load_yaml, App};
 use env_logger::Env;
+// use std::collections::HashSet;
+use indexmap::{indexmap, IndexSet};
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 // use std::io::Write;
@@ -39,7 +41,7 @@ use crate::filesystem::read_file_to_string;
 use crate::message::Group;
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
-use crate::socket::has_ipv6_support;
+use crate::socket::ipv6_support;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -79,16 +81,22 @@ async fn main() -> Result<(), CliError>
         }
     };
 
+    let (supports_ipv6_sockets, ipv6_only) = ipv6_support();
+
     let local_address = matches.value_of("bind-address").unwrap_or_else(|| {
-        if has_ipv6_support() {
-            BIND_ADDRESS_IPV6
+        if supports_ipv6_sockets {
+            if ipv6_only {
+                BIND_ADDRESS_IPV6
+            } else {
+                BIND_ADDRESS_IPV6_ONLY
+            }
         } else {
             BIND_ADDRESS
         }
     });
 
     let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
-        if has_ipv6_support() {
+        if supports_ipv6_sockets {
             SEND_ADDRESS_IPV6
         } else {
             SEND_ADDRESS
@@ -142,40 +150,42 @@ async fn main() -> Result<(), CliError>
 
         if allowed_host.is_empty() {
             return Err(CliError::ArgumentError(format!(
-                "Please provide --allowed-host or use basic/laminar protocol for multicast support",
+                "Please provide --allowed-host or use basic protocol for multicast support",
             )));
         }
 
-        let send_using_address: Vec<SocketAddr> = send_address
+        let send_using_address: IndexSet<SocketAddr> = send_address
             .split(",")
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid send-using-address provided {}", v))
                 })
             })
-            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
+            .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
 
         let key = Key::from_slice(key_data.as_bytes());
 
-        let socket_addresses: Vec<SocketAddr> = local_address
+        let socket_addresses: IndexSet<SocketAddr> = local_address
             .split(",")
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
                 })
             })
-            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
+            .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
 
-        let groups = vec![Group {
-            name: group.to_owned(),
-            allowed_hosts: allowed_host.split(",").map(String::from).collect(),
-            key: key.clone(),
-            visible_ip: visible_ip.clone(),
-            send_using_address,
-            clipboard: clipboard_type.to_owned(),
-            protocol: cli_protocol.clone(),
-            heartbeat,
-        }];
+        let groups = indexmap! {
+            group.to_owned() => Group {
+                name: group.to_owned(),
+                allowed_hosts: allowed_host.split(",").map(String::from).collect(),
+                key: key.clone(),
+                visible_ip: visible_ip.clone(),
+                send_using_address,
+                clipboard: clipboard_type.to_owned(),
+                protocol: cli_protocol.clone(),
+                heartbeat,
+            },
+        };
 
         let full_config = FullConfig::from_protocol_groups(
             cli_protocol,
@@ -243,6 +253,7 @@ async fn main() -> Result<(), CliError>
                 stat_sender.clone(),
                 receive_once,
             );
+
             handles.push(tokio::spawn(receive));
         }
     }

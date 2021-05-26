@@ -5,7 +5,7 @@ use std::io;
 use std::net::IpAddr;
 use tokio::net::UdpSocket;
 
-use crate::message::Group;
+use crate::config::Groups;
 use crate::socket::to_socket_address;
 
 pub struct Multicast
@@ -62,9 +62,9 @@ impl Multicast
         }
     }
 
-    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
+    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &Groups, local_addr: &IpAddr)
     {
-        for group in groups {
+        for (_, group) in groups {
             for remote_host in &group.allowed_hosts {
                 let addr = match to_socket_address(remote_host) {
                     Ok(a) => a,

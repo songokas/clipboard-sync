@@ -1,5 +1,5 @@
 use chacha20poly1305::Key;
-use indexmap::IndexMap;
+use indexmap::{indexset, IndexMap, IndexSet};
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -20,7 +20,8 @@ use crate::protocols::Protocol;
 // pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct Certificates {
+pub struct Certificates
+{
     pub private_key: String,
     pub public_key: String,
     pub verify_dir: Option<String>,
@@ -28,15 +29,18 @@ pub struct Certificates {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum SocketConfigAddress {
+pub enum SocketConfigAddress
+{
     Socket(SocketAddr),
-    Multiple(Vec<SocketAddr>),
+    Multiple(IndexSet<SocketAddr>),
 }
 
-type BindAddresses = IndexMap<Protocol, Vec<SocketAddr>>;
+type BindAddresses = IndexMap<Protocol, IndexSet<SocketAddr>>;
+pub type Groups = IndexMap<String, Group>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UserConfig {
+pub struct UserConfig
+{
     pub bind_addresses: Option<IndexMap<String, SocketConfigAddress>>,
     pub certificates: Option<Certificates>,
 
@@ -49,23 +53,26 @@ pub struct UserConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct FullConfig {
+pub struct FullConfig
+{
     pub bind_addresses: BindAddresses,
-    pub groups: Vec<Group>,
+    pub groups: Groups,
     pub max_receive_buffer: usize,
     pub receive_once_wait: u64,
     pub send_clipboard_on_startup: bool,
 }
 
-impl FullConfig {
+impl FullConfig
+{
     pub fn from_protocol_groups(
         protocol: Protocol,
-        bind_all: Vec<SocketAddr>,
-        groups: Vec<Group>,
+        bind_all: IndexSet<SocketAddr>,
+        groups: Groups,
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
-    ) -> Self {
+    ) -> Self
+    {
         let mut bind_addresses: BindAddresses = IndexMap::new();
         bind_addresses.insert(protocol.clone(), bind_all);
         return FullConfig {
@@ -79,11 +86,12 @@ impl FullConfig {
 
     pub fn from_config(
         bind_addresses: BindAddresses,
-        groups: Vec<Group>,
+        groups: Groups,
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
-    ) -> Self {
+    ) -> Self
+    {
         return FullConfig {
             bind_addresses,
             groups,
@@ -93,7 +101,8 @@ impl FullConfig {
         };
     }
 
-    pub fn get_bind_adresses(&self) -> Vec<(Protocol, SocketAddr)> {
+    pub fn get_bind_adresses(&self) -> IndexSet<(Protocol, SocketAddr)>
+    {
         self.bind_addresses
             .iter()
             .flat_map(|(p, v)| {
@@ -103,7 +112,8 @@ impl FullConfig {
             .collect()
     }
 
-    pub fn get_first_bind_address(&self) -> Option<(Protocol, SocketAddr)> {
+    pub fn get_first_bind_address(&self) -> Option<(Protocol, SocketAddr)>
+    {
         return self.get_bind_adresses().into_iter().next();
     }
 }
@@ -113,7 +123,8 @@ pub fn load_default_certificates(
     private_key: Option<&str>,
     public_key: Option<&str>,
     verify_dir: Option<&str>,
-) -> Result<Certificates, CliError> {
+) -> Result<Certificates, CliError>
+{
     let config_path = || {
         dirs::config_dir()
             .map(|p| p.join(PACKAGE_NAME))
@@ -170,7 +181,8 @@ pub fn load_groups(
     send_clipboard_on_startup: bool,
     default_visible_ip: Option<String>,
     default_key: String,
-) -> Result<FullConfig, CliError> {
+) -> Result<FullConfig, CliError>
+{
     info!("Loading from {} config", file_path);
 
     let yaml_file = File::open(file_path)
@@ -184,7 +196,7 @@ pub fn load_groups(
         })
         .map_err(|_| Error::new(ErrorKind::InvalidData, format!("Unable to parse yaml file")))?;
 
-    let mut groups = vec![];
+    let mut groups = IndexMap::new();
 
     #[cfg(feature = "quic")]
     let load_certs = || -> Result<Certificates, CliError> {
@@ -204,7 +216,7 @@ pub fn load_groups(
             sd.clone()
         } else if let Some(sd) = &user_config.send_using_address {
             match sd {
-                SocketConfigAddress::Socket(s) => vec![s.clone()],
+                SocketConfigAddress::Socket(s) => indexset! {s.clone()},
                 SocketConfigAddress::Multiple(s) => s.clone(),
             }
         } else {
@@ -218,7 +230,7 @@ pub fn load_groups(
                         ))
                     })
                 })
-                .collect::<Result<Vec<SocketAddr>, CliError>>()?
+                .collect::<Result<IndexSet<SocketAddr>, CliError>>()?
         };
 
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {
@@ -255,19 +267,22 @@ pub fn load_groups(
             Key::from_slice(default_key.as_bytes()).clone()
         };
 
-        groups.push(Group {
-            name,
-            allowed_hosts,
-            key: key_data,
-            visible_ip,
-            send_using_address,
-            clipboard: group
-                .clipboard
-                .clone()
-                .unwrap_or(String::from(DEFAULT_CLIPBOARD)),
-            protocol,
-            heartbeat: group.heartbeat,
-        });
+        groups.insert(
+            name.clone(),
+            Group {
+                name,
+                allowed_hosts,
+                key: key_data,
+                visible_ip,
+                send_using_address,
+                clipboard: group
+                    .clipboard
+                    .clone()
+                    .unwrap_or(String::from(DEFAULT_CLIPBOARD)),
+                protocol,
+                heartbeat: group.heartbeat,
+            },
+        );
     }
 
     let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
@@ -294,7 +309,8 @@ pub fn load_groups(
     return Ok(full_config);
 }
 
-pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError> {
+pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
+{
     let config_dir = dirs::config_dir()
         .map(|p| p.join(dir_name))
         .ok_or_else(|| {
@@ -326,7 +342,8 @@ fn create_bind_addresses(
     default_bind_address: &str,
     #[cfg(feature = "quic")] load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
     bind_default_protocol: Protocol,
-) -> Result<BindAddresses, CliError> {
+) -> Result<BindAddresses, CliError>
+{
     let mut hash = IndexMap::new();
     if let Some(addresses) = config_addresses {
         for (protocol_str, sock_config_addr) in addresses {
@@ -337,38 +354,40 @@ fn create_bind_addresses(
             ) {
                 Ok(p) => p,
                 Err(e) => {
-                    warn!("{:?}. Skipping", e);
+                    warn!("{}. Skipping", e);
                     continue;
                 }
             };
 
             let addresses = match sock_config_addr {
-                SocketConfigAddress::Socket(s) => vec![s.clone()],
+                SocketConfigAddress::Socket(s) => indexset! {s.clone()},
                 SocketConfigAddress::Multiple(s) => s.clone(),
             };
 
             hash.insert(protocol.clone(), addresses);
         }
     } else {
-        let socket_addresses: Vec<SocketAddr> = default_bind_address
+        let socket_addresses: IndexSet<SocketAddr> = default_bind_address
             .split(",")
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
                 })
             })
-            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
+            .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
         hash.insert(bind_default_protocol, socket_addresses);
     }
     return Ok(hash);
 }
 
 #[cfg(test)]
-mod configtest {
+mod configtest
+{
     use super::*;
 
     #[test]
-    fn test_load_groups() {
+    fn test_load_groups()
+    {
         #[cfg(feature = "quic")]
         let certificates = Certificates {
             private_key: "tests/cert.key".to_owned(),
@@ -394,16 +413,16 @@ mod configtest {
         let mut hash = IndexMap::new();
         hash.insert(
             Protocol::Basic,
-            vec!["127.0.0.1:8910".parse::<SocketAddr>().unwrap()],
+            indexset! {"127.0.0.1:8910".parse::<SocketAddr>().unwrap()},
         );
         hash.insert(
             Protocol::Frames,
-            vec!["127.0.0.1:9010".parse::<SocketAddr>().unwrap()],
+            indexset! {"127.0.0.1:9010".parse::<SocketAddr>().unwrap()},
         );
         #[cfg(feature = "quic")]
         hash.insert(
             Protocol::Quic(certificates),
-            vec!["127.0.0.1:9110".parse::<SocketAddr>().unwrap()],
+            indexset! {"127.0.0.1:9110".parse::<SocketAddr>().unwrap()},
         );
         assert_eq!(full_config.bind_addresses, hash);
 
@@ -411,11 +430,12 @@ mod configtest {
         assert_eq!(group1.name, "specific_hosts");
         assert_eq!(
             group1.send_using_address,
-            vec!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
+            indexset!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
-        let allowed_local = vec!["192.168.0.153:8900", "192.168.0.54:20034"];
+        let allowed_local =
+            indexset! {"192.168.0.153:8900".to_owned(), "192.168.0.54:20034".to_owned()};
         assert_eq!(group1.allowed_hosts, allowed_local);
 
         assert_eq!(group1.protocol, Protocol::Basic);
@@ -425,11 +445,11 @@ mod configtest {
         assert_eq!(group2.name, "local_network");
         assert_eq!(
             group2.send_using_address,
-            vec!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
+            indexset!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
-        let allowed_hosts = vec![socket_addr];
+        let allowed_hosts = indexset! {socket_addr.to_owned()};
         assert_eq!(group2.allowed_hosts, allowed_hosts);
 
         assert_eq!(group2.protocol, Protocol::Frames);
@@ -439,20 +459,22 @@ mod configtest {
         assert_eq!(group3.name, "external");
         assert_eq!(
             group3.send_using_address,
-            vec!["0.0.0.0:9000".parse::<SocketAddr>().unwrap()]
+            indexset! {"0.0.0.0:9000".parse::<SocketAddr>().unwrap()}
         );
         assert_eq!(group3.visible_ip, Some("2.2.2.2".to_owned()));
 
-        let allowed_ext = vec!["external.net:80"];
+        let allowed_ext = indexset! {"external.net:80".to_owned()};
         assert_eq!(group3.allowed_hosts, allowed_ext);
 
         let group4 = &full_config.groups[5];
-        let allowed_receive = vec!["192.168.0.111:0", "192.168.0.112:0"];
+        let allowed_receive =
+            indexset! {"192.168.0.111:0".to_owned(), "192.168.0.112:0".to_owned()};
         assert_eq!(group4.allowed_hosts, allowed_receive);
     }
 
     #[test]
-    fn test_generate_config() {
+    fn test_generate_config()
+    {
         let random_dir = "_random_clipbboard_sync_test_dir";
         let result = generate_config(random_dir).unwrap();
         assert!(result.ends_with("config.yml"));
@@ -461,7 +483,8 @@ mod configtest {
     }
 
     #[test]
-    fn test_load_bad_config() {
+    fn test_load_bad_config()
+    {
         let socket_addr = "127.0.0.1:8080";
         let full_config = load_groups(
             "tests/config.failure.yaml",
