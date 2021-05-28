@@ -14,6 +14,8 @@ fn test_send_once()
             "--bind-address",
             "127.0.0.1:8922",
             "--send-once",
+            "--ntp-server",
+            "",
         ],
         "count",
     );
@@ -34,6 +36,8 @@ fn test_bind_send_multiple_addresses()
             "--send-once",
             "--allowed-host",
             "127.0.0.1:8911,[::1]:8911",
+            "--ntp-server",
+            "",
         ],
         "count",
     );

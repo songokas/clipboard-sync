@@ -2,7 +2,7 @@
 - quic quinn protocol implementation lacks client verification, version negotiation, retry token
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
 
-## [1.2.0] - 2021-05-19
+## [2.0.0] - 2021-05-29
 
 ### Added
 - laminar protocol
@@ -10,10 +10,12 @@
 - heartbeat configuration and cli argument
 - retrieve public ip address feature
 - file, directory notification changes
+- ntp-server and message-valid-for cli and configuration
 
 ### Changed
 - reuse receiver socket for sending
 - cli and configuration bind_address, send_using_address can take multiple values
+- use xchacha instead of chacha
 
 ## [1.1.0] - 2021-02-27
 

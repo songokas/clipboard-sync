@@ -128,7 +128,7 @@ pub async fn receive_data(
                         });
                     }
 
-                    received_frames.insert(frame.index, frame.data);
+                    received_frames.entry(frame.index).or_insert(frame.data);
 
                     if frame.total as usize == received_frames.len() {
                         let mut full = Vec::new();
@@ -139,7 +139,7 @@ pub async fn receive_data(
                     }
                 }
                 SocketEvent::Timeout(_) => {
-                    //for some reason timeout returned event if no data is received
+                    //for some reason timeout returned even if no data is received
                     if total_size == 0 {
                         return Err(ConnectionError::IoError(Error::new(
                             ErrorKind::TimedOut,
@@ -251,7 +251,7 @@ mod laminartest
                     &server_sock.get_receiver(),
                     &enc_r,
                     max_len,
-                    |d: Duration| d > Duration::from_millis(2000),
+                    |d: Duration| d > Duration::from_millis(4000),
                 )
                 .await
             }),
@@ -276,7 +276,7 @@ mod laminartest
     async fn test_data()
     {
         send_receive(5, 100).await;
-        send_receive(16 * 1024 * 10, 16 * 1024 * 10 + 1000).await;
+        send_receive(16 * 1024 * 10, 16 * 1024 * 10 + 1200).await;
         send_receive(10, 5).await;
     }
 

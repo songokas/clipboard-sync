@@ -19,7 +19,7 @@ use crate::encryption::*;
 use crate::errors::*;
 use crate::filesystem::*;
 use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
-use crate::identity::{retrieve_identity, Identity};
+use crate::identity::{retrieve_identity, validate, Identity};
 use crate::message::*;
 use crate::multicast::Multicast;
 use crate::notify::{create_watch_paths, watch_changed_paths};
@@ -36,7 +36,7 @@ pub async fn receive_clipboard(
     protocol: Protocol,
     status_channel: Sender<(u64, u64)>,
     receive_once: bool,
-) -> Result<u64, CliError>
+) -> Result<(String, u64), CliError>
 {
     let local_socket = match pool
         .obtain_server_socket(local_address.clone(), &protocol)
@@ -133,7 +133,7 @@ pub async fn receive_clipboard(
             break;
         }
     }
-    return Ok(count);
+    return Ok((format!("{} received", protocol), count));
 }
 
 pub async fn send_clipboard(
@@ -144,7 +144,7 @@ pub async fn send_clipboard(
     config: FullConfig,
     status_channel: Sender<(u64, u64)>,
     send_once: bool,
-) -> Result<u64, CliError>
+) -> Result<(String, u64), CliError>
 {
     let mut hash_cache: HashMap<String, String> = HashMap::new();
     let mut heartbeat_cache: HashMap<String, Instant> = HashMap::new();
@@ -267,12 +267,12 @@ pub async fn send_clipboard(
         while wait_count > 0 {
             sleep(Duration::from_millis(50)).await;
             if !running.load(Ordering::Relaxed) {
-                return Ok(count);
+                break;
             }
             wait_count -= 1;
         }
     }
-    return Ok(count);
+    return Ok((format!("sent"), count));
 }
 
 pub async fn send_clipboard_contents(
@@ -553,7 +553,7 @@ mod processtest
             &Group::from_addr("me", "127.0.0.1:0", "127.0.0.1:8093"),
             timeout,
         ));
-        assert_eq!(result.unwrap(), 74);
+        assert_eq!(result.unwrap(), 82);
 
         let result = wait!(send_clipboard_to_group(
             &pool,
@@ -584,6 +584,7 @@ mod processtest
             100,
             20,
             true,
+            None,
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
@@ -626,8 +627,8 @@ mod processtest
         });
         match try_join!(r, s, t) {
             Ok(result) => {
-                assert_eq!(result.0.unwrap(), 1);
-                assert_eq!(result.1.unwrap(), 1);
+                assert_eq!(result.0.unwrap().1, 1);
+                assert_eq!(result.1.unwrap().1, 1);
             }
             Err(_) => panic!("failed to join"),
         };
@@ -650,6 +651,7 @@ mod processtest
             100,
             20,
             false,
+            None,
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
@@ -668,13 +670,15 @@ mod processtest
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let sent = send_clipboard_contents(&pool, "test1".to_string(), &group).await;
-            assert_eq!(86, sent.unwrap());
+            assert_eq!(94, sent.unwrap());
+            // let server handle it
+            sleep(Duration::from_millis(4000)).await;
             srunning.store(false, Ordering::Relaxed);
-            sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(1000)).await;
             Ok(())
         });
         match try_join!(r, s) {
-            Ok(result) => assert_eq!(result.0.unwrap(), 1),
+            Ok(result) => assert_eq!(result.0.unwrap().1, 1),
             Err(_) => panic!("failed to join"),
         };
     }

@@ -86,5 +86,9 @@ args:
         takes_value: true
     - heartbeat:
         long: heartbeat
-        help: "send heartbeat messages. default : 0"
+        help: "send heartbeat messages. default: 0"
+        takes_value: true
+    - ntp-server:
+        long: ntp-server
+        help: "use ntp server if validating messages with timestamp. default: 0.pool.ntp.org:123"
         takes_value: true

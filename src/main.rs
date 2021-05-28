@@ -4,6 +4,8 @@
 // #![feature(type_alias_impl_trait)]
 
 use chacha20poly1305::Key;
+#[cfg(feature = "ntp")]
+use log::warn;
 use log::{error, info};
 use std::sync::Arc;
 
@@ -30,6 +32,7 @@ mod process;
 mod protocols;
 mod socket;
 mod test;
+mod time;
 
 use crate::clipboards::Clipboard;
 #[cfg(feature = "quic")]
@@ -42,6 +45,8 @@ use crate::message::Group;
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 use crate::socket::ipv6_support;
+#[cfg(feature = "ntp")]
+use crate::time::update_time_diff;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -141,6 +146,12 @@ async fn main() -> Result<(), CliError>
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
+    let message_valid_for = matches
+        .value_of("message-valid-for")
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(MESSAGE_VALID_TIME);
+    let ntp_server = matches.value_of("ntp-server").unwrap_or(NTP_SERVER);
+
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let cli_protocol = Protocol::from(
             matches.value_of("protocol"),
@@ -184,6 +195,7 @@ async fn main() -> Result<(), CliError>
                 clipboard: clipboard_type.to_owned(),
                 protocol: cli_protocol.clone(),
                 heartbeat,
+                message_valid_for,
             },
         };
 
@@ -197,6 +209,7 @@ async fn main() -> Result<(), CliError>
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(RECEIVE_ONCE_WAIT),
             !matches.is_present("ignore-initial-clipboard"),
+            Some(ntp_server.to_owned()),
         );
         Ok(full_config)
     };
@@ -217,6 +230,8 @@ async fn main() -> Result<(), CliError>
             !matches.is_present("ignore-initial-clipboard"),
             visible_ip.clone(),
             key_data.clone(),
+            message_valid_for,
+            ntp_server,
         );
     };
 
@@ -236,6 +251,14 @@ async fn main() -> Result<(), CliError>
 
     let mut handles = Vec::new();
     let pool = Arc::new(SocketPool::new());
+
+    #[cfg(feature = "ntp")]
+    match &full_config.ntp_server {
+        Some(s) if s.len() > 0 => {
+            handles.push(tokio::spawn(update_time_diff(running.clone(), s.clone())));
+        }
+        _ => warn!("Ntp server not provided"),
+    };
 
     if launch_receiver {
         for (protocol, bind_address) in full_config.get_bind_adresses() {
@@ -280,8 +303,8 @@ async fn main() -> Result<(), CliError>
             let mut result = Ok(());
             for res in items {
                 match res {
-                    Ok(c) => {
-                        info!("count {}", c);
+                    Ok((name, c)) => {
+                        info!("{} count {}", name, c);
                     }
                     Err(e) => {
                         error!("error: {}", e);

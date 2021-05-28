@@ -50,6 +50,7 @@ pub struct UserConfig
     pub groups: IndexMap<String, ConfigGroup>,
     pub max_receive_buffer: Option<usize>,
     pub receive_once_wait: Option<u64>,
+    pub ntp_server: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +61,7 @@ pub struct FullConfig
     pub max_receive_buffer: usize,
     pub receive_once_wait: u64,
     pub send_clipboard_on_startup: bool,
+    pub ntp_server: Option<String>,
 }
 
 impl FullConfig
@@ -71,6 +73,7 @@ impl FullConfig
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
+        ntp_server: Option<String>,
     ) -> Self
     {
         let mut bind_addresses: BindAddresses = IndexMap::new();
@@ -81,6 +84,7 @@ impl FullConfig
             max_receive_buffer,
             receive_once_wait,
             send_clipboard_on_startup,
+            ntp_server,
         };
     }
 
@@ -90,6 +94,7 @@ impl FullConfig
         max_receive_buffer: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
+        ntp_server: Option<String>,
     ) -> Self
     {
         return FullConfig {
@@ -98,6 +103,7 @@ impl FullConfig
             max_receive_buffer,
             receive_once_wait,
             send_clipboard_on_startup,
+            ntp_server,
         };
     }
 
@@ -181,6 +187,8 @@ pub fn load_groups(
     send_clipboard_on_startup: bool,
     default_visible_ip: Option<String>,
     default_key: String,
+    default_message_valid_for: u16,
+    default_ntp_server: &str,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -281,6 +289,7 @@ pub fn load_groups(
                     .unwrap_or(String::from(DEFAULT_CLIPBOARD)),
                 protocol,
                 heartbeat: group.heartbeat,
+                message_valid_for: group.message_valid_for.unwrap_or(default_message_valid_for),
             },
         );
     }
@@ -299,12 +308,20 @@ pub fn load_groups(
         load_certs,
         bind_default_protocol,
     )?;
+
+    let ntp_server = if let Some(ntp_server) = &user_config.ntp_server {
+        Some(ntp_server.clone())
+    } else {
+        Some(default_ntp_server.to_owned())
+    };
+
     let full_config = FullConfig::from_config(
         bind_addresses,
         groups,
         max_receive_buffer,
         receive_once_wait,
         send_clipboard_on_startup,
+        ntp_server,
     );
     return Ok(full_config);
 }
@@ -407,6 +424,8 @@ mod configtest
             false,
             None,
             "".to_owned(),
+            0,
+            "",
         )
         .unwrap();
 
@@ -497,6 +516,8 @@ mod configtest
             false,
             None,
             "".to_owned(),
+            0,
+            "",
         );
 
         match full_config {

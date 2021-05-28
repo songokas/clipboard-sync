@@ -86,8 +86,8 @@ pub fn watch_changed_paths<'a, T>(
             Ok(DebouncedEvent::Error(e, p)) => {
                 warn!("watching for changes error occured {} {:?}", e, p)
             }
-            Ok(event) => debug!("filesystem watch unhandled event {:?}", event),
-            // Ok(_) => (),
+            // Ok(event) => debug!("filesystem watch unhandled event {:?}", event),
+            Ok(_) => (),
             _ => break,
         };
     }

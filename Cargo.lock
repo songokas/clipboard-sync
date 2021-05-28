@@ -410,6 +410,7 @@ dependencies = [
  "quiche",
  "quinn",
  "rand",
+ "rsntp",
  "rustls",
  "serde",
  "serde_json",
@@ -1887,6 +1888,16 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "rsntp"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6fca37e86da35d4417913f47a864e59f663d99096d75dbd93edd7a1309852d"
+dependencies = [
+ "chrono",
+ "tokio",
 ]
 
 [[package]]

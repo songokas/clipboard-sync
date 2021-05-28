@@ -2,9 +2,9 @@ use indexmap::indexmap;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Groups;
-use crate::encryption::{decrypt, encrypt_to_bytes, validate, DataEncryptor};
+use crate::encryption::{decrypt, encrypt_to_bytes, DataEncryptor};
 use crate::errors::ConnectionError;
-use crate::identity::Identity;
+use crate::identity::{identity_matching_hosts, validate, Identity, IdentityVerifier};
 use crate::message::{Group, MessageType};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -105,6 +105,22 @@ impl DataEncryptor for GroupsEncryptor
     {
         let bytes = encrypt_to_bytes(data, identity, group, message_type)?;
         return Ok(bytes);
+    }
+}
+
+impl IdentityVerifier for GroupsEncryptor
+{
+    fn verify(&self, identity: &Identity) -> Option<&Group>
+    {
+        self.groups
+            .iter()
+            .find_map(|(_, g)| identity_matching_hosts(&g.allowed_hosts, identity).then(|| g))
+        // for group in self.groups {
+        //     if identity_matching_hosts(group.allowed_hosts, identity)) {
+        //         return true;
+        //     }
+        // }
+        // return false;
     }
 }
 

@@ -63,7 +63,7 @@ pub async fn receive_data(
             read, addr, frame.index, frame.total
         );
 
-        received_frames.insert(frame.index, frame.data);
+        received_frames.entry(frame.index).or_insert(frame.data);
 
         let confirm_bytes = encryptor.encrypt(
             &frame.index.to_be_bytes(),
@@ -173,7 +173,7 @@ async fn confirm_received(
             }
         };
 
-        debug!("Received frame confirmation {}", index);
+        // debug!("Received frame confirmation {}", index);
 
         if (index as usize) < indexes {
             received.insert(index, true);
@@ -253,7 +253,7 @@ async fn send_index(
 {
     let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD)?;
 
-    debug!("Sent frame {} with {} bytes", index, bytes.len());
+    // debug!("Sent frame {} with {} bytes", index, bytes.len());
 
     return match socket_writer.send_to(&bytes, destination).await {
         Ok(n) => Ok(n),
@@ -343,7 +343,7 @@ mod framestest
         let (data_received, addr) = res.1.unwrap();
 
         assert_eq!(local_client, addr);
-        assert_eq!(data_len_sent, 10500202);
+        assert_eq!(data_len_sent, 10501530);
         assert_eq!(expected_data.len(), data_received.len());
         assert_eq!(expected_data, data_received);
     }

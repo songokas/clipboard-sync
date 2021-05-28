@@ -26,6 +26,7 @@ use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
+use crate::identity::IdentityVerifier;
 use crate::socket::{get_matching_address, Destination};
 
 #[cfg(feature = "quinn")]
@@ -389,7 +390,7 @@ pub async fn send_data(
 
 pub async fn receive_data(
     local_socket: Arc<LocalSocket>,
-    encryptor: &(impl FrameDecryptor + DataEncryptor),
+    encryptor: &(impl FrameDecryptor + DataEncryptor + IdentityVerifier),
     protocol: &Protocol,
     max_len: usize,
     timeout: impl Fn(Duration) -> bool,
@@ -447,6 +448,7 @@ pub async fn receive_data(
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Basic protocol socket expected".to_owned(),
                     ))?,
+                encryptor,
                 max_len,
                 timeout,
             )
@@ -468,6 +470,7 @@ pub async fn receive_data(
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Tcp protocol socket expected".to_owned(),
                     ))?,
+                encryptor,
                 max_len,
                 timeout,
             )

@@ -1,5 +1,6 @@
 // use err_derive::Error;
 use std::io;
+use std::net::SocketAddr;
 use thiserror::Error;
 use tokio::time::Duration;
 
@@ -23,6 +24,8 @@ pub enum ValidationError
     IncorrectGroup(String),
     #[error("{0}")]
     DeserializeFailed(String),
+    #[error("Failed to validate timestamp. Valid for {} received {}", .1, .0)]
+    InvalidTimestamp(u64, u16),
 }
 
 #[derive(Debug, Error, Clone)]
@@ -44,6 +47,11 @@ pub enum ConnectionError
     },
     #[error(transparent)]
     IoError(#[from] io::Error),
+
+    #[error("Packet received from invalid source ip address {}", .0.ip())]
+    InvalidSource(SocketAddr),
+    #[error("Packet received from unknown source ip address")]
+    NoSourceIp(),
 
     #[error("Failed to bind {0}. {1}")]
     BindError(std::net::SocketAddr, io::Error),

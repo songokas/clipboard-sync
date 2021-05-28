@@ -30,6 +30,7 @@ mod protocols;
 mod runner;
 mod socket;
 mod test;
+mod time;
 
 use crate::process::send_clipboard_contents;
 use crate::protocols::SocketPool;

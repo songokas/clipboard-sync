@@ -338,4 +338,12 @@ mod sockettest
         let ip: IpAddr = "fe80::1".parse().unwrap();
         assert!(!IpAddrExt::is_global(&ip));
     }
+
+    #[test]
+    fn test_raw_binds()
+    {
+        let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        socket.connect("2606:4700:4700::1111:80").unwrap();
+        println!("{}", socket.local_addr().unwrap());
+    }
 }

@@ -4,6 +4,8 @@ use serde::{de, Deserialize, Serialize};
 use std::net::SocketAddr;
 
 #[cfg(test)]
+use chrono::Utc;
+#[cfg(test)]
 use indexmap::indexset;
 
 use crate::defaults::KEY_SIZE;
@@ -89,8 +91,9 @@ pub struct Message
     #[serde(with = "serde_nonce")]
     pub nonce: XNonce,
     pub group: String,
-    pub text: Vec<u8>,
+    pub data: Vec<u8>,
     pub message_type: MessageType,
+    pub time: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -112,6 +115,7 @@ pub struct Group
     pub clipboard: String,
     pub protocol: Protocol,
     pub heartbeat: u64,
+    pub message_valid_for: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -126,6 +130,7 @@ pub struct ConfigGroup
     pub protocol: Option<String>,
     #[serde(default)]
     pub heartbeat: u64,
+    pub message_valid_for: Option<u16>,
 }
 
 #[cfg(test)]
@@ -136,8 +141,9 @@ impl Message
         return Message {
             nonce: XNonce::from_slice(b"123456789101123456789101").clone(),
             group: name.to_owned(),
-            text: [1, 2, 4].to_vec(),
+            data: [1, 2, 4].to_vec(),
             message_type: MessageType::Text,
+            time: Utc::now().timestamp() as u64,
         };
     }
 }
@@ -156,6 +162,7 @@ impl Group
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
             heartbeat: 0,
+            message_valid_for: 0,
         };
     }
 
@@ -170,6 +177,7 @@ impl Group
             clipboard: "/tmp/_test_clip_sync".to_owned(),
             protocol: Protocol::Basic,
             heartbeat: 0,
+            message_valid_for: 0,
         };
     }
 

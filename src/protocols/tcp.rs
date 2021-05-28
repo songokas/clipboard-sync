@@ -1,5 +1,3 @@
-use crate::defaults::CONNECTION_TIMEOUT;
-use crate::errors::ConnectionError;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -7,22 +5,31 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::{timeout, Duration};
 
+use crate::defaults::CONNECTION_TIMEOUT;
+use crate::errors::ConnectionError;
+use crate::identity::{Identity, IdentityVerifier};
+
 pub async fn receive_data(
     socket: &TcpListener,
+    verifier: &impl IdentityVerifier,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
-        let (stream, sock_addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
+        let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
             Ok(v) => v?,
             Err(_) => continue,
         };
+        verifier
+            .verify(&Identity::from(addr))
+            .ok_or_else(|| ConnectionError::InvalidSource(addr))?;
+
         let timeout_with_duration = |d: Duration| -> bool {
             return d > Duration::from_millis(CONNECTION_TIMEOUT) && timeout_callback(d);
         };
-        return receive_stream(stream, sock_addr, max_len, timeout_with_duration).await;
+        return receive_stream(stream, addr, max_len, timeout_with_duration).await;
     }
     return Err(ConnectionError::Timeout(
         "tcp receive".to_owned(),
@@ -124,21 +131,29 @@ mod tcptest
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
+    use crate::fragmenter::GroupsEncryptor;
+    use crate::message::Group;
     use futures::try_join;
+    use indexmap::indexmap;
 
     async fn send_receive(size: usize, max_len: usize)
     {
+        let client_str = "127.0.0.1:38330";
         let local_server: SocketAddr = "127.0.0.1:38329".parse().unwrap();
-        let local_client: SocketAddr = "127.0.0.1:38330".parse().unwrap();
+        let local_client: SocketAddr = client_str.parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();
         let client_sock = obtain_client_socket(local_client).unwrap();
 
         let data_sent = random(size);
         let for_sending = data_sent.clone();
 
+        let group = Group::from_addr("test1", &client_str, &client_str);
+        let groups = indexmap! {group.name.clone() => group.clone()};
+        let enc_r = GroupsEncryptor::new(groups);
+
         let res = try_join!(
             tokio::spawn(async move {
-                receive_data(&server_sock, max_len, |d: Duration| {
+                receive_data(&server_sock, &enc_r, max_len, |d: Duration| {
                     d > Duration::from_millis(8000)
                 })
                 .await
@@ -169,9 +184,14 @@ mod tcptest
     #[tokio::test]
     async fn test_timeout()
     {
-        let local_server: SocketAddr = "127.0.0.1:39837".parse().unwrap();
+        let client_str = "127.0.0.1:39837";
+        let group = Group::from_addr("test1", &client_str, &client_str);
+        let groups = indexmap! {group.name.clone() => group.clone()};
+        let enc_r = GroupsEncryptor::new(groups);
+
+        let local_server: SocketAddr = client_str.parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();
-        let result = receive_data(&server_sock, 10, |_: Duration| true).await;
+        let result = receive_data(&server_sock, &enc_r, 10, |_: Duration| true).await;
         assert_error_type!(result, ConnectionError::Timeout(..));
     }
 }

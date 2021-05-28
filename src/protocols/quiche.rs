@@ -431,6 +431,7 @@ mod quichetest
     use crate::encryption::random;
     use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
     use crate::message::Group;
+    use indexmap::indexmap;
     use tokio::try_join;
 
     async fn send_receive(size: usize, max_len: usize)
@@ -441,7 +442,7 @@ mod quichetest
         let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
 
         let group = Group::from_addr("test1", "127.0.0.1:9957", "127.0.0.1:9957");
-        let groups = vec![group.clone()];
+        let groups = indexmap![group.name.clone() => group.clone()];
 
         let enc_r = GroupsEncryptor::new(groups);
         let enc_s = IdentityEncryptor::new(group, Identity::from(&local_server));
@@ -500,7 +501,7 @@ mod quichetest
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
 
         let group = Group::from_name("test1");
-        let groups = vec![group.clone()];
+        let groups = indexmap![group.name.clone() => group.clone()];
         let enc_r = GroupsEncryptor::new(groups);
 
         let result = receive_data(

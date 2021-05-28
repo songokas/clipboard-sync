@@ -138,6 +138,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         clipboard: String::from(DEFAULT_CLIPBOARD),
         protocol: protocol.clone(),
         heartbeat: config.heartbeat,
+        message_valid_for: 180,
     };
     let groups = indexmap! { config.group => group };
     let full_config = FullConfig::from_protocol_groups(
@@ -147,6 +148,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         MAX_RECEIVE_BUFFER,
         RECEIVE_ONCE_WAIT,
         true,
+        None,
     );
 
     return Ok(full_config);
@@ -161,8 +163,8 @@ pub async fn create_runner(config_str: String) -> Result<(Runner, String), Strin
 
 pub struct Runner
 {
-    sender: JoinHandle<Result<u64, CliError>>,
-    receiver: JoinHandle<Result<u64, CliError>>,
+    sender: JoinHandle<Result<(String, u64), CliError>>,
+    receiver: JoinHandle<Result<(String, u64), CliError>>,
     running: Arc<AtomicBool>,
     stats: Receiver<(u64, u64)>,
     #[cfg(target_os = "android")]
@@ -221,12 +223,12 @@ impl Runner
         match res {
             Ok((receive_result, send_result)) => {
                 let reiceive_message = match receive_result {
-                    Ok(c) => format!("receive count {}", c),
+                    Ok((_, c)) => format!("receive count {}", c),
                     Err(e) => format!("receive error: {}", e),
                 };
 
                 let send_message = match send_result {
-                    Ok(c) => format!("send count {}", c),
+                    Ok((_, c)) => format!("send count {}", c),
                     Err(e) => format!("send error: {}", e),
                 };
                 let result = format!("Finished running. {} {}", reiceive_message, send_message);

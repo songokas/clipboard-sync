@@ -10,11 +10,10 @@ use std::hash::Hasher;
 use std::io::prelude::*;
 use std::io::{self, Read};
 
-use crate::config::Groups;
 use crate::errors::*;
 use crate::identity::Identity;
 use crate::message::*;
-use crate::socket::to_socket_address;
+use crate::time::get_time;
 
 pub trait DataEncryptor
 {
@@ -73,8 +72,9 @@ pub fn encrypt(
     return Ok(Message {
         nonce: nonce.clone(),
         group: group.name.clone(),
-        text: ciphertext,
+        data: ciphertext,
         message_type: message_type.clone(),
+        time: get_time(),
     });
 }
 
@@ -89,39 +89,6 @@ pub fn encrypt_to_bytes(
     let bytes = bincode::serialize(&message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     return Ok(bytes);
-}
-
-pub fn validate(
-    buffer: &[u8],
-    groups: &Groups,
-    identity: &Identity,
-) -> Result<(Message, Group), ValidationError>
-{
-    let message: Message = bincode::deserialize(buffer)
-        .map_err(|err| ValidationError::DeserializeFailed((*err).to_string()))?;
-    let group = match groups.iter().find(|(_, group)| group.name == message.group) {
-        Some((_, group)) => group,
-        _ => {
-            return Err(ValidationError::IncorrectGroup(format!(
-                "Group {} does not exist",
-                message.group
-            )));
-        }
-    };
-
-    for host in &group.allowed_hosts {
-        let external_ip = match to_socket_address(host) {
-            Ok(s) => s.ip(),
-            _ => continue,
-        };
-        if external_ip.is_multicast() || &Identity::from(external_ip) == identity {
-            return Ok((message, group.clone()));
-        }
-    }
-    return Err(ValidationError::IncorrectGroup(format!(
-        "Group {} does not allow {}",
-        group.name, identity
-    )));
 }
 
 pub fn decrypt(
@@ -141,7 +108,7 @@ pub fn decrypt(
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     let enc_msg = Payload {
-        msg: &message.text,
+        msg: &message.data,
         aad: &add_bytes,
     };
 
@@ -190,7 +157,6 @@ pub fn hex_dump(buf: &[u8]) -> String
 mod encryptiontest
 {
     use super::*;
-    use indexmap::indexmap;
 
     #[test]
     fn test_encryption()
@@ -249,56 +215,6 @@ mod encryptiontest
         for (bytes_to_uncompress, expected) in compress_data_provider() {
             let data = uncompress(bytes_to_uncompress).unwrap();
             assert_eq!(expected, String::from_utf8_lossy(&data).to_string());
-        }
-    }
-
-    #[test]
-    fn test_validate()
-    {
-        let groups = indexmap! {
-            "test1".to_owned() => Group::from_addr("test1", "127.0.0.1:8900", "127.0.0.1:8900"),
-            "test2".to_owned() => Group::from_name("test2"),
-        };
-        let sequences: Vec<(&'static str, Vec<u8>, &'static str, bool)> = vec![
-            (
-                "group name and ip match",
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
-                "127.0.0.1",
-                true,
-            ),
-            (
-                "group name doest not match",
-                bincode::serialize(&Message::from_group("none"))
-                    .unwrap()
-                    .to_vec(),
-                "127.0.0.1",
-                false,
-            ),
-            (
-                "ip doest not match",
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
-                "127.0.0.2",
-                false,
-            ),
-            (
-                "empty ip",
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
-                "",
-                false,
-            ),
-            ("random1", [3, 3, 98].to_vec(), "", false),
-            ("empty data", [].to_vec(), "", false),
-        ];
-
-        for (name, bytes, id, expected) in sequences {
-            let result = validate(&bytes, &groups, &Identity::from(id));
-            assert_eq!(result.is_ok(), expected, "{}", name);
         }
     }
 

@@ -10,28 +10,35 @@ use tokio::time::{timeout, Duration};
 
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::errors::ConnectionError;
+use crate::identity::{Identity, IdentityVerifier};
 use crate::protocols::tcp::{obtain_client_socket, obtain_server_socket, receive_stream};
-use crate::socket::{receive_from_timeout, remove_ipv4_mapping};
+use crate::socket::receive_from_timeout;
 
 pub async fn receive_data(
     socket: Arc<UdpSocket>,
+    verifier: &impl IdentityVerifier,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+{
     let mut buffer = [0; MAX_UDP_BUFFER];
 
     let callback = |d: Duration| timeout_callback(d);
 
     let (read, addr) = receive_from_timeout(&socket, &mut buffer, callback).await?;
 
+    verifier
+        .verify(&Identity::from(addr))
+        .ok_or_else(|| ConnectionError::InvalidSource(addr))?;
+
     if read == 1 && buffer[0] == 49 {
         let duration = Duration::from_millis(CONNECTION_TIMEOUT);
         let callback = |d: Duration| d > duration || timeout_callback(d);
         let local_addr = socket.local_addr()?;
-        let destination = remove_ipv4_mapping(&addr);
+        let destination = addr.clone();
 
         debug!(
-            "tcp receive local {} to destination {}",
+            "tcp receive on local address {} from remote {}",
             local_addr, destination
         );
 
@@ -41,6 +48,7 @@ pub async fn receive_data(
             Ok(stream) = connect_stream(local_addr, destination) => Ok(stream),
             else => Err(ConnectionError::Timeout("basic receive".to_owned(), duration)),
         }?;
+        verify_peer(&stream, &addr)?;
         return receive_stream(stream, addr, max_len, callback).await;
     }
 
@@ -58,7 +66,8 @@ pub async fn send_data(
     data: Vec<u8>,
     destination: &SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     if data.len() > MAX_UDP_PAYLOAD {
         socket.send_to(b"1", destination).await?;
 
@@ -78,6 +87,7 @@ pub async fn send_data(
             else => Err(ConnectionError::Timeout("basic send".to_owned(), duration)),
         }?;
 
+        verify_peer(&stream, destination)?;
         stream.write_all(&data).await?;
         stream.shutdown().await?;
         return Ok(data.len());
@@ -88,7 +98,8 @@ pub async fn send_data(
 async fn listen_stream(
     local_addr: SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<TcpStream, ConnectionError> {
+) -> Result<TcpStream, ConnectionError>
+{
     let listener = obtain_server_socket(local_addr)?;
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
@@ -107,22 +118,45 @@ async fn listen_stream(
 async fn connect_stream(
     local_addr: SocketAddr,
     destination: SocketAddr,
-) -> Result<TcpStream, ConnectionError> {
+) -> Result<TcpStream, ConnectionError>
+{
     let socket = obtain_client_socket(local_addr)?;
     let stream = socket.connect(destination).await?;
     return Ok(stream);
 }
 
+pub fn verify_peer(stream: &TcpStream, expected_peer: &SocketAddr)
+    -> Result<bool, ConnectionError>
+{
+    match stream.peer_addr() {
+        Ok(a) => {
+            if &a != expected_peer {
+                return Err(ConnectionError::InvalidSource(a));
+            }
+            return Ok(true);
+        }
+        _ => {
+            return Err(ConnectionError::NoSourceIp());
+        }
+    };
+}
+
 #[cfg(test)]
-mod basictest {
+mod basictest
+{
     use super::*;
     use crate::assert_error_type;
     use crate::encryption::random;
+    use crate::fragmenter::GroupsEncryptor;
+    use crate::message::Group;
     use futures::try_join;
+    use indexmap::indexmap;
 
-    async fn send_receive(size: usize, max_len: usize) {
+    async fn send_receive(size: usize, max_len: usize)
+    {
+        let client_str = "127.0.0.1:35838";
         let local_server: SocketAddr = "127.0.0.1:35837".parse().unwrap();
-        let local_client: SocketAddr = "127.0.0.1:35838".parse().unwrap();
+        let local_client: SocketAddr = client_str.parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
         client_sock.connect(local_server).await.unwrap();
@@ -130,9 +164,13 @@ mod basictest {
         let data_sent = random(size);
         let for_sending = data_sent.clone();
 
+        let group = Group::from_addr("test1", &client_str, &client_str);
+        let groups = indexmap! {group.name.clone() => group.clone()};
+        let enc_r = GroupsEncryptor::new(groups);
+
         let res = try_join!(
             tokio::spawn(async move {
-                receive_data(server_sock, max_len, |d: Duration| {
+                receive_data(server_sock, &enc_r, max_len, |d: Duration| {
                     d > Duration::from_millis(2000)
                 })
                 .await
@@ -157,7 +195,8 @@ mod basictest {
     }
 
     #[tokio::test]
-    async fn test_data() {
+    async fn test_data()
+    {
         send_receive(5, 10).await;
         send_receive(16 * 1024 * 10, 16 * 1024 * 10).await;
         send_receive(10, 5).await;
@@ -165,10 +204,16 @@ mod basictest {
     }
 
     #[tokio::test]
-    async fn test_timeout() {
+    async fn test_timeout()
+    {
+        let client_str = "127.0.0.1:35838";
+        let group = Group::from_addr("test1", &client_str, &client_str);
+        let groups = indexmap! {group.name.clone() => group.clone()};
+        let enc_r = GroupsEncryptor::new(groups);
+
         let local_server: SocketAddr = "127.0.0.1:39837".parse().unwrap();
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
-        let result = receive_data(server_sock, 10, |_: Duration| true).await;
+        let result = receive_data(server_sock, &enc_r, 10, |_: Duration| true).await;
         assert_error_type!(result, ConnectionError::IoError(_));
     }
 }
