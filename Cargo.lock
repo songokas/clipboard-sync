@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "clipboard-sync"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "android_logger",
  "assert_cmd",

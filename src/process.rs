@@ -265,7 +265,7 @@ pub async fn send_clipboard(
             break;
         }
 
-        sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(500)).await;
     }
     return Ok((format!("sent"), count));
 }
