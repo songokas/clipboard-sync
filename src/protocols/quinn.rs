@@ -39,7 +39,7 @@ fn configure_client(
 
 pub async fn configure_server(certificates: &Certificates) -> Result<ServerConfig, EndpointError>
 {
-    let cert = read_file(&certificates.public_key, MAX_FILE_SIZE).map_err(|e| {
+    let (cert, _) = read_file(&certificates.public_key, MAX_FILE_SIZE).map_err(|e| {
         EndpointError::InvalidKey(format!("cert not found {} {}", certificates.public_key, e))
     })?;
 
