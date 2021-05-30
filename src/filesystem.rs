@@ -10,18 +10,20 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use crate::defaults::*;
 use crate::errors::*;
 
 pub type DirStructure = Vec<(String, Vec<u8>)>;
 
-pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Vec<u8>, io::Error>
+// returns bytes read and if the whole file was read
+pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<(Vec<u8>, bool), io::Error>
 {
     let mut f = File::open(path)?;
-    let mut buffer = vec![0; max_size];
+    let mut buffer = vec![0; max_size + 1];
     let size_read = f.read(&mut buffer)?;
-    buffer.resize_with(size_read, Default::default);
-    return Ok(buffer);
+    let all_file = size_read < (max_size + 1);
+    let resize_to = if all_file { size_read } else { max_size };
+    buffer.resize_with(resize_to, Default::default);
+    return Ok((buffer, all_file));
 }
 
 #[allow(unused_variables)]
@@ -36,10 +38,13 @@ pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>, mode: u32)
     opts.open(path.as_ref())?.write_all(contents.as_ref())
 }
 
-pub fn read_file_to_string<P: AsRef<Path>>(path: P, max_size: usize) -> Result<String, io::Error>
+pub fn read_file_to_string<P: AsRef<Path>>(
+    path: P,
+    max_size: usize,
+) -> Result<(String, bool), io::Error>
 {
-    let buffer = read_file(path, max_size)?;
-    return Ok(String::from_utf8_lossy(&buffer).to_string());
+    let (buffer, full) = read_file(path, max_size)?;
+    return Ok((String::from_utf8_lossy(&buffer).to_string(), full));
 }
 
 pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructure
@@ -62,7 +67,11 @@ pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructu
             }
         };
         let data = match read_file(&full_path, max_file_size) {
-            Ok(d) => d,
+            Ok((d, read)) if read => d,
+            Ok(_) => {
+                warn!("File is larger than {} ignoring", max_file_size,);
+                continue;
+            }
             Err(err) => {
                 warn!(
                     "Unable to read file {} Message: {}",
@@ -77,7 +86,7 @@ pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructu
     return hash;
 }
 
-pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
+pub fn dir_to_bytes(directory: &str, max_file_size: usize) -> Result<Vec<u8>, EncryptionError>
 {
     if !Path::new(directory).exists() {
         return Err(EncryptionError::InvalidMessage(format!(
@@ -85,7 +94,7 @@ pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
             directory
         )));
     }
-    let hash = dir_to_dir_structure(directory, MAX_FILE_SIZE);
+    let hash = dir_to_dir_structure(directory, max_file_size);
     if hash.is_empty() {
         return Ok(vec![]);
     }
@@ -94,7 +103,7 @@ pub fn dir_to_bytes(directory: &str) -> Result<Vec<u8>, EncryptionError>
     return Ok(add_bytes);
 }
 
-pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure
+pub fn files_to_dir_structure(files: Vec<&str>, max_file_size: usize) -> DirStructure
 {
     let mut hash = DirStructure::new();
     for file in files {
@@ -113,8 +122,12 @@ pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure
                 continue;
             }
         };
-        let data = match read_file(&file_path, MAX_FILE_SIZE) {
-            Ok(d) => d,
+        let data = match read_file(&file_path, max_file_size) {
+            Ok((d, full)) if full => d,
+            Ok(_) => {
+                warn!("File is larger than {} ignoring", max_file_size,);
+                continue;
+            }
             Err(err) => {
                 warn!(
                     "Unable to read file {} Message: {}",
@@ -129,9 +142,9 @@ pub fn files_to_dir_structure(files: Vec<&str>) -> DirStructure
     return hash;
 }
 
-pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError>
+pub fn files_to_bytes(files: Vec<&str>, max_file_size: usize) -> Result<Vec<u8>, EncryptionError>
 {
-    let hash = files_to_dir_structure(files);
+    let hash = files_to_dir_structure(files, max_file_size);
     if hash.is_empty() {
         return Ok(vec![]);
     }
@@ -140,7 +153,12 @@ pub fn files_to_bytes(files: Vec<&str>) -> Result<Vec<u8>, EncryptionError>
     return Ok(add_bytes);
 }
 
-pub fn bytes_to_dir(directory: &str, data: Vec<u8>, from: &str) -> Result<Vec<PathBuf>, io::Error>
+pub fn bytes_to_dir(
+    directory: &str,
+    data: Vec<u8>,
+    from: &str,
+    max_file_size: usize,
+) -> Result<Vec<PathBuf>, io::Error>
 {
     if !Path::new(directory).exists() {
         fs::create_dir_all(directory)?;
@@ -149,13 +167,31 @@ pub fn bytes_to_dir(directory: &str, data: Vec<u8>, from: &str) -> Result<Vec<Pa
     let mut files_created = vec![];
     if let Ok(hash) = bincode::deserialize::<DirStructure>(&data) {
         for (file_name, data) in hash {
-            let path = Path::new(directory).join(file_name);
+            let path = Path::new(directory).join(file_name.clone());
+            if data.len() > max_file_size {
+                warn!(
+                    "Ignoring file {} because it contains more data {} than expected {}",
+                    file_name,
+                    data.len(),
+                    max_file_size
+                );
+                continue;
+            }
             write_file(&path, data, 0o600)?;
             files_created.push(path);
         }
         return Ok(files_created);
     }
     let path = Path::new(directory).join(from);
+    if data.len() > max_file_size {
+        warn!(
+            "Ignoring file {} because it contains more data {} than expected {}",
+            from,
+            data.len(),
+            max_file_size
+        );
+        return Ok(vec![]);
+    }
     write_file(&path, data, 0o600)?;
     files_created.push(path);
     return Ok(files_created);
@@ -171,14 +207,14 @@ mod filesystemtest
     fn test_read_file()
     {
         let d: Vec<u8> = Vec::new();
-        assert_eq!(d, read_file("./tests/temp1", 0).unwrap());
-        assert_eq!(vec![116], read_file("./tests/temp1", 1).unwrap());
+        assert_eq!((d, false), read_file("./tests/temp1", 0).unwrap());
+        assert_eq!((vec![116], false), read_file("./tests/temp1", 1).unwrap());
         assert_eq!(
-            vec![116, 101, 109, 112, 49],
+            (vec![116, 101, 109, 112, 49], false),
             read_file("./tests/temp1", 5).unwrap()
         );
         assert_eq!(
-            vec![116, 101, 109, 112, 49, 32, 102, 105, 108, 101],
+            (vec![116, 101, 109, 112, 49, 32, 102, 105, 108, 101], true),
             read_file("./tests/temp1", 20).unwrap()
         );
         assert_eq!(false, read_file("./tests/t1", 20).is_ok());
@@ -187,14 +223,16 @@ mod filesystemtest
     #[test]
     fn test_read_to_string()
     {
-        assert_eq!("", read_file_to_string("./tests/temp1", 0).unwrap());
-        assert_eq!("temp1", read_file_to_string("./tests/temp1", 5).unwrap());
         assert_eq!(
-            "temp1 file",
-            read_file_to_string("./tests/temp1", 20).unwrap()
+            ("".to_owned(), false),
+            read_file_to_string("./tests/temp1", 0).unwrap()
         );
         assert_eq!(
-            "temp1 file",
+            ("temp1".to_owned(), false),
+            read_file_to_string("./tests/temp1", 5).unwrap()
+        );
+        assert_eq!(
+            ("temp1 file".to_owned(), true),
             read_file_to_string("./tests/temp1", 20).unwrap()
         );
         assert_eq!(false, read_file_to_string("./tests/t1", 20).is_ok());
@@ -241,9 +279,9 @@ mod filesystemtest
     fn test_dir_to_bytes()
     {
         for (path, expected_data) in dir_to_bytes_provider() {
-            assert_eq!(expected_data, dir_to_bytes(path).unwrap());
+            assert_eq!(expected_data, dir_to_bytes(path, 100).unwrap());
         }
-        assert_eq!(false, dir_to_bytes("./tests/empt").is_ok());
+        assert_eq!(false, dir_to_bytes("./tests/empt", 100).is_ok());
     }
 
     #[test]
@@ -252,12 +290,12 @@ mod filesystemtest
         for (expected_data, path, data_to_use) in bytes_to_dir_provider() {
             assert_eq!(
                 expected_data,
-                bytes_to_dir(path, data_to_use, "unknown").unwrap()
+                bytes_to_dir(path, data_to_use, "unknown", 100).unwrap()
             );
         }
         assert_eq!(
             true,
-            bytes_to_dir("/tmp/all/deep/a", vec![3], "unknown").is_ok()
+            bytes_to_dir("/tmp/all/deep/a", vec![3], "unknown", 100).is_ok()
         );
     }
 }

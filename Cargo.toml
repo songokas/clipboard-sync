@@ -29,7 +29,7 @@ cached = "0.23"
 jni = "0.19"
 lazy_static = "1.4"
 indexmap = { version = "1.6", features = ["serde-1"] }
-laminar = "0.5"
+laminar = { version = "0.5" }
 thiserror = "1.0"
 notify = "4.0"
 # @TODO simplify/replace/remove

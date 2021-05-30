@@ -168,7 +168,7 @@ pub async fn receive_data(
                     ));
                 } else {
                     // @TODO laminar and async
-                    thread::sleep(Duration::from_millis(5));
+                    thread::sleep(Duration::from_millis(100));
                 }
             }
         }
@@ -209,7 +209,8 @@ pub async fn send_data(
 
 pub fn obtain_socket(local_address: &SocketAddr) -> Result<(Socket, Config), ConnectionError>
 {
-    let config = Config::default();
+    let mut config = Config::default();
+    config.fragment_reassembly_buffer_size = 1024;
     let sock = Socket::bind_with_config(local_address, config.clone()).map_err(|e| {
         ConnectionError::FailedToConnect(format!(
             "Unable to bind local address {} {}",

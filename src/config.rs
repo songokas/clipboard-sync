@@ -8,9 +8,7 @@ use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use crate::defaults::{
-    DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER, PACKAGE_NAME, RECEIVE_ONCE_WAIT,
-};
+use crate::defaults::{DEFAULT_CLIPBOARD, KEY_SIZE, PACKAGE_NAME, RECEIVE_ONCE_WAIT};
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
@@ -49,6 +47,7 @@ pub struct UserConfig
 
     pub groups: IndexMap<String, ConfigGroup>,
     pub max_receive_buffer: Option<usize>,
+    pub max_file_size: Option<usize>,
     pub receive_once_wait: Option<u64>,
     pub ntp_server: Option<String>,
 }
@@ -59,6 +58,7 @@ pub struct FullConfig
     pub bind_addresses: BindAddresses,
     pub groups: Groups,
     pub max_receive_buffer: usize,
+    pub max_file_size: usize,
     pub receive_once_wait: u64,
     pub send_clipboard_on_startup: bool,
     pub ntp_server: Option<String>,
@@ -71,6 +71,7 @@ impl FullConfig
         bind_all: IndexSet<SocketAddr>,
         groups: Groups,
         max_receive_buffer: usize,
+        max_file_size: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
         ntp_server: Option<String>,
@@ -82,6 +83,7 @@ impl FullConfig
             bind_addresses,
             groups,
             max_receive_buffer,
+            max_file_size,
             receive_once_wait,
             send_clipboard_on_startup,
             ntp_server,
@@ -92,6 +94,7 @@ impl FullConfig
         bind_addresses: BindAddresses,
         groups: Groups,
         max_receive_buffer: usize,
+        max_file_size: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
         ntp_server: Option<String>,
@@ -101,6 +104,7 @@ impl FullConfig
             bind_addresses,
             groups,
             max_receive_buffer,
+            max_file_size,
             receive_once_wait,
             send_clipboard_on_startup,
             ntp_server,
@@ -189,6 +193,8 @@ pub fn load_groups(
     default_key: String,
     default_message_valid_for: u16,
     default_ntp_server: &str,
+    default_max_receive_buffer: usize,
+    default_max_file_size: usize,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -294,7 +300,6 @@ pub fn load_groups(
         );
     }
 
-    let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
     let receive_once_wait = user_config.receive_once_wait.unwrap_or(RECEIVE_ONCE_WAIT);
     let bind_default_protocol = Protocol::from(
         default_protocol,
@@ -318,7 +323,8 @@ pub fn load_groups(
     let full_config = FullConfig::from_config(
         bind_addresses,
         groups,
-        max_receive_buffer,
+        default_max_receive_buffer,
+        default_max_file_size,
         receive_once_wait,
         send_clipboard_on_startup,
         ntp_server,
@@ -426,6 +432,8 @@ mod configtest
             "".to_owned(),
             0,
             "",
+            100,
+            100,
         )
         .unwrap();
 
@@ -518,6 +526,8 @@ mod configtest
             "".to_owned(),
             0,
             "",
+            100,
+            100,
         );
 
         match full_config {

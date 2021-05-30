@@ -93,7 +93,7 @@ pub async fn receive_from_timeout(
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> io::Result<(usize, SocketAddr)>
 {
-    let timeout_duration = Duration::from_millis(50);
+    let timeout_duration = Duration::from_millis(100);
     let now = Instant::now();
     loop {
         match timeout(timeout_duration, socket.recv_from(buf)).await {

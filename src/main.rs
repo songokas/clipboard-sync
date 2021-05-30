@@ -59,7 +59,7 @@ async fn main() -> Result<(), CliError>
 
     let key_data: String = match matches.value_of("key") {
         Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
-            Ok(file_contents) => file_contents,
+            Ok((file_contents, _)) => file_contents,
             Err(_) => expected_key.to_owned(),
         },
         None => "".to_owned(),
@@ -152,6 +152,15 @@ async fn main() -> Result<(), CliError>
         .unwrap_or(MESSAGE_VALID_TIME);
     let ntp_server = matches.value_of("ntp-server").unwrap_or(NTP_SERVER);
 
+    let max_receive_buffer = matches
+        .value_of("max-receive-buffer")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(MAX_RECEIVE_BUFFER);
+    let max_file_size = matches
+        .value_of("max-file-size")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(MAX_FILE_SIZE);
+
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let cli_protocol = Protocol::from(
             matches.value_of("protocol"),
@@ -203,7 +212,8 @@ async fn main() -> Result<(), CliError>
             cli_protocol,
             socket_addresses,
             groups,
-            MAX_RECEIVE_BUFFER,
+            max_receive_buffer,
+            max_file_size,
             matches
                 .value_of("receive-once-wait")
                 .and_then(|s| s.parse::<u64>().ok())
@@ -232,6 +242,8 @@ async fn main() -> Result<(), CliError>
             key_data.clone(),
             message_valid_for,
             ntp_server,
+            max_receive_buffer,
+            max_file_size,
         );
     };
 

@@ -20,7 +20,7 @@ use crate::clipboards::channel_clipboard::ChannelClipboardContext;
 use crate::clipboards::Clipboard;
 use crate::config::FullConfig;
 use crate::defaults::{
-    DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL, MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
+    DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL, MAX_FILE_SIZE, MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
 };
 use crate::errors::CliError;
 use crate::message::Group;
@@ -146,6 +146,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         socket_address,
         groups,
         MAX_RECEIVE_BUFFER,
+        MAX_FILE_SIZE,
         RECEIVE_ONCE_WAIT,
         true,
         None,

@@ -102,6 +102,7 @@ pub async fn receive_clipboard(
             &buf[..len],
             &Identity::from_mapped(&addr),
             &groups,
+            config.max_file_size,
         );
 
         match result {
@@ -199,6 +200,7 @@ pub async fn send_clipboard(
                 &mut clipboard,
                 group,
                 hash_cache.get(&group.name),
+                config.max_file_size,
             ) {
                 Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
                 _ => {
@@ -263,14 +265,7 @@ pub async fn send_clipboard(
             break;
         }
 
-        let mut wait_count = 20;
-        while wait_count > 0 {
-            sleep(Duration::from_millis(50)).await;
-            if !running.load(Ordering::Relaxed) {
-                break;
-            }
-            wait_count -= 1;
-        }
+        sleep(Duration::from_millis(50)).await;
     }
     return Ok((format!("sent"), count));
 }
@@ -333,10 +328,11 @@ fn clipboard_group_to_bytes(
     clipboard: &mut Clipboard,
     group: &Group,
     existing_hash: Option<&String>,
+    max_file_size: usize,
 ) -> Option<(String, MessageType, Vec<u8>)>
 {
     if group.clipboard == CLIPBOARD_NAME {
-        return clipboard_to_bytes(clipboard, existing_hash);
+        return clipboard_to_bytes(clipboard, existing_hash, max_file_size);
     } else if Path::new(&group.clipboard).exists() {
         if let Some(h) = existing_hash {
             if h.len() > 0 {
@@ -344,13 +340,20 @@ fn clipboard_group_to_bytes(
             }
         }
         if Path::new(&group.clipboard).is_dir() {
-            match dir_to_bytes(&group.clipboard) {
+            match dir_to_bytes(&group.clipboard, max_file_size) {
                 Ok(bytes) => return Some((hash(&bytes), MessageType::Directory, bytes)),
                 Err(_) => return None,
             };
         }
-        match read_file(&group.clipboard, MAX_FILE_SIZE) {
-            Ok(bytes) => return Some((hash(&bytes), MessageType::File, bytes)),
+        match read_file(&group.clipboard, max_file_size) {
+            Ok((bytes, full)) if full => return Some((hash(&bytes), MessageType::File, bytes)),
+            Ok(_) => {
+                warn!(
+                    "Unable to read file {} file is larger than {}",
+                    &group.clipboard, max_file_size
+                );
+                return None;
+            }
             Err(_) => return None,
         };
     }
@@ -360,6 +363,7 @@ fn clipboard_group_to_bytes(
 fn clipboard_to_bytes(
     clipboard: &mut Clipboard,
     existing_hash: Option<&String>,
+    max_file_size: usize,
 ) -> Option<(String, MessageType, Vec<u8>)>
 {
     let files = clipboard.get_target_contents(ClipboardType::Files);
@@ -374,7 +378,11 @@ fn clipboard_to_bytes(
             let clipboard_contents = String::from_utf8(data).ok()?;
             // debug!("Send file clipboard {}", clipboard_contents);
             let files: Vec<&str> = clipboard_contents.lines().collect();
-            return Some((hash, MessageType::Files, files_to_bytes(files).ok()?));
+            return Some((
+                hash,
+                MessageType::Files,
+                files_to_bytes(files, max_file_size).ok()?,
+            ));
         }
         _ => {
             match clipboard.get_target_contents(ClipboardType::Text) {
@@ -401,6 +409,7 @@ fn handle_receive(
     buffer: &[u8],
     identity: &Identity,
     groups: &Groups,
+    max_file_size: usize,
 ) -> Result<(String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups, identity)?;
@@ -409,7 +418,14 @@ fn handle_receive(
         MessageType::Heartbeat => bytes,
         _ => uncompress(bytes)?,
     };
-    return write_to(clipboard, &group, data, &message.message_type, identity);
+    return write_to(
+        clipboard,
+        &group,
+        data,
+        &message.message_type,
+        identity,
+        max_file_size,
+    );
 }
 
 fn write_to(
@@ -418,6 +434,7 @@ fn write_to(
     data: Vec<u8>,
     message_type: &MessageType,
     identity: &Identity,
+    max_file_size: usize,
 ) -> Result<(String, String), ClipboardError>
 {
     if message_type == &MessageType::Heartbeat {
@@ -434,7 +451,8 @@ fn write_to(
                     .ok_or_else(|| {
                         ClipboardError::Invalid("Unable to retrieve configuration path".to_owned())
                     })?;
-                let files_created = bytes_to_dir(&config_path, data, &identity.to_string())?;
+                let files_created =
+                    bytes_to_dir(&config_path, data, &identity.to_string(), max_file_size)?;
                 let (clipboard_list, main_content) = create_targets_for_cut_files(files_created);
                 let clipboards: HashMap<ClipboardType, &[u8]> = clipboard_list
                     .iter()
@@ -456,7 +474,7 @@ fn write_to(
         };
     } else if group.clipboard.ends_with("/") || Path::new(&group.clipboard).is_dir() {
         let hash = hash(&data);
-        bytes_to_dir(&group.clipboard, data, &identity.to_string())?;
+        bytes_to_dir(&group.clipboard, data, &identity.to_string(), max_file_size)?;
         return Ok((hash, group.name.clone()));
     }
     let hash = hash(&data);
@@ -582,6 +600,7 @@ mod processtest
             indexset! {local_address},
             indexmap! { group.name.clone() => group.clone() },
             100,
+            100,
             20,
             true,
             None,
@@ -618,6 +637,7 @@ mod processtest
                 "test1".as_bytes().to_vec(),
                 &MessageType::Text,
                 &"empty".into(),
+                100,
             )
             .unwrap();
             sleep(Duration::from_millis(1100)).await;
@@ -648,6 +668,7 @@ mod processtest
             Protocol::Basic,
             indexset! {local_address},
             indexmap! { group.name.clone() => group.clone() },
+            100,
             100,
             20,
             false,
@@ -690,7 +711,7 @@ mod processtest
         let mut group = Group::from_name("test1");
 
         group.clipboard = "tests/test-dir/a".to_owned();
-        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None, 100);
         assert_eq!(
             res,
             Some((
@@ -706,7 +727,7 @@ mod processtest
             .set_target_contents(ClipboardType::Text, b"test1")
             .unwrap();
 
-        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None, 100);
         assert_eq!(
             res,
             Some((
@@ -718,7 +739,7 @@ mod processtest
 
         group.clipboard = "tests/test-dir/".to_owned();
 
-        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None, 100);
         assert_eq!(
             res,
             Some((
@@ -733,7 +754,7 @@ mod processtest
 
         group.clipboard = "tests/test-dir".to_owned();
 
-        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None, 100);
         assert_eq!(
             res,
             Some((
@@ -747,7 +768,7 @@ mod processtest
         );
 
         group.clipboard = "tests/non-existing".to_owned();
-        let res = clipboard_group_to_bytes(&mut clipboard, &group, None);
+        let res = clipboard_group_to_bytes(&mut clipboard, &group, None, 100);
         assert_eq!(res, None);
     }
 
