@@ -168,7 +168,7 @@ pub async fn receive_data(
                     ));
                 } else {
                     // @TODO laminar and async
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(Duration::from_millis(5));
                 }
             }
         }

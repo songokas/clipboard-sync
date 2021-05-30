@@ -23,7 +23,7 @@ pub const QUIC_STREAM: u8 = 0;
 pub const CONNECTION_TIMEOUT: u64 = 2000;
 pub const DATA_TIMEOUT: u64 = 5000;
 pub const RECEIVE_ONCE_WAIT: u64 = 45; //seconds
-pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 200;
+pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 200; // encryption header size
 
 pub const NTP_SERVER: &str = "0.pool.ntp.org:123";
 pub const MESSAGE_VALID_TIME: u16 = 300;
