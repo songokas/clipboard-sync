@@ -1,7 +1,12 @@
 bind_addresses:
   # protocol: local socket address
-  basic: "0.0.0.0:8900"
+  basic: 
+    - "0.0.0.0:8900"
+    - "[::]:8900"
   frames: "0.0.0.0:8901"
+  laminar: "0.0.0.0:8902"
+  tcp: "0.0.0.0:8903" 
+  #quic: "0.0.0.0:8904"
 
 # optional unless using quic
 certificates:
@@ -12,10 +17,13 @@ certificates:
 # send_using_address and visible_ip are per group as well
 send_using_address: "0.0.0.0:8901"
 
+# if behind nat/incorrect ip is used
 visible_ip: "my-public-ip"
 
 # max bytes to receive per connection
 max_receive_buffer: 10485760
+# max bytes per file when sending/receiving files
+max_file_size: 1048576
 
 # whether to send initial clipboard when application starts
 send_clipboard_on_startup: false
@@ -30,15 +38,24 @@ groups:
       - "192.168.0.153:8900"
       - "192.168.0.54:20034"
     clipboard: clipboard # can be clipboard, /path/to/file , /path/to/directory/
-  local_network: 
+  local_network:  # allowed_hosts default to local network multicast
     key: "32323232323232323232323232323232"
-    # allowed_hosts default to local network multicast
-  external:
+  nat_traversal_client1:
     key: "32323232323232323232323232323232"
-    visible_ip: "2.2.2.2"
-    send_using_address: "0.0.0.0:9000"
+    visible_ip: "2.2.2.2" # if not provided defaults to public ip when sending to external networks
+    send_using_address:
+      - "0.0.0.0:8900"
+      - "[::]:8900"
+    heartbeat: 20 # send dummy packet every 20 seconds
     allowed_hosts:
-      - "external.net:80"
+      - "external.net:8900"
+  nat_traversal_client2: # on the other host
+    key: "32323232323232323232323232323232"
+    visible_ip: "external.net"
+    send_using_address: "0.0.0.0:8900"
+    heartbeat: 20
+    allowed_hosts:
+      - "2.2.2.2:8900"
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file

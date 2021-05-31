@@ -16,18 +16,15 @@ impl EmptyClipboardContext
         return Ok(vec![]);
     }
 
-    pub fn set_target_contents(
-        &mut self,
-        _: ClipboardType,
-        contents: &[u8],
-    ) -> Result<(), Box<dyn Error>>
+    pub fn set_target_contents(&mut self, _: ClipboardType, _: &[u8])
+        -> Result<(), Box<dyn Error>>
     {
         return Ok(());
     }
 
     pub fn set_multiple_targets(
         &mut self,
-        targets: HashMap<ClipboardType, &[u8]>,
+        _: HashMap<ClipboardType, &[u8]>,
     ) -> Result<(), Box<dyn Error>>
     {
         return Ok(());

@@ -14,6 +14,30 @@ fn test_send_once()
             "--bind-address",
             "127.0.0.1:8922",
             "--send-once",
+            "--ntp-server",
+            "",
+        ],
+        "count",
+    );
+}
+
+#[test]
+fn test_bind_send_multiple_addresses()
+{
+    check_success(
+        vec![
+            "--key",
+            ANY_KEY,
+            "--bind-address",
+            "127.0.0.1:8922,[::1]:8922",
+            "--send-using-address",
+            "127.0.0.1:8922,[::1]:8922",
+            "--receive-once",
+            "--send-once",
+            "--allowed-host",
+            "127.0.0.1:8911,[::1]:8911",
+            "--ntp-server",
+            "",
         ],
         "count",
     );
@@ -124,4 +148,27 @@ fn get_failure_provider() -> Vec<(Vec<&'static str>, &'static str)>
             "non-existing",
         ),
     ];
+}
+
+#[test]
+fn test_default_with_protocols()
+{
+    for protocol in [
+        "basic",
+        "tcp",
+        #[cfg(feature = "frames")]
+        "frames",
+        "laminar",
+        #[cfg(feature = "quic-quinn")]
+        "quic",
+        #[cfg(feature = "quic-quiche")]
+        "quic",
+    ]
+    .to_vec()
+    {
+        check_success(
+            vec!["--protocol", protocol, "--bind-address", "[::]:0"],
+            &format!("protocol {}", protocol),
+        );
+    }
 }

@@ -1,231 +1,90 @@
 use cached::proc_macro::cached;
 use cached::TimedSizedCache;
-use log::{debug, warn};
-#[cfg(feature = "quinn")]
-use quinn::{Endpoint, Incoming};
-use std::collections::HashMap;
-use std::fmt;
+use indexmap::IndexSet;
+
+use log::debug;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::time::Instant;
-use tokio::net::lookup_host;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
-use crate::config::Certificates;
-use crate::errors::{CliError, DnsError};
-use crate::message::Group;
+use crate::errors::{ConnectionError, DnsError};
 
-pub enum SocketEndpoint
+//@TODO experimental
+// pub trait Timeout = Fn(Duration) -> bool;
+
+pub struct Destination
 {
-    Socket(UdpSocket),
-    #[cfg(feature = "quinn")]
-    QuicClient(Endpoint),
-    #[cfg(feature = "quinn")]
-    QuicServer(Incoming),
+    host: String,
+    addr: SocketAddr,
 }
 
-#[allow(irrefutable_let_patterns)]
-impl SocketEndpoint
+impl Destination
 {
-    pub fn socket(&self) -> Option<&UdpSocket>
+    pub fn new(host: String, addr: SocketAddr) -> Self
     {
-        if let Self::Socket(s) = self {
-            return Some(s);
-        }
-        return None;
+        return Self { host, addr };
     }
 
-    pub fn socket_consume(self) -> Option<UdpSocket>
+    pub fn host(&self) -> &str
     {
-        if let Self::Socket(s) = self {
-            return Some(s);
-        }
-        return None;
+        return &self.host;
     }
 
-    pub fn ip(&self) -> Option<IpAddr>
+    pub fn addr(&self) -> &SocketAddr
     {
-        if let Self::Socket(s) = self {
-            return s.local_addr().map(|s| s.ip().clone()).ok();
-        }
-        return None;
-    }
-
-    #[cfg(feature = "quinn")]
-    pub fn client_consume(self) -> Option<Endpoint>
-    {
-        if let Self::QuicClient(s) = self {
-            return Some(s);
-        }
-        return None;
-    }
-
-    #[cfg(feature = "quinn")]
-    pub fn server(&mut self) -> Option<&mut Incoming>
-    {
-        if let Self::QuicServer(s) = self {
-            return Some(s);
-        }
-        return None;
+        return &self.addr;
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Protocol
+impl Into<SocketAddr> for Destination
 {
-    Basic,
-    #[cfg(feature = "frames")]
-    Frames,
-    #[cfg(feature = "quic")]
-    Quic(Certificates),
-}
-
-impl Protocol
-{
-    pub fn requires_public_key(&self) -> bool
+    fn into(self) -> SocketAddr
     {
-        #[cfg(feature = "quic")]
-        if let Self::Quic(_) = self {
-            return true;
-        }
-        return false;
-    }
-
-    #[allow(unused_variables)]
-    pub fn from(
-        protocol_opt: Option<&str>,
-        certs_callback: impl Fn() -> Result<Certificates, CliError>,
-    ) -> Result<Protocol, CliError>
-    {
-        let protocol = match protocol_opt {
-            #[cfg(feature = "quic")]
-            Some(v) if v == "quic" => {
-                let c = certs_callback()?;
-                Protocol::Quic(c.clone())
-            }
-            #[cfg(feature = "frames")]
-            Some(v) if v == "frames" => Protocol::Frames,
-            Some(v) if v == "basic" => Protocol::Basic,
-            Some(v) => {
-                return Err(CliError::ArgumentError(format!(
-                    "Protocol {} is not available",
-                    v
-                )));
-            }
-            None => Protocol::Basic,
-        };
-        return Ok(protocol);
+        return self.addr().clone();
     }
 }
 
-impl fmt::Display for Protocol
+impl From<SocketAddr> for Destination
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    fn from(item: SocketAddr) -> Self
     {
-        return match self {
-            #[cfg(feature = "quic")]
-            Self::Quic(_) => write!(f, "quic"),
-            #[cfg(feature = "frames")]
-            Self::Frames => write!(f, "frames"),
-            Self::Basic => write!(f, "basic"),
-        };
+        return Self::new(item.ip().to_string(), item.clone());
+    }
+}
+
+impl std::fmt::Display for Destination
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+    {
+        write!(f, "host: {} destination: {}", self.host(), self.addr())
     }
 }
 
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
-    type = "TimedSizedCache<String, Result<SocketAddr, DnsError>>",
-    convert = r#"{ format!("{}", host.as_ref()) }"#
+    type = "TimedSizedCache<String, SocketAddr>",
+    convert = r#"{ format!("{}", socket_addr.as_ref()) }"#,
+    result = true
 )]
-pub async fn to_socket(host: impl AsRef<str>) -> Result<SocketAddr, DnsError>
+pub fn to_socket_address(socket_addr: impl AsRef<str>) -> Result<SocketAddr, DnsError>
 {
     let to_err = |e| {
         DnsError::Failed(format!(
             "Unable to retrieve ip for {}. Message: {}",
-            host.as_ref(), e
+            socket_addr.as_ref(),
+            e
         ))
     };
-    for addr in lookup_host(host.as_ref()).await.map_err(to_err)? {
+    for addr in socket_addr.as_ref().to_socket_addrs().map_err(to_err)? {
+        debug!("Retrieved socket {} for dns {}", addr, socket_addr.as_ref());
         return Ok(addr);
     }
     return Err(DnsError::Failed(format!(
         "Unable to retrieve ip for {}",
-        host.as_ref()
+        socket_addr.as_ref()
     )));
-}
-
-pub struct Multicast
-{
-    cache: HashMap<IpAddr, bool>,
-}
-
-impl Multicast
-{
-    pub fn new() -> Self
-    {
-        return Multicast {
-            cache: HashMap::new(),
-        };
-    }
-
-    pub fn join_group(
-        &mut self,
-        sock: &UdpSocket,
-        interface_addr: &IpAddr,
-        remote_ip: &IpAddr,
-    ) -> bool
-    {
-        if self.cache.contains_key(&remote_ip) {
-            return true;
-        }
-        let op = match remote_ip {
-            IpAddr::V4(multicast_ipv4) => {
-                if let IpAddr::V4(ipv4) = interface_addr {
-                    sock.set_multicast_loop_v4(false).unwrap_or(());
-                    sock.join_multicast_v4(multicast_ipv4.clone(), ipv4.clone())
-                } else {
-                    Err(
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("invalid ipv4 address {}", interface_addr)
-                        ),
-                    )
-                }
-
-            },
-            IpAddr::V6(multicast_ipv6) => {
-                sock.set_multicast_loop_v6(false).unwrap_or(());
-                sock.join_multicast_v6(multicast_ipv6, 0)
-            }
-        };
-        if let Err(_) = op {
-            warn!("Unable to join multicast network {}", remote_ip);
-            return false;
-        } else {
-            debug!("Joined multicast {}", remote_ip);
-            self.cache.insert(remote_ip.clone(), true);
-            return true;
-        }
-    }
-
-    pub async fn join_groups(&mut self, sock: &UdpSocket, groups: &[Group], local_addr: &IpAddr)
-    {
-        for group in groups {
-            for remote_host in &group.allowed_hosts {
-                let addr = match to_socket(remote_host).await {
-                    Ok(a) => a,
-                    _ => {
-                        warn!("Unable to parse or retrieve address for {}", remote_host);
-                        continue;
-                    }
-                };
-                if addr.ip().is_multicast() {
-                    self.join_group(sock, local_addr, &addr.ip());
-                }
-            }
-        }
-    }
 }
 
 pub async fn receive_from_timeout(
@@ -234,7 +93,7 @@ pub async fn receive_from_timeout(
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> io::Result<(usize, SocketAddr)>
 {
-    let timeout_duration = Duration::from_millis(50);
+    let timeout_duration = Duration::from_millis(100);
     let now = Instant::now();
     loop {
         match timeout(timeout_duration, socket.recv_from(buf)).await {
@@ -252,15 +111,239 @@ pub async fn receive_from_timeout(
     }
 }
 
-pub async fn to_visible_ip(local_ip: Option<IpAddr>, group: &Group) -> IpAddr
+#[cached(
+    create = "{ TimedSizedCache::with_size_and_lifespan(100, 600) }",
+    type = "TimedSizedCache<String, SocketAddr>",
+    convert = r#"{ format!("{}", remote_address.ip().to_string()) }"#,
+    result = true
+)]
+pub async fn retrieve_local_address(
+    local_addresses: &IndexSet<SocketAddr>,
+    remote_address: &SocketAddr,
+) -> Result<SocketAddr, ConnectionError>
 {
-    if let Some(host) = &group.visible_ip {
-        if let Ok(sock_addr) = to_socket(format!("{}:0", host)).await {
-            return sock_addr.ip();
+    let socket = obtain_socket(local_addresses, remote_address).await?;
+    let sock_addr = socket.local_addr()?;
+    return Ok(sock_addr);
+}
+
+#[cfg(feature = "public-ip")]
+#[cached(size = 10, time = 3600)]
+pub async fn retrieve_public_ip(_socket_addr: SocketAddr) -> Result<IpAddr, DnsError>
+{
+    let result = public_ip::addr()
+        .await
+        .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
+    if let Ok(ip) = result {
+        debug!("Retrieved public ip {}", ip);
+    }
+    return result;
+}
+
+pub fn get_matching_address<'a>(
+    local_addresses: &'a IndexSet<SocketAddr>,
+    remote_address: &SocketAddr,
+) -> Option<&'a SocketAddr>
+{
+    for local_address in local_addresses.iter() {
+        if local_address.is_ipv4() == remote_address.is_ipv4()
+            || local_address.is_ipv6() == remote_address.is_ipv6()
+        {
+            return Some(local_address);
         }
     }
-    if let Some(ip) = local_ip {
-        return ip;
+    return None;
+}
+
+pub fn ipv6_support() -> (bool, bool)
+{
+    let sock_addr = match "[::]:0".parse() {
+        Ok(a) => a,
+        Err(_) => return (false, false),
+    };
+    match mio::net::UdpSocket::bind(sock_addr) {
+        Ok(s) => (true, s.only_v6().unwrap_or(false)),
+        Err(_) => (false, false),
     }
-    return group.send_using_address.ip();
+}
+
+pub async fn obtain_socket(
+    local_addresses: &IndexSet<SocketAddr>,
+    remote_address: &SocketAddr,
+) -> Result<UdpSocket, ConnectionError>
+{
+    let local_address = get_matching_address(local_addresses, remote_address).ok_or_else(|| {
+        ConnectionError::FailedToConnect(format!(
+            "Unable to find local address from {:?} that can connect to the remote address {}",
+            local_addresses, remote_address
+        ))
+    })?;
+    let sock = UdpSocket::bind(local_address).await.map_err(|e| {
+        ConnectionError::FailedToConnect(format!(
+            "Unable to bind local address {} {}",
+            local_address, e
+        ))
+    })?;
+    sock.connect(remote_address).await.map_err(|e| {
+        ConnectionError::FailedToConnect(format!(
+            "Unable to connect local address {} to remote address {} {}",
+            local_address, remote_address, e
+        ))
+    })?;
+    return Ok(sock);
+}
+
+pub fn remove_ipv4_mapping(addr: &SocketAddr) -> SocketAddr
+{
+    let use_addr: SocketAddr = match addr {
+        SocketAddr::V6(a) => Ipv6AddrExt::to_ipv4_mapped(a.ip())
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
+            .unwrap_or(SocketAddr::V6(a.clone())),
+        _ => addr.clone(),
+    };
+    return use_addr;
+}
+
+// @TODO remove once stable https://github.com/rust-lang/rust/issues/27709
+
+pub trait IpAddrExt
+{
+    fn is_global(&self) -> bool;
+}
+
+pub trait Ipv6AddrExt
+{
+    fn to_ipv4_mapped(&self) -> Option<Ipv4Addr>;
+}
+
+impl IpAddrExt for IpAddr
+{
+    // #[rustc_const_unstable(feature = "const_ip", issue = "76205")]
+    #[inline]
+    fn is_global(&self) -> bool
+    {
+        match self {
+            IpAddr::V4(ip) => IpAddrExt::is_global(ip),
+            IpAddr::V6(ip) => IpAddrExt::is_global(ip),
+        }
+    }
+}
+
+impl IpAddrExt for Ipv4Addr
+{
+    // #[rustc_const_unstable(feature = "const_ipv4", issue = "76205")]
+    #[inline]
+    fn is_global(&self) -> bool
+    {
+        // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
+        // globally routable addresses in the 192.0.0.0/24 range.
+        if u32::from_be_bytes(self.octets()) == 0xc0000009
+            || u32::from_be_bytes(self.octets()) == 0xc000000a
+        {
+            return true;
+        }
+        !self.is_private()
+            && !self.is_loopback()
+            && !self.is_link_local()
+            && !self.is_broadcast()
+            && !self.is_documentation()
+            && !self.is_multicast()
+            // && !self.is_shared()
+            // && !self.is_ietf_protocol_assignment()
+            // && !self.is_reserved()
+            // && !self.is_benchmarking()
+            // Make sure the address is not in 0.0.0.0/8
+            && self.octets()[0] != 0
+    }
+}
+
+impl IpAddrExt for Ipv6Addr
+{
+    // @TODO include other ranges, wait for is_global stable
+    // #[rustc_const_unstable(feature = "const_ipv6", issue = "76205")]
+    #[inline]
+    fn is_global(&self) -> bool
+    {
+        let first = self.segments()[0];
+        return first >= 0x2001 && first <= 0x3FFF;
+        // match self.multicast_scope() {
+        //     Some(Ipv6MulticastScope::Global) => true,
+        //     None => self.is_unicast_global(),
+        //     _ => false,
+        // }
+    }
+}
+
+impl Ipv6AddrExt for Ipv6Addr
+{
+    // #[rustc_const_unstable(feature = "const_ipv6", issue = "76205")]
+    #[inline]
+    fn to_ipv4_mapped(&self) -> Option<Ipv4Addr>
+    {
+        match self.octets() {
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                Some(Ipv4Addr::new(a, b, c, d))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod sockettest
+{
+    use super::*;
+    use crate::assert_error_type;
+    use crate::wait;
+    use indexmap::indexset;
+
+    #[cfg(feature = "public-ip")]
+    #[test]
+    fn test_retrieve_public_ip()
+    {
+        assert!(wait!(retrieve_public_ip("127.0.0.1:0".parse().unwrap())).is_ok());
+    }
+
+    #[test]
+    fn test_retrieve_local_address()
+    {
+        std::net::UdpSocket::bind("[::]:0").unwrap();
+        let l = "127.0.0.1:0".parse().unwrap();
+        let r = "127.0.0.1:0".parse().unwrap();
+        let addrs = indexset! {l};
+        assert!(wait!(retrieve_local_address(&addrs, &r)).is_ok());
+    }
+
+    #[test]
+    fn test_to_socket_addr()
+    {
+        to_socket_address("google.com:0").unwrap();
+        let s = to_socket_address("1.1.1.1:0").unwrap();
+        assert_eq!("1.1.1.1:0".parse::<SocketAddr>().unwrap(), s);
+
+        let s = to_socket_address("abc");
+        assert_error_type!(s, DnsError::Failed(_));
+    }
+
+    #[test]
+    fn test_ipv6_is_global()
+    {
+        let ip: IpAddr = "2606:4700:4700::1111".parse().unwrap();
+        assert!(IpAddrExt::is_global(&ip));
+        let ip: IpAddr = "2a00:1450:401b:800::200e".parse().unwrap();
+        assert!(IpAddrExt::is_global(&ip));
+
+        let ip: IpAddr = "fd6d:8d64:af0c::1".parse().unwrap();
+        assert!(!IpAddrExt::is_global(&ip));
+        let ip: IpAddr = "fe80::1".parse().unwrap();
+        assert!(!IpAddrExt::is_global(&ip));
+    }
+
+    #[test]
+    fn test_raw_binds()
+    {
+        let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        socket.connect("2606:4700:4700::1111:80").unwrap();
+        println!("{}", socket.local_addr().unwrap());
+    }
 }

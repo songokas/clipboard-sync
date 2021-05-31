@@ -1,4 +1,5 @@
-use indexmap::IndexMap;
+use chacha20poly1305::Key;
+use indexmap::{indexset, IndexMap, IndexSet};
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -6,17 +7,15 @@ use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use chacha20poly1305::Key;
 
-use crate::defaults::{
-    default_socket_send_address, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_RECEIVE_BUFFER,
-    PACKAGE_NAME, RECEIVE_ONCE_WAIT,
-};
+use crate::defaults::{KEY_SIZE, PACKAGE_NAME, RECEIVE_ONCE_WAIT};
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
 use crate::message::{ConfigGroup, Group};
-use crate::socket::Protocol;
+use crate::protocols::Protocol;
+
+// pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Certificates
@@ -26,75 +25,106 @@ pub struct Certificates
     pub verify_dir: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum SocketConfigAddress
+{
+    Socket(SocketAddr),
+    Multiple(IndexSet<SocketAddr>),
+}
+
+type BindAddresses = IndexMap<Protocol, IndexSet<SocketAddr>>;
+pub type Groups = IndexMap<String, Group>;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserConfig
 {
-    pub bind_addresses: Option<IndexMap<String, SocketAddr>>,
-    pub send_using_address: Option<SocketAddr>,
-    pub visible_ip: Option<String>,
+    pub bind_addresses: Option<IndexMap<String, SocketConfigAddress>>,
     pub certificates: Option<Certificates>,
-    pub max_receive_buffer: Option<usize>,
-    pub receive_once_wait: Option<u64>,
+
+    pub send_using_address: Option<SocketConfigAddress>,
+    pub visible_ip: Option<String>,
+
     pub groups: IndexMap<String, ConfigGroup>,
+    pub max_receive_buffer: Option<usize>,
+    pub max_file_size: Option<usize>,
+    pub receive_once_wait: Option<u64>,
+    pub ntp_server: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FullConfig
 {
-    pub bind_addresses: IndexMap<Protocol, SocketAddr>,
-    pub groups: Vec<Group>,
+    pub bind_addresses: BindAddresses,
+    pub groups: Groups,
     pub max_receive_buffer: usize,
+    pub max_file_size: usize,
     pub receive_once_wait: u64,
     pub send_clipboard_on_startup: bool,
+    pub ntp_server: Option<String>,
 }
 
 impl FullConfig
 {
     pub fn from_protocol_groups(
         protocol: Protocol,
-        bind_address: SocketAddr,
-        groups: Vec<Group>,
+        bind_all: IndexSet<SocketAddr>,
+        groups: Groups,
         max_receive_buffer: usize,
+        max_file_size: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
+        ntp_server: Option<String>,
     ) -> Self
     {
-        let mut bind_addresses: IndexMap<Protocol, SocketAddr> = IndexMap::new();
-        bind_addresses.insert(protocol, bind_address);
+        let mut bind_addresses: BindAddresses = IndexMap::new();
+        bind_addresses.insert(protocol.clone(), bind_all);
         return FullConfig {
             bind_addresses,
             groups,
             max_receive_buffer,
+            max_file_size,
             receive_once_wait,
             send_clipboard_on_startup,
+            ntp_server,
         };
     }
 
     pub fn from_config(
-        bind_addresses: IndexMap<Protocol, SocketAddr>,
-        groups: Vec<Group>,
+        bind_addresses: BindAddresses,
+        groups: Groups,
         max_receive_buffer: usize,
+        max_file_size: usize,
         receive_once_wait: u64,
         send_clipboard_on_startup: bool,
+        ntp_server: Option<String>,
     ) -> Self
     {
         return FullConfig {
             bind_addresses,
             groups,
             max_receive_buffer,
+            max_file_size,
             receive_once_wait,
             send_clipboard_on_startup,
+            ntp_server,
         };
     }
 
-    pub fn get_bind_address(&self, protocol: &Protocol) -> Option<&SocketAddr>
+    pub fn get_bind_adresses(&self) -> IndexSet<(Protocol, SocketAddr)>
     {
-        return self.bind_addresses.get(protocol);
+        self.bind_addresses
+            .iter()
+            .flat_map(|(p, v)| {
+                let protocol = p.clone();
+                v.iter().map(move |s| (protocol.clone(), s.clone()))
+            })
+            .collect()
     }
 
-    pub fn get_first_bind_address(&self) -> Option<(&Protocol, &SocketAddr)>
+    pub fn get_first_bind_address(&self) -> Option<(Protocol, SocketAddr)>
     {
-        return self.bind_addresses.iter().next();
+        return self.get_bind_adresses().into_iter().next();
     }
 }
 
@@ -155,16 +185,22 @@ pub fn load_groups(
     file_path: &str,
     default_allowed_host_address: &str,
     default_bind_address: &str,
+    default_send_using_address: &str,
     default_protocol: Option<&str>,
-    load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
+    #[cfg(feature = "quic")] load_cli_certs: impl Fn() -> Result<Certificates, CliError>,
     send_clipboard_on_startup: bool,
     default_visible_ip: Option<String>,
     default_key: String,
+    default_message_valid_for: u16,
+    default_ntp_server: &str,
+    default_max_receive_buffer: usize,
+    default_max_file_size: usize,
+    default_clipboard_type: &str,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
 
-    let yaml_file = File::open(&file_path)
+    let yaml_file = File::open(file_path)
         .map_err(|err| error!("Error while opening: {:?}", err))
         .map_err(|_| Error::new(ErrorKind::InvalidData, "Unable to open yaml file"))?;
     let reader = BufReader::new(yaml_file);
@@ -175,8 +211,9 @@ pub fn load_groups(
         })
         .map_err(|_| Error::new(ErrorKind::InvalidData, format!("Unable to parse yaml file")))?;
 
-    let mut groups = vec![];
+    let mut groups = IndexMap::new();
 
+    #[cfg(feature = "quic")]
     let load_certs = || -> Result<Certificates, CliError> {
         if let Some(c) = &user_config.certificates {
             return Ok(c.clone());
@@ -193,15 +230,31 @@ pub fn load_groups(
         let send_using_address = if let Some(sd) = &group.send_using_address {
             sd.clone()
         } else if let Some(sd) = &user_config.send_using_address {
-            sd.clone()
+            match sd {
+                SocketConfigAddress::Socket(s) => indexset! {s.clone()},
+                SocketConfigAddress::Multiple(s) => s.clone(),
+            }
         } else {
-            default_socket_send_address()
+            default_send_using_address
+                .split(",")
+                .map(|v| {
+                    v.parse::<SocketAddr>().map_err(|_| {
+                        CliError::ArgumentError(format!(
+                            "Invalid send-using-address provided {}",
+                            v
+                        ))
+                    })
+                })
+                .collect::<Result<IndexSet<SocketAddr>, CliError>>()?
         };
 
         let allowed_hosts = if let Some(sd) = &group.allowed_hosts {
             sd.clone()
         } else {
-            vec![String::from(default_allowed_host_address)]
+            default_allowed_host_address
+                .split(",")
+                .map(String::from)
+                .collect()
         };
 
         let visible_ip = if let Some(pub_ip) = &group.visible_ip {
@@ -214,41 +267,68 @@ pub fn load_groups(
 
         let c_proto = group.protocol.as_deref().or(default_protocol);
 
-        let protocol = Protocol::from(c_proto, load_certs)?;
+        let protocol = Protocol::from(
+            c_proto,
+            #[cfg(feature = "quic")]
+            load_certs,
+        )?;
 
         let key_data = if let Some(k) = group.key {
             k.clone()
         } else {
             if default_key.len() != KEY_SIZE {
-                return Err(CliError::InvalidKey(format!("No key provided"))); 
+                return Err(CliError::InvalidKey(format!("No key provided")));
             }
             Key::from_slice(default_key.as_bytes()).clone()
         };
 
-        groups.push(Group {
-            name,
-            allowed_hosts,
-            key: key_data,
-            visible_ip,
-            send_using_address,
-            clipboard: group
-                .clipboard
-                .clone()
-                .unwrap_or(String::from(DEFAULT_CLIPBOARD)),
-            protocol,
-        });
+        groups.insert(
+            name.clone(),
+            Group {
+                name,
+                allowed_hosts,
+                key: key_data,
+                visible_ip,
+                send_using_address,
+                clipboard: group
+                    .clipboard
+                    .clone()
+                    .unwrap_or_else(|| default_clipboard_type.to_owned()),
+                protocol,
+                heartbeat: group.heartbeat,
+                message_valid_for: group.message_valid_for.unwrap_or(default_message_valid_for),
+            },
+        );
     }
 
-    let max_receive_buffer = user_config.max_receive_buffer.unwrap_or(MAX_RECEIVE_BUFFER);
     let receive_once_wait = user_config.receive_once_wait.unwrap_or(RECEIVE_ONCE_WAIT);
-    let bind_default_protocol = Protocol::from(default_protocol, load_certs)?;
-    let bind_addresses = create_bind_addresses(&user_config.bind_addresses, default_bind_address, load_certs, bind_default_protocol)?;
+    let bind_default_protocol = Protocol::from(
+        default_protocol,
+        #[cfg(feature = "quic")]
+        load_certs,
+    )?;
+    let bind_addresses = create_bind_addresses(
+        &user_config.bind_addresses,
+        default_bind_address,
+        #[cfg(feature = "quic")]
+        load_certs,
+        bind_default_protocol,
+    )?;
+
+    let ntp_server = if let Some(ntp_server) = &user_config.ntp_server {
+        Some(ntp_server.clone())
+    } else {
+        Some(default_ntp_server.to_owned())
+    };
+
     let full_config = FullConfig::from_config(
         bind_addresses,
         groups,
-        max_receive_buffer,
+        default_max_receive_buffer,
+        default_max_file_size,
         receive_once_wait,
         send_clipboard_on_startup,
+        ntp_server,
     );
     return Ok(full_config);
 }
@@ -282,31 +362,45 @@ pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
 }
 
 fn create_bind_addresses(
-    config_addresses: &Option<IndexMap<String, SocketAddr>>,
+    config_addresses: &Option<IndexMap<String, SocketConfigAddress>>,
     default_bind_address: &str,
-    load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
+    #[cfg(feature = "quic")] load_certs: impl Fn() -> Result<Certificates, CliError> + Copy,
     bind_default_protocol: Protocol,
-) -> Result<IndexMap<Protocol, SocketAddr>, CliError>
+) -> Result<BindAddresses, CliError>
 {
     let mut hash = IndexMap::new();
     if let Some(addresses) = config_addresses {
-        for (protocol_str, sock_addr) in addresses {
-            let protocol = match Protocol::from(Some(protocol_str), load_certs) {
+        for (protocol_str, sock_config_addr) in addresses {
+            let protocol = match Protocol::from(
+                Some(protocol_str),
+                #[cfg(feature = "quic")]
+                load_certs,
+            ) {
                 Ok(p) => p,
                 Err(e) => {
-                    warn!("{:?}. Skipping", e);
+                    warn!("{}. Skipping", e);
                     continue;
                 }
             };
-            hash.insert(protocol, sock_addr.clone());
+
+            let addresses = match sock_config_addr {
+                SocketConfigAddress::Socket(s) => indexset! {s.clone()},
+                SocketConfigAddress::Multiple(s) => s.clone(),
+            };
+
+            hash.insert(protocol.clone(), addresses);
         }
     } else {
-        let socket: SocketAddr = default_bind_address
-            .parse()
-            .expect("Failed parsing default bind address");
-        hash.insert(bind_default_protocol, socket);
+        let socket_addresses: IndexSet<SocketAddr> = default_bind_address
+            .split(",")
+            .map(|v| {
+                v.parse::<SocketAddr>().map_err(|_| {
+                    CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
+                })
+            })
+            .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
+        hash.insert(bind_default_protocol, socket_addresses);
     }
-
     return Ok(hash);
 }
 
@@ -330,27 +424,34 @@ mod configtest
             "tests/config.sample.yaml",
             socket_addr,
             "127.0.0.1:9088",
+            "127.0.0.1:9089",
             None,
+            #[cfg(feature = "quic")]
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
             None,
             "".to_owned(),
+            0,
+            "",
+            100,
+            100,
+            "clipboard",
         )
         .unwrap();
 
         let mut hash = IndexMap::new();
         hash.insert(
             Protocol::Basic,
-            "127.0.0.1:8910".parse::<SocketAddr>().unwrap(),
+            indexset! {"127.0.0.1:8910".parse::<SocketAddr>().unwrap()},
         );
         hash.insert(
             Protocol::Frames,
-            "127.0.0.1:9010".parse::<SocketAddr>().unwrap(),
+            indexset! {"127.0.0.1:9010".parse::<SocketAddr>().unwrap()},
         );
         #[cfg(feature = "quic")]
         hash.insert(
             Protocol::Quic(certificates),
-            "127.0.0.1:9110".parse::<SocketAddr>().unwrap(),
+            indexset! {"127.0.0.1:9110".parse::<SocketAddr>().unwrap()},
         );
         assert_eq!(full_config.bind_addresses, hash);
 
@@ -358,11 +459,12 @@ mod configtest
         assert_eq!(group1.name, "specific_hosts");
         assert_eq!(
             group1.send_using_address,
-            "127.0.0.1:8901".parse::<SocketAddr>().unwrap()
+            indexset!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
-        let allowed_local = vec!["192.168.0.153:8900", "192.168.0.54:20034"];
+        let allowed_local =
+            indexset! {"192.168.0.153:8900".to_owned(), "192.168.0.54:20034".to_owned()};
         assert_eq!(group1.allowed_hosts, allowed_local);
 
         assert_eq!(group1.protocol, Protocol::Basic);
@@ -372,11 +474,11 @@ mod configtest
         assert_eq!(group2.name, "local_network");
         assert_eq!(
             group2.send_using_address,
-            "127.0.0.1:8901".parse::<SocketAddr>().unwrap()
+            indexset!["127.0.0.1:8901".parse::<SocketAddr>().unwrap()],
         );
         assert_eq!(group1.visible_ip, Some("ifconfig.co".to_owned()));
 
-        let allowed_hosts = vec![socket_addr];
+        let allowed_hosts = indexset! {socket_addr.to_owned()};
         assert_eq!(group2.allowed_hosts, allowed_hosts);
 
         assert_eq!(group2.protocol, Protocol::Frames);
@@ -386,15 +488,16 @@ mod configtest
         assert_eq!(group3.name, "external");
         assert_eq!(
             group3.send_using_address,
-            "127.0.0.1:9000".parse::<SocketAddr>().unwrap()
+            indexset! {"0.0.0.0:9000".parse::<SocketAddr>().unwrap()}
         );
         assert_eq!(group3.visible_ip, Some("2.2.2.2".to_owned()));
 
-        let allowed_ext = vec!["external.net:80"];
+        let allowed_ext = indexset! {"external.net:80".to_owned()};
         assert_eq!(group3.allowed_hosts, allowed_ext);
 
         let group4 = &full_config.groups[5];
-        let allowed_receive = vec!["192.168.0.111:0", "192.168.0.112:0"];
+        let allowed_receive =
+            indexset! {"192.168.0.111:0".to_owned(), "192.168.0.112:0".to_owned()};
         assert_eq!(group4.allowed_hosts, allowed_receive);
     }
 
@@ -416,11 +519,18 @@ mod configtest
             "tests/config.failure.yaml",
             socket_addr,
             "127.0.0.1:9088",
+            "127.0.0.1:9089",
             None,
+            #[cfg(feature = "quic")]
             || Err(CliError::InvalidKey("test no key".to_owned())),
             false,
             None,
             "".to_owned(),
+            0,
+            "",
+            100,
+            100,
+            "clipboard",
         );
 
         match full_config {

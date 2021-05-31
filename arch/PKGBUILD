@@ -1,6 +1,6 @@
 # Maintainer: Tomas Jakstas <tom.jakstas@gmail.com>
 pkgname=clipboard-sync
-pkgver=1.1.0
+pkgver=2.0.0
 pkgrel=1
 makedepends=('cargo' 'rust' 'xcb-util' 'git' 'python3')
 depends=('libxcb>=1.13.1' 'gcc-libs>=10.2')

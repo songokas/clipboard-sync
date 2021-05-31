@@ -12,11 +12,12 @@ macro_rules! assert_error_type {
             Err($err_type) => {
                 assert!(true);
             }
+            #[allow(unreachable_patterns)]
             Err(other) => {
-                assert!(false, format!("matching error failed {:?}", other));
+                assert!(false, "matching error failed {:?}", other);
             }
             Ok(r) => {
-                assert!(false, format!("expected error got {:?}", r));
+                assert!(false, "expected error got {:?}", r);
             }
         }
     };

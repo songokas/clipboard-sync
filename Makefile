@@ -1,6 +1,7 @@
 
 ANDROID_APP ?= $(HOME)/AndroidStudioProjects/clipboard-sync-android/
-HEADLESS_OPTIONS = --release --no-default-features --features frames
+HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip rsntp"
+ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip"
 DEB_OPTIONS = --no-build
 ARCHS=i686-unknown-linux-gnu x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ANDROID_ARCHS=x86_64-linux-android i686-linux-android arm-linux-androideabi aarch64-linux-android 
@@ -9,7 +10,7 @@ GROUP_ID ?= $(shell id -g)
 LIB_NAME = libclipboard_sync.so
 CERT_PATH ?= $(HOME)/.ssh/app-sign-cert.pem
 KEY_PATH ?= $(HOME)/.ssh/app-sign-key.pem
-VERSION = 1.1.0
+VERSION = 2.0.0
 
 define docker_build
 	docker run \
@@ -75,7 +76,7 @@ msi:
 	cargo wix
 
 android:
-	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(HEADLESS_OPTIONS);)
+	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(ANDROID_OPTIONS);)
 
 android-copy: android
 	@cp target/i686-linux-android/release/libclipboard_sync.so $(ANDROID_APP)/app/src/main/jniLibs/x86/libclipboard_sync.so
@@ -88,7 +89,10 @@ clean:
 
 test:
 	cargo test
-	cargo test --features quic
+	echo "Testing quic quiche"
+	cargo test --features quic-quiche
+	echo "Testing quic quinn"
+	cargo test --features quic-quinn
 
 sign: sign-windows sign-rpm
 

@@ -13,13 +13,13 @@ file copying is supported as well (linux only)
 ### Deb
 
 ```
-wget https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync_1.1.0_amd64.deb && sudo apt install ./clipboard-sync_1.1.0_amd64.deb
+wget https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync_2.0.0_amd64.deb && sudo apt install ./clipboard-sync_2.0.0_amd64.deb
 ```
 ### RRM
 
 ```
-sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/1.1.0/.rpm/RPM-GPG-KEY-tomasj \
-  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1.x86_64.rpm
+sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.0.0/.rpm/RPM-GPG-KEY-tomasj \
+  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1.x86_64.rpm
 ```
 
 ### Arch
@@ -27,23 +27,23 @@ sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/1.1.
 ```
 sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
   && sudo pacman-key --lsign-key 175129AEEC57B0EB \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst.sig \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst.sig \
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst \
+  && sudo pacman -U clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst
 ```
 
 ### Android
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-android_1.1.0.apk)
+[download](https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-android_2.0.0.apk)
 
 ### Windows
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-x86_64.msi)
+[download](https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-x86_64.msi)
 
 
 ### Others
 
-[other versions](https://github.com/songokas/clipboard-sync/releases/tag/1.1.0)
+[other versions](https://github.com/songokas/clipboard-sync/releases/tag/2.0.0)
 
 ### Install from source
 
@@ -91,10 +91,16 @@ check for more options
 clipboard-sync --help
 ```
 
-## run with config 
+run with config 
 
 ```
 clipboard-sync --config ~/.config/clipboard-sync.yaml
+```
+
+use ipv6 with multicast
+
+```
+clipboard-sync  --bind-address "[::]:8900" --allowed-host "[ff02::123%3]:8900"
 ```
 
 ### example config
@@ -102,8 +108,13 @@ clipboard-sync --config ~/.config/clipboard-sync.yaml
 ```yaml
 bind_addresses:
   # protocol: local socket address
-  basic: "0.0.0.0:8900" # default
-  frames: "0.0.0.0:8901" # optional
+  basic: 
+    - "0.0.0.0:8900"
+    - "[::]:8900"
+  frames: "0.0.0.0:8901"
+  laminar: "0.0.0.0:8902"
+  tcp: "0.0.0.0:8903" 
+  #quic: "0.0.0.0:8904"
 
 # optional unless using quic
 certificates:
@@ -114,7 +125,7 @@ certificates:
 # send_using_address and visible_ip are per group as well
 send_using_address: "0.0.0.0:8901"
 
-# if behind nat and sending outside local network
+# if behind nat/incorrect ip is used
 visible_ip: "my-public-ip"
 
 # max bytes to receive per connection
@@ -133,15 +144,24 @@ groups:
       - "192.168.0.153:8900"
       - "192.168.0.54:20034"
     clipboard: clipboard # can be clipboard, /path/to/file , /path/to/directory/
-  local_network: 
+  local_network:  # allowed_hosts default to local network multicast
     key: "32323232323232323232323232323232"
-    # allowed_hosts default to local network multicast
-  external:
+  nat_traversal_client1:
     key: "32323232323232323232323232323232"
-    visible_ip: "2.2.2.2"
-    send_using_address: "0.0.0.0:9000"
+    visible_ip: "2.2.2.2" # if not provided defaults to public ip when sending to external networks
+    send_using_address:
+      - "0.0.0.0:8900"
+      - "[::]:8900"
+    heartbeat: 20 # send dummy packet every 20 seconds
     allowed_hosts:
-      - "external.net:80"
+      - "external.net:8900"
+  nat_traversal_client2: # on the other host
+    key: "32323232323232323232323232323232"
+    visible_ip: "external.net"
+    send_using_address: "0.0.0.0:8900"
+    heartbeat: 20
+    allowed_hosts:
+      - "2.2.2.2:8900"
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file
@@ -158,8 +178,24 @@ groups:
 ```
 
 
+### TODO
 
+* send clipboard without the same key (diffie helman)
+* send large clipboards without specifing hosts
 
+```yaml
 
+groups:
+  default:
+    key: 123
+    protocol: quic
+    allowed_hosts:
+      - 229.1.1.1:8922
+      - 192.168.0.1:333
+    multicast_retrieve_hosts: true
 
+```
 
+* improve docs for configuration/group explanation
+* check quiche without public keys/rethink
+* update quin

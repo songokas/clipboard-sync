@@ -1,23 +1,33 @@
-//@TODO waiting for tokio 0.3 support
+//@TODO client verification support
 
-use crate::errors::{ConnectionError, EndpointError};
-use crate::filesystem::read_file;
-use crate::message::Group;
-use crate::socket::SocketEndpoint;
-use log::{debug, error, info, warn};
+use futures::StreamExt;
+use log::{debug, info};
 use quinn::{
-    Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, Endpoint, Incoming,
-    PrivateKey, ServerConfig, ServerConfigBuilder, TransportConfig,
+    Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, PrivateKey, ServerConfig,
+    ServerConfigBuilder,
 };
+use quinn::{Endpoint, Incoming};
 use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::stream::StreamExt;
+use std::time::Instant;
+use tokio::time::{timeout, Duration};
 
-fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointError>
+use crate::config::Certificates;
+use crate::defaults::MAX_FILE_SIZE;
+use crate::errors::{ConnectionError, EndpointError};
+use crate::filesystem::{dir_to_dir_structure, read_file};
+use crate::socket::Destination;
+
+// @TODO failures when using protocols
+// pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29", b"hq-28", b"hq-27", b"http/0.9"];
+
+fn configure_client(
+    allowed_certs: impl IntoIterator<Item = (String, Vec<u8>)>,
+) -> Result<ClientConfig, EndpointError>
 {
     let mut cfg_builder = ClientConfigBuilder::default();
-    for cert in server_certs {
-        let chain = CertificateChain::from_pem(cert)?;
+    // cfg_builder.protocols(ALPN_QUIC_HTTP);
+    for (_, cert) in allowed_certs {
+        let chain = CertificateChain::from_pem(&cert)?;
         for pcert in chain {
             cfg_builder
                 .add_certificate_authority(Certificate::from(pcert))
@@ -27,29 +37,23 @@ fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, EndpointErro
     Ok(cfg_builder.build())
 }
 
-pub async fn configure_server() -> Result<ServerConfig, EndpointError>
+pub async fn configure_server(certificates: &Certificates) -> Result<ServerConfig, EndpointError>
 {
-    let config_path = dirs::config_dir().ok_or_else(|| {
-        EndpointError::InvalidKey(
-            "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config".to_owned(),
-        )
+    let (cert, _) = read_file(&certificates.public_key, MAX_FILE_SIZE).map_err(|e| {
+        EndpointError::InvalidKey(format!("cert not found {} {}", certificates.public_key, e))
     })?;
-    let key_path = config_path.join(format!("clipboard-sync/cert.key"));
-    let cert_path = config_path.join(format!("clipboard-sync/cert.crt"));
-
-    let cert = read_file(&cert_path, 10_000)
-        .map_err(|e| EndpointError::InvalidKey(format!("cert not found {:?}", cert_path)))?;
 
     let chain = CertificateChain::from_pem(&cert)?;
 
-    let priv_key_data = read_file(&key_path, 10_000)?;
+    let (priv_key_data, _) = read_file(&certificates.private_key, MAX_FILE_SIZE)?;
     let priv_key = PrivateKey::from_pem(&priv_key_data)?;
 
-    let mut transport_config = TransportConfig::default();
-    transport_config.stream_window_uni(0); //.unwrap();
-    let mut server_config = ServerConfig::default();
-    server_config.transport = Arc::new(transport_config);
+    // let mut transport_config = TransportConfig::default();
+    // transport_config.max_concurrent_uni_streams(2).map_err(|e| EndpointError::InvalidKey(format!("Configuration error max_concurrent_uni_streams {}", e)))?;
+    let server_config = ServerConfig::default();
+    // server_config.transport = Arc::new(transport_config);
     let mut cfg_builder = ServerConfigBuilder::new(server_config);
+    // cfg_builder.protocols(ALPN_QUIC_HTTP);
 
     cfg_builder.certificate(chain, priv_key)?;
     return Ok(cfg_builder.build());
@@ -57,80 +61,88 @@ pub async fn configure_server() -> Result<ServerConfig, EndpointError>
 
 pub async fn make_client_endpoint(
     bind_addr: &SocketAddr,
-    server_certs: &[&[u8]],
-) -> Result<Endpoint, EndpointError>
+    server_certs: impl IntoIterator<Item = (String, Vec<u8>)>,
+) -> Result<(Endpoint, Incoming), EndpointError>
 {
     let client_cfg = configure_client(server_certs)?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.default_client_config(client_cfg);
-    let (endpoint, _incoming) = endpoint_builder.bind(bind_addr)?;
-    Ok(endpoint)
+    let (e, s) = endpoint_builder.bind(bind_addr)?;
+    return Ok((e, s));
 }
 
-pub async fn obtain_server_endpoint(bind_addr: &SocketAddr) -> Result<Incoming, EndpointError>
+pub async fn obtain_server_endpoint(
+    bind_addr: &SocketAddr,
+    certificates: &Certificates,
+) -> Result<(Endpoint, Incoming), EndpointError>
 {
-    let server_config = configure_server().await?;
+    let server_config = configure_server(certificates).await?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.listen(server_config);
-    let (endpoint, incoming) = endpoint_builder.bind(bind_addr)?;
-    return Ok(incoming);
+    let (e, s) = endpoint_builder.bind(bind_addr)?;
+    return Ok((e, s));
 }
 
 pub async fn obtain_client_endpoint(
     local_addr: &SocketAddr,
-) -> Result<SocketEndpoint, ConnectionError>
+    certificates: &Certificates,
+) -> Result<(Endpoint, Incoming), ConnectionError>
 {
-    let config_path = dirs::config_dir().ok_or_else(|| {
-        ConnectionError::InvalidKey(
-            "Quic unable to find config path with keys CONFIG_PATH is usually ~/.config".to_owned(),
-        )
-    })?;
-    let verify_path = config_path.join(format!("clipboard-sync/cert.crt"));
-
-    let verify_cert = read_file(&verify_path, 10_000)?;
-    let certs = [verify_cert.as_slice()];
-
-    let endpoint = make_client_endpoint(local_addr, &certs).await?;
-    return Ok(SocketEndpoint::QuicClient(endpoint));
+    let certs = dir_to_dir_structure(
+        &certificates
+            .verify_dir
+            .as_ref()
+            .expect("Please provide certificate verify directory"),
+        MAX_FILE_SIZE,
+    );
+    return Ok(make_client_endpoint(local_addr, certs).await?);
 }
 
-pub async fn send_data_quic(
-    endpoint: Endpoint,
-    mut data: Vec<u8>,
-    remote_addr: &SocketAddr,
-    group: &Group,
+pub async fn send_data(
+    endpoint: &Endpoint,
+    data: Vec<u8>,
+    destination: Destination,
 ) -> Result<usize, ConnectionError>
 {
-    let connect = endpoint.connect(&remote_addr, &remote_addr.ip().to_string())?;
+    let connect = endpoint.connect(destination.addr(), destination.host())?; //&remote_address.ip().to_string())?;
 
     let quinn::NewConnection { connection, .. } = connect.await?;
-    debug!("[client] connected: addr={}", connection.remote_address());
+
+    debug!("[send] connected: addr={}", connection.remote_address());
 
     let mut send = connection.open_uni().await?;
 
     send.write_all(&data).await?;
     send.finish().await?;
 
+    debug!("[send] finished");
+
     connection.close(0u32.into(), b"done");
-    return Ok(1);
+    endpoint.wait_idle().await;
+
+    return Ok(data.len());
 }
 
-pub async fn receive_data_quic(
+pub async fn receive_data(
     incoming: &mut Incoming,
     max_len: usize,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
-    while let Some(inc) = incoming.next().await {
-        debug!("[client] connected: addr={}", inc.remote_address());
+    let now = Instant::now();
+    while !timeout_callback(now.elapsed()) {
+        let inc = match timeout(Duration::from_millis(50), incoming.next()).await {
+            Ok(Some(inc)) => inc,
+            _ => continue,
+        };
+
+        debug!("[receive] connected: addr={}", inc.remote_address());
 
         let quinn::NewConnection {
             connection,
-            mut bi_streams,
             mut uni_streams,
             ..
         } = inc.await?;
-
-        debug!("connection {:?}", connection.remote_address(),);
 
         while let Some(stream) = uni_streams.next().await {
             let stream = match stream {
@@ -143,11 +155,98 @@ pub async fn receive_data_quic(
                 }
                 Ok(s) => s,
             };
-            let req = stream.read_to_end(max_len).await?;
+            let req =
+                stream
+                    .read_to_end(max_len)
+                    .await
+                    .map_err(|_| ConnectionError::LimitReached {
+                        received: max_len + 1,
+                        max_len,
+                    })?;
             return Ok((req.into(), connection.remote_address()));
         }
     }
-    return Err(ConnectionError::InvalidBuffer(format!(
-        "Failed to receive data"
-    )));
+    return Err(ConnectionError::Timeout(
+        "quic receive data".to_owned(),
+        now.elapsed(),
+    ));
+}
+
+#[cfg(test)]
+mod quinntest
+{
+    use super::*;
+    use crate::assert_error_type;
+    use crate::encryption::random;
+    use tokio::try_join;
+
+    async fn send_receive(size: usize, max_len: usize)
+    {
+        let local_server: SocketAddr = "127.0.0.1:9286".parse().unwrap();
+        let local_client: SocketAddr = "127.0.0.1:9287".parse().unwrap();
+        let certs = Certificates {
+            private_key: "tests/certs/localhost.key".to_owned(),
+            public_key: "tests/certs/localhost.crt".to_owned(),
+            verify_dir: Some("tests/certs/cert-verify".to_owned()),
+        };
+
+        let (_, mut incoming) = obtain_server_endpoint(&local_server, &certs).await.unwrap();
+        let (endpoint, _) = obtain_client_endpoint(&local_client, &certs).await.unwrap();
+
+        let data_sent = random(size);
+        let for_sending = data_sent.clone();
+        let r = tokio::spawn(async move {
+            receive_data(&mut incoming, max_len, |d: Duration| {
+                d > Duration::from_millis(5000)
+            })
+            .await
+        });
+
+        let s = tokio::spawn(async move {
+            send_data(
+                &endpoint,
+                for_sending,
+                // no support for ip
+                Destination::new("localhost".to_owned(), local_server),
+            )
+            .await
+        });
+
+        let res = try_join!(r, s).unwrap();
+
+        if size > max_len {
+            assert_error_type!(res.0, ConnectionError::LimitReached { .. });
+        } else {
+            let _data_len_sent = res.1.unwrap();
+            let (data_received, addr) = res.0.unwrap();
+            assert_eq!(local_client, addr);
+            // assert_eq!(data_len_sent, size);
+            assert_eq!(data_sent, data_received);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    pub async fn test_data()
+    {
+        send_receive(5, 100).await;
+        send_receive(16 * 1024 * 10, 16 * 1024 * 10 + 1000).await;
+        send_receive(10, 5).await;
+    }
+
+    #[tokio::test]
+    async fn test_timeout()
+    {
+        let local_server: SocketAddr = "127.0.0.1:3986".parse().unwrap();
+        let certs = Certificates {
+            private_key: "tests/certs/localhost.key".to_owned(),
+            public_key: "tests/certs/localhost.crt".to_owned(),
+            verify_dir: Some("tests/certs/cert-verify".to_owned()),
+        };
+
+        let (_, mut incoming) = obtain_server_endpoint(&local_server, &certs).await.unwrap();
+
+        let result = receive_data(&mut incoming, 10, |_: Duration| true).await;
+
+        assert_error_type!(result, ConnectionError::Timeout(..));
+    }
 }

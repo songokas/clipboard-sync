@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+// #![feature(trait_alias)]
+// #![feature(type_alias_impl_trait)]
 
 use jni::objects::{JClass, JString};
 use jni::sys::jstring;
@@ -18,14 +20,20 @@ mod defaults;
 mod encryption;
 mod errors;
 mod filesystem;
+mod fragmenter;
+mod identity;
 mod message;
+mod multicast;
+mod notify;
 mod process;
 mod protocols;
 mod runner;
 mod socket;
 mod test;
+mod time;
 
-use crate::process::send_clipboard;
+use crate::process::send_clipboard_contents;
+use crate::protocols::SocketPool;
 use crate::runner::{create_config, create_runner, Runner, Status, StatusCount};
 
 lazy_static! {
@@ -151,6 +159,8 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
     input: JString,
 ) -> jstring
 {
+    #[cfg(target_os = "android")]
+    android_logger::init_once(Config::default().with_min_level(Level::Debug));
     let config_str: String = env
         .get_string(config_json)
         .expect("Couldn't get java string!")
@@ -189,7 +199,8 @@ pub async fn send(config_str: String, clipboard: String) -> Result<usize, String
 {
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
-    return send_clipboard(clipboard, &groups[0]).await;
+    let pool = SocketPool::new();
+    return send_clipboard_contents(&pool, clipboard, &groups[0]).await;
 }
 
 #[cfg(target_os = "android")]
@@ -234,7 +245,7 @@ mod runnertest
     #[test]
     fn test_start()
     {
-        let config = r#"{"key":"32323232323232323232323232323232","group":"","protocol":"basic","hosts":["127.0.0.1"]}"#;
+        let config = r#"{"key":"32323232323232323232323232323232","group":"default","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":["0.0.0.0:15331"],"bind_address":["0.0.0.0:15330"],"heartbeat":0}"#;
         assert_eq!(
             Ok(String::from("Started")),
             CURRENT_RUNTIME.block_on(start(config.to_owned()))

@@ -2,20 +2,20 @@ $arch = <<-SCRIPT
 sudo pacman -S --noconfirm fakeroot
 sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
   && sudo pacman-key --lsign-key 175129AEEC57B0EB \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst.sig \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U clipboard-sync-1.1.0-1-x86_64.pkg.tar.zst
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst.sig \
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst \
+  && sudo pacman -U clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst
 clipboard-sync --autogenerate
 SCRIPT
 
 $rpm = <<-SCRIPT
-sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/1.1.0/.rpm/RPM-GPG-KEY-tomasj \
-  && sudo yum localinstall https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync-1.1.0-1.x86_64.rpm
+sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.0.0/.rpm/RPM-GPG-KEY-tomasj \
+  && sudo yum localinstall https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1.x86_64.rpm
 clipboard-sync --autogenerate
 SCRIPT
 
 $deb = <<-SCRIPT
-wget https://github.com/songokas/clipboard-sync/releases/download/1.1.0/clipboard-sync_1.1.0_amd64.deb && sudo apt --assume-yes install ./clipboard-sync_1.1.0_amd64.deb
+wget https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync_2.0.0_amd64.deb && sudo apt --assume-yes install ./clipboard-sync_2.0.0_amd64.deb
 clipboard-sync --autogenerate
 SCRIPT
 

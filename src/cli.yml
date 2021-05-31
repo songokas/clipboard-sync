@@ -1,5 +1,5 @@
 name: clipboard-sync
-version: "1.1.0"
+version: "2.0.0"
 author: Tomas Jakstas <tom.jakstas@gmail.com>
 about: secure clipboard sync across your devices
 args:
@@ -11,17 +11,17 @@ args:
     - allowed-host:
         short: i
         long: allowed-host
-        help: "hosts to sync with default: 224.0.0.89:8900"
+        help: "hosts to send and receive data from default: 224.0.0.89:8900"
         takes_value: true
     - bind-address:
         short: l
         long: bind-address
-        help: "default: 0.0.0.0:8900"
+        help: "address to listen on default: [::]:8900 for ipv6,dualstack 0.0.0.0:8900 for ipv4 only systems"
         takes_value: true
     - send-using-address:
         short: s
         long: send-using-address
-        help: "default: 0.0.0.0:8901"
+        help: "address to use for sending data default: 0.0.0.0:0,[::]:0"
         takes_value: true
     - group:
         short: g
@@ -50,7 +50,7 @@ args:
         takes_value: true
     - protocol:
         long: protocol
-        help: "use protocol - basic, frames, quic. default: basic"
+        help: "use protocol - basic, laminar, tcp, frames, quic. default: basic"
         takes_value: true
     - private-key:
         long: private-key
@@ -83,4 +83,20 @@ args:
     - receive-once-wait:
         long: receive-once-wait
         help: how many seconds to wait before quitting
+        takes_value: true
+    - heartbeat:
+        long: heartbeat
+        help: "send heartbeat messages. default: 0"
+        takes_value: true
+    - ntp-server:
+        long: ntp-server
+        help: "ntp server to use if validating messages with timestamp. default: 0.pool.ntp.org:123"
+        takes_value: true
+    - max_receive_buffer:
+        long: max-receive-buffer
+        help: "max data that can be received per connection default: 52428800"
+        takes_value: true
+    - max_file_size:
+        long: max-file-size
+        help: "max file size in bytes for sending/receiving files default: 23068672"
         takes_value: true

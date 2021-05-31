@@ -1,7 +1,6 @@
 use bincode;
 use chacha20poly1305::aead::{Aead, NewAead, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Nonce};
-use chrono::Utc;
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -12,7 +11,20 @@ use std::io::prelude::*;
 use std::io::{self, Read};
 
 use crate::errors::*;
+use crate::identity::Identity;
 use crate::message::*;
+use crate::time::get_time;
+
+pub trait DataEncryptor
+{
+    fn encrypt(
+        &self,
+        data: &[u8],
+        group: &Group,
+        identity: &Identity,
+        message_type: &MessageType,
+    ) -> Result<Vec<u8>, ConnectionError>;
+}
 
 pub fn random(number_of_chars: usize) -> Vec<u8>
 {
@@ -30,29 +42,22 @@ pub fn random_alphanumeric(number_of_chars: usize) -> String
 
 pub fn encrypt(
     contents: &[u8],
-    identity: &str,
+    identity: &Identity,
     group: &Group,
     message_type: &MessageType,
 ) -> Result<Message, EncryptionError>
 {
-    let cipher = ChaCha20Poly1305::new(&group.key);
-
-    let suffix = rand::thread_rng().gen::<[u8; 4]>();
-    let ts: i64 = Utc::now().timestamp_nanos();
-    let end = ts.to_ne_bytes();
-    let nonce_data = vec![
-        end[0], end[3], end[1], end[2], end[4], end[7], end[6], end[5], suffix[0], suffix[2],
-        suffix[3], suffix[1],
-    ];
-    let nonce = Nonce::from_slice(&nonce_data);
+    let cipher = XChaCha20Poly1305::new(&group.key);
+    let nonce_data = random(24);
+    let nonce = XNonce::from_slice(&nonce_data);
 
     let add = AdditionalData {
-        identity: identity.to_owned(),
+        identity: identity.to_string(),
         group: group.name.clone(),
         message_type: message_type.clone(),
     };
 
-    // log::debug!("Encrypt additional data: {:?}", add);
+    // debug!("Encrypt additional data: {:?}", add);
 
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
@@ -67,14 +72,15 @@ pub fn encrypt(
     return Ok(Message {
         nonce: nonce.clone(),
         group: group.name.clone(),
-        text: ciphertext,
+        data: ciphertext,
         message_type: message_type.clone(),
+        time: get_time(),
     });
 }
 
 pub fn encrypt_to_bytes(
     contents: &[u8],
-    identity: &str,
+    identity: &Identity,
     group: &Group,
     message_type: &MessageType,
 ) -> Result<Vec<u8>, EncryptionError>
@@ -85,44 +91,37 @@ pub fn encrypt_to_bytes(
     return Ok(bytes);
 }
 
-pub fn validate(buffer: &[u8], groups: &[Group]) -> Result<(Message, Group), ValidationError>
+pub fn decrypt(
+    message: &Message,
+    identity: &Identity,
+    group: &Group,
+) -> Result<Vec<u8>, EncryptionError>
 {
-    let message: Message = bincode::deserialize(buffer)
-        .map_err(|err| ValidationError::DeserializeFailed((*err).to_string()))?;
-    let group = match groups.iter().find(|group| group.name == message.group) {
-        Some(group) => group,
-        _ => {
-            return Err(ValidationError::IncorrectGroup(format!(
-                "Group {} does not exist",
-                message.group
-            )));
-        }
-    };
-    return Ok((message, group.clone()));
-}
-
-pub fn decrypt(message: &Message, identity: &str, group: &Group)
-    -> Result<Vec<u8>, EncryptionError>
-{
-    let ad = AdditionalData {
-        identity: identity.to_owned(),
+    let add = AdditionalData {
+        identity: identity.to_string(),
         group: group.name.clone(),
         message_type: message.message_type.clone(),
     };
 
-    // debug!("Decrypt additional data: {:?}", ad);
+    // debug!("Decrypt additional data: {:?}", add);
 
-    let add_bytes = bincode::serialize(&ad)
+    let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
     let enc_msg = Payload {
-        msg: &message.text,
+        msg: &message.data,
         aad: &add_bytes,
     };
 
-    let cipher = ChaCha20Poly1305::new(&group.key);
-    return cipher
-        .decrypt(&message.nonce, enc_msg)
-        .map_err(|err| EncryptionError::DecryptionFailed(err.to_string()));
+    let cipher = XChaCha20Poly1305::new(&group.key);
+    return cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
+        EncryptionError::DecryptionFailed(format!(
+            "Failed to decrypt incorrect message for group {} type {} from {} {}",
+            message.group,
+            message.message_type,
+            identity,
+            err.to_string()
+        ))
+    });
 }
 
 pub fn hash(bytes: &[u8]) -> String
@@ -172,8 +171,8 @@ mod encryptiontest
         ];
 
         for (expected, bytes, identity1, group1, identity2, group2) in sequences {
-            let msg = encrypt(&bytes, identity1, group1, &MessageType::Text);
-            let data = decrypt(&msg.unwrap(), identity2, group2);
+            let msg = encrypt(&bytes, &identity1.into(), group1, &MessageType::Text);
+            let data = decrypt(&msg.unwrap(), &identity2.into(), group2);
             if expected {
                 assert_eq!(bytes, data.unwrap());
             } else {
@@ -206,7 +205,6 @@ mod encryptiontest
     {
         for (expected, string_to_compress) in compress_data_provider() {
             let data = compress(string_to_compress.as_bytes()).unwrap();
-            // println!("{:?}", data);
             assert_eq!(expected, data);
         }
     }
@@ -217,33 +215,6 @@ mod encryptiontest
         for (bytes_to_uncompress, expected) in compress_data_provider() {
             let data = uncompress(bytes_to_uncompress).unwrap();
             assert_eq!(expected, String::from_utf8_lossy(&data).to_string());
-        }
-    }
-
-    #[test]
-    fn test_validate()
-    {
-        let groups = vec![Group::from_name("test1"), Group::from_name("test2")];
-        let sequences: Vec<(Vec<u8>, bool)> = vec![
-            (
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
-                true,
-            ),
-            (
-                bincode::serialize(&Message::from_group("none"))
-                    .unwrap()
-                    .to_vec(),
-                false,
-            ),
-            ([3, 3, 98].to_vec(), false),
-            ([].to_vec(), false),
-        ];
-
-        for (bytes, expected) in sequences {
-            let result = validate(&bytes, &groups);
-            assert_eq!(result.is_ok(), expected);
         }
     }
 
