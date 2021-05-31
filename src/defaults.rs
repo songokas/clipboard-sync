@@ -1,10 +1,10 @@
 pub const BIND_ADDRESS: &str = "0.0.0.0:8900";
-pub const BIND_ADDRESS_IPV6: &str = "0.0.0.0:8900,[::]:8900";
-pub const BIND_ADDRESS_IPV6_ONLY: &str = "[::]:8900";
+// pub const BIND_ADDRESS_IPV6: &str = "0.0.0.0:8900,[::]:8900";
+// pub const BIND_ADDRESS_IPV6_ONLY: &str = "[::]:8900";
 pub const SEND_ADDRESS: &str = "0.0.0.0:0";
 pub const SEND_ADDRESS_IPV6: &str = "0.0.0.0:0,[::]:0";
 pub const DEFAULT_ALLOWED_HOST: &str = "224.0.0.89:8900";
-pub const DEFAULT_ALLOWED_HOST_IPV6: &str = "[ff02:1000:1000:dada::1]:8900";
+// pub const DEFAULT_ALLOWED_HOST_IPV6: &str = "[ff02:1000:1000:dada::1%3]:8900";
 pub const DEFAULT_GROUP: &str = "default";
 pub const CLIPBOARD_NAME: &str = "clipboard";
 pub const DEFAULT_CLIPBOARD: &str = CLIPBOARD_NAME;

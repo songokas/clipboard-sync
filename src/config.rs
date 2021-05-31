@@ -435,6 +435,7 @@ mod configtest
             "",
             100,
             100,
+            "clipboard",
         )
         .unwrap();
 
@@ -529,6 +530,7 @@ mod configtest
             "",
             100,
             100,
+            "clipboard",
         );
 
         match full_config {

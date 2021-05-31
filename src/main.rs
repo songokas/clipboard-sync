@@ -88,18 +88,19 @@ async fn main() -> Result<(), CliError>
 
     let (supports_ipv6_sockets, _ipv6_only) = ipv6_support();
 
-    let local_address = matches.value_of("bind-address").unwrap_or_else(|| {
-        //@TODO ipv6 multicast issues
-        // if supports_ipv6_sockets {
-        //     if ipv6_only {
-        //         BIND_ADDRESS_IPV6
-        //     } else {
-        //         BIND_ADDRESS_IPV6_ONLY
-        //     }
-        // } else {
-        BIND_ADDRESS
-        // }
-    });
+    let system_default_host = || DEFAULT_ALLOWED_HOST;
+
+    let default_host = match matches.value_of("protocol") {
+        Some(v) if v == Protocol::Basic.to_string() => system_default_host(),
+        Some(_) => "",
+        _ => system_default_host(),
+    };
+
+    let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
+
+    let local_address = matches
+        .value_of("bind-address")
+        .unwrap_or_else(|| BIND_ADDRESS);
 
     let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
         if supports_ipv6_sockets {
@@ -131,23 +132,6 @@ async fn main() -> Result<(), CliError>
     let load_certs = move || {
         return load_default_certificates(private_key, public_key, cert_dir);
     };
-
-    let system_default_host = || {
-        //@TODO ipv6 multicast issues
-        // if supports_ipv6_sockets {
-        //     DEFAULT_ALLOWED_HOST_IPV6
-        // } else {
-        DEFAULT_ALLOWED_HOST
-        // }
-    };
-
-    let default_host = match matches.value_of("protocol") {
-        Some(v) if v == Protocol::Basic.to_string() => system_default_host(),
-        Some(_) => "",
-        _ => system_default_host(),
-    };
-
-    let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
     let heartbeat = matches
         .value_of("heartbeat")

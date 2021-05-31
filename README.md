@@ -91,10 +91,16 @@ check for more options
 clipboard-sync --help
 ```
 
-## run with config 
+run with config 
 
 ```
 clipboard-sync --config ~/.config/clipboard-sync.yaml
+```
+
+use ipv6 with multicast
+
+```
+clipboard-sync  --bind-address "[::]:8900" --allowed-host "[ff02::123%3]:8900"
 ```
 
 ### example config

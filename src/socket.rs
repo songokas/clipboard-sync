@@ -128,8 +128,8 @@ pub async fn retrieve_local_address(
 }
 
 #[cfg(feature = "public-ip")]
-#[cached(size = 1, time = 600)]
-pub async fn retrieve_public_ip() -> Result<IpAddr, DnsError>
+#[cached(size = 10, time = 3600)]
+pub async fn retrieve_public_ip(_socket_addr: SocketAddr) -> Result<IpAddr, DnsError>
 {
     let result = public_ip::addr()
         .await
@@ -301,7 +301,7 @@ mod sockettest
     #[test]
     fn test_retrieve_public_ip()
     {
-        assert!(wait!(retrieve_public_ip()).is_ok());
+        assert!(wait!(retrieve_public_ip("127.0.0.1:0".parse().unwrap())).is_ok());
     }
 
     #[test]

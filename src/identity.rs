@@ -93,20 +93,18 @@ pub async fn retrieve_identity(
         return Ok(to_socket_address(format!("{}:0", host)).map(Identity::from)?);
     }
 
+    let local_addr = retrieve_local_address(&group.send_using_address, remote_address).await?;
+
     if IpAddrExt::is_global(&remote_address.ip()) {
         #[cfg(feature = "public-ip")]
-        return Ok(retrieve_public_ip().await.map(Identity::from)?);
+        return Ok(retrieve_public_ip(local_addr).await.map(Identity::from)?);
         #[cfg(not(feature = "public-ip"))]
         return Err(ConnectionError::FailedToConnect(
             "No public ip provided".to_owned(),
         ));
     }
 
-    return Ok(
-        retrieve_local_address(&group.send_using_address, remote_address)
-            .await
-            .map(Identity::from)?,
-    );
+    return Ok(Identity::from(local_addr));
 }
 
 pub fn identity_matching_hosts(
