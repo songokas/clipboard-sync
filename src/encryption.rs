@@ -115,7 +115,7 @@ pub fn decrypt(
     let cipher = XChaCha20Poly1305::new(&group.key);
     return cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
         EncryptionError::DecryptionFailed(format!(
-            "incorrect message {} {} {} {}",
+            "Failed to decrypt incorrect message for group {} type {} from {} {}",
             message.group,
             message.message_type,
             identity,

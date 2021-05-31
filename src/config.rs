@@ -8,7 +8,7 @@ use std::io::{BufReader, Error, ErrorKind};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use crate::defaults::{DEFAULT_CLIPBOARD, KEY_SIZE, PACKAGE_NAME, RECEIVE_ONCE_WAIT};
+use crate::defaults::{KEY_SIZE, PACKAGE_NAME, RECEIVE_ONCE_WAIT};
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
@@ -195,6 +195,7 @@ pub fn load_groups(
     default_ntp_server: &str,
     default_max_receive_buffer: usize,
     default_max_file_size: usize,
+    default_clipboard_type: &str,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -292,7 +293,7 @@ pub fn load_groups(
                 clipboard: group
                     .clipboard
                     .clone()
-                    .unwrap_or(String::from(DEFAULT_CLIPBOARD)),
+                    .unwrap_or_else(|| default_clipboard_type.to_owned()),
                 protocol,
                 heartbeat: group.heartbeat,
                 message_valid_for: group.message_valid_for.unwrap_or(default_message_valid_for),

@@ -1,8 +1,10 @@
 ## [Unreleased]
 - quic quinn protocol implementation lacks client verification, version negotiation, retry token
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
+- ipv6 multicast
+- automatic public ip switching
 
-## [2.0.0] - 2021-05-29
+## [2.0.0] - 2021-05-31
 
 ### Added
 - laminar protocol

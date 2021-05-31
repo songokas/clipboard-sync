@@ -1,5 +1,7 @@
 use chrono::Utc;
 use std::convert::TryFrom;
+
+#[cfg(feature = "ntp")]
 use std::sync::atomic::{AtomicI64, Ordering};
 
 #[cfg(feature = "ntp")]
@@ -19,13 +21,19 @@ use std::time::Instant;
 #[cfg(feature = "ntp")]
 use tokio::time::sleep;
 
+#[cfg(feature = "ntp")]
 static TIME_DIFF: AtomicI64 = AtomicI64::new(0);
 
 pub fn get_time() -> u64
 {
-    let diff = TIME_DIFF.load(Ordering::Relaxed);
-    let now = Utc::now().timestamp();
-    return (now + diff) as u64;
+    #[cfg(feature = "ntp")]
+    {
+        let diff = TIME_DIFF.load(Ordering::Relaxed);
+        let now = Utc::now().timestamp();
+        return (now + diff) as u64;
+    }
+    #[cfg(not(feature = "ntp"))]
+    return Utc::now().timestamp() as u64;
 }
 
 pub fn is_timestamp_valid(timestamp: u64, valid_for: u16) -> bool

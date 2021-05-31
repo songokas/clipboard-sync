@@ -86,18 +86,19 @@ async fn main() -> Result<(), CliError>
         }
     };
 
-    let (supports_ipv6_sockets, ipv6_only) = ipv6_support();
+    let (supports_ipv6_sockets, _ipv6_only) = ipv6_support();
 
     let local_address = matches.value_of("bind-address").unwrap_or_else(|| {
-        if supports_ipv6_sockets {
-            if ipv6_only {
-                BIND_ADDRESS_IPV6
-            } else {
-                BIND_ADDRESS_IPV6_ONLY
-            }
-        } else {
-            BIND_ADDRESS
-        }
+        //@TODO ipv6 multicast issues
+        // if supports_ipv6_sockets {
+        //     if ipv6_only {
+        //         BIND_ADDRESS_IPV6
+        //     } else {
+        //         BIND_ADDRESS_IPV6_ONLY
+        //     }
+        // } else {
+        BIND_ADDRESS
+        // }
     });
 
     let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
@@ -131,7 +132,14 @@ async fn main() -> Result<(), CliError>
         return load_default_certificates(private_key, public_key, cert_dir);
     };
 
-    let system_default_host = || DEFAULT_ALLOWED_HOST;
+    let system_default_host = || {
+        //@TODO ipv6 multicast issues
+        // if supports_ipv6_sockets {
+        //     DEFAULT_ALLOWED_HOST_IPV6
+        // } else {
+        DEFAULT_ALLOWED_HOST
+        // }
+    };
 
     let default_host = match matches.value_of("protocol") {
         Some(v) if v == Protocol::Basic.to_string() => system_default_host(),
@@ -244,6 +252,7 @@ async fn main() -> Result<(), CliError>
             ntp_server,
             max_receive_buffer,
             max_file_size,
+            clipboard_type,
         );
     };
 

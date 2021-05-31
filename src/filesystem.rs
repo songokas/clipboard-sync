@@ -34,8 +34,18 @@ pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>, mode: u32)
 
     #[cfg(target_os = "linux")]
     opts.mode(mode);
-
-    opts.open(path.as_ref())?.write_all(contents.as_ref())
+    opts.open(path.as_ref())
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Unable to write to {} {}",
+                    path.as_ref().to_string_lossy(),
+                    e
+                ),
+            )
+        })?
+        .write_all(contents.as_ref())
 }
 
 pub fn read_file_to_string<P: AsRef<Path>>(
