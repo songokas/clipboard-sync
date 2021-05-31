@@ -180,22 +180,8 @@ groups:
 
 ### TODO
 
-* send clipboard without the same key (diffie helman)
-* send large clipboards without specifing hosts
-
-```yaml
-
-groups:
-  default:
-    key: 123
-    protocol: quic
-    allowed_hosts:
-      - 229.1.1.1:8922
-      - 192.168.0.1:333
-    multicast_retrieve_hosts: true
-
-```
-
-* improve docs for configuration/group explanation
-* check quiche without public keys/rethink
-* update quin
+* finalize quic
+* test on iOS
+* clipboard use events instead of reading in interval
+* file copy between platforms
+* improve docs / add more examples

@@ -1,6 +1,6 @@
 
 ANDROID_APP ?= $(HOME)/AndroidStudioProjects/clipboard-sync-android/
-HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip rsntp"
+HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip ntp"
 ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip"
 DEB_OPTIONS = --no-build
 ARCHS=i686-unknown-linux-gnu x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
@@ -63,6 +63,7 @@ pkg:
 pkg-in-vagrant:
 	vagrant up arch
 	vagrant rsync arch
+	vagrant ssh arch --command "sudo pacman --noconfirm -S glibc rust cargo"
 	vagrant ssh arch --command "cd /vagrant && make pkg"
 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 
@@ -122,7 +123,7 @@ distdir:
 # build android apk
 # create tag
 # make release
-release: distdir dist deb strip rpm sign makepkg-in-vagrant
+release: distdir dist deb strip rpm sign pkg-in-vagrant
 	cp target/*/debian/clipboard-sync* dist/
 	cp target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/* dist/
 	cp target/i686-unknown-linux-gnu/release/rpmbuild/RPMS/i686/* dist/
