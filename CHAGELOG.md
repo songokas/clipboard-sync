@@ -2,6 +2,12 @@
 - quic quinn protocol implementation lacks client verification, version negotiation, retry token
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
 
+## [2.0.1] - 2021-06-06
+
+### Fixed
+
+- unable to bind and send using the same port
+
 ## [2.0.0] - 2021-05-31
 
 ### Added

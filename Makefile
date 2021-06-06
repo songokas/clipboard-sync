@@ -10,7 +10,7 @@ GROUP_ID ?= $(shell id -g)
 LIB_NAME = libclipboard_sync.so
 CERT_PATH ?= $(HOME)/.ssh/app-sign-cert.pem
 KEY_PATH ?= $(HOME)/.ssh/app-sign-key.pem
-VERSION = 2.0.0
+VERSION = 2.0.1
 
 define docker_build
 	docker run \
@@ -27,6 +27,7 @@ all: docker build deb rpm pkg windows android
 
 build:
 	$(call docker_build, clipboard-sync/x86_64, cargo build --target x86_64-unknown-linux-gnu $(HEADLESS_OPTIONS))
+	@strip target/x86_64-unknown-linux-gnu/release/clipboard-sync
 	@mv target/x86_64-unknown-linux-gnu/release/clipboard-sync target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless
 
 	$(call docker_build, clipboard-sync/x86_64, cargo build --target x86_64-unknown-linux-gnu --release)

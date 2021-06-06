@@ -172,12 +172,14 @@ pub async fn obtain_socket(
     remote_address: &SocketAddr,
 ) -> Result<UdpSocket, ConnectionError>
 {
-    let local_address = get_matching_address(local_addresses, remote_address).ok_or_else(|| {
-        ConnectionError::FailedToConnect(format!(
-            "Unable to find local address from {:?} that can connect to the remote address {}",
-            local_addresses, remote_address
-        ))
-    })?;
+    let matching_local_address =
+        get_matching_address(local_addresses, remote_address).ok_or_else(|| {
+            ConnectionError::FailedToConnect(format!(
+                "Unable to find local address from {:?} that can connect to the remote address {}",
+                local_addresses, remote_address
+            ))
+        })?;
+    let local_address = SocketAddr::new(matching_local_address.ip(), 0);
     let sock = UdpSocket::bind(local_address).await.map_err(|e| {
         ConnectionError::FailedToConnect(format!(
             "Unable to bind local address {} {}",

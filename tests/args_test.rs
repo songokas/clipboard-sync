@@ -109,6 +109,7 @@ fn check_failure_arg(args: Vec<&'static str>, expect: &str) -> Command
     for arg in args {
         cmd.arg(arg);
     }
+    cmd.timeout(Duration::from_millis(2000));
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains(expect));

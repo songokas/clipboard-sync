@@ -339,6 +339,72 @@ fn test_directory_changes_created_after_startup()
     assert2.stderr(predicate::str::contains("Sent bytes"));
 }
 
+#[test]
+fn test_send_receive_same_port()
+{
+    let size = 2000;
+    let bind_to = "127.0.0.1:8928";
+    let protocol = "basic";
+
+    let allowed_host = "127.0.0.1:0";
+    let t1 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--bind-address",
+                bind_to,
+                "--allowed-host",
+                allowed_host,
+                "--protocol",
+                "basic",
+            ],
+            "",
+            2000,
+        )
+    });
+
+    let contents: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(size)
+        .map(char::from)
+        .collect();
+
+    let send_to = "127.0.0.1:8928";
+
+    thread::sleep(Duration::from_millis(100));
+
+    let t2 = thread::spawn(move || {
+        run_command(
+            vec![
+                "--key",
+                ANY_KEY,
+                "--bind-address",
+                "127.0.0.1:8938,[::1]:8938",
+                "--send-using-address",
+                "127.0.0.1:8938,[::1]:8938",
+                "--clipboard",
+                "/dev/stdin",
+                "--allowed-host",
+                send_to,
+                "--protocol",
+                protocol,
+            ],
+            &contents,
+            2000,
+        )
+    });
+
+    let output1 = t1.join().unwrap().unwrap();
+    let output2 = t2.join().unwrap().unwrap();
+
+    let assert1 = Assert::new(output1);
+    let assert2 = Assert::new(output2);
+
+    assert2.stderr(predicate::str::ends_with("protocol basic\n"));
+    assert1.stderr(predicate::str::ends_with("protocol basic\n"));
+}
+
 fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output>
 {
     let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();

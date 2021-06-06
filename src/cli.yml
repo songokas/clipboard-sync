@@ -1,5 +1,5 @@
 name: clipboard-sync
-version: "2.0.0"
+version: "2.0.1"
 author: Tomas Jakstas <tom.jakstas@gmail.com>
 about: secure clipboard sync across your devices
 args:

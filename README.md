@@ -13,13 +13,13 @@ file copying is supported as well (linux only)
 ### Deb
 
 ```
-wget https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync_2.0.0_amd64.deb && sudo apt install ./clipboard-sync_2.0.0_amd64.deb
+wget https://github.com/songokas/clipboard-sync/releases/download/2.0.1/clipboard-sync_2.0.1_amd64.deb && sudo apt install ./clipboard-sync_2.0.1_amd64.deb
 ```
 ### RRM
 
 ```
-sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.0.0/.rpm/RPM-GPG-KEY-tomasj \
-  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1.x86_64.rpm
+sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.0.1/.rpm/RPM-GPG-KEY-tomasj \
+  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/2.0.1/clipboard-sync-2.0.1-1.x86_64.rpm
 ```
 
 ### Arch
@@ -27,23 +27,23 @@ sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.0.
 ```
 sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
   && sudo pacman-key --lsign-key 175129AEEC57B0EB \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst.sig \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U clipboard-sync-2.0.0-1-x86_64.pkg.tar.zst
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.1/clipboard-sync-2.0.1-1-x86_64.pkg.tar.zst.sig \
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.0.1/clipboard-sync-2.0.1-1-x86_64.pkg.tar.zst \
+  && sudo pacman -U clipboard-sync-2.0.1-1-x86_64.pkg.tar.zst
 ```
 
 ### Android
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-android_2.0.0.apk)
+[download](https://github.com/songokas/clipboard-sync/releases/download/2.0.1/clipboard-sync-android_2.0.1.apk)
 
 ### Windows
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/2.0.0/clipboard-sync-2.0.0-x86_64.msi)
+[download](https://github.com/songokas/clipboard-sync/releases/download/2.0.1/clipboard-sync-2.0.1-x86_64.msi)
 
 
 ### Others
 
-[other versions](https://github.com/songokas/clipboard-sync/releases/tag/2.0.0)
+[other versions](https://github.com/songokas/clipboard-sync/releases/tag/2.0.1)
 
 ### Install from source
 

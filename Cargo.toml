@@ -1,6 +1,6 @@
 [package]
 name = "clipboard-sync"
-version = "2.0.0"
+version = "2.0.1"
 readme = "README.md"
 authors = ["Tomas Jakstas <tom.jakstas@gmail.com>"]
 edition = "2018"
