@@ -100,3 +100,11 @@ args:
         long: max-file-size
         help: "max file size in bytes for sending/receiving files default: 23068672"
         takes_value: true
+    - relay-host:
+        long: relay-host
+        help: "relay host same as in allowed-host"
+        takes_value: true
+    - relay-public-key:
+        long: relay-public-key
+        help: relay servers public key in base64
+        takes_value: true

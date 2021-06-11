@@ -11,7 +11,7 @@ mod basic;
 #[cfg(feature = "frames")]
 mod frames;
 #[path = "laminar.rs"]
-mod laminarpr;
+pub mod laminarpr;
 #[cfg(feature = "quiche")]
 mod quiche;
 #[cfg(feature = "quinn")]

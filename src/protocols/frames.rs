@@ -70,6 +70,7 @@ pub async fn receive_data(
             &group,
             &identity,
             &MessageType::Frame,
+            &addr,
         )?;
 
         socket.send_to(&confirm_bytes, addr).await?;
@@ -251,7 +252,7 @@ async fn send_index(
     index: u32,
 ) -> Result<usize, ConnectionError>
 {
-    let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD)?;
+    let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD, destination)?;
 
     // debug!("Sent frame {} with {} bytes", index, bytes.len());
 

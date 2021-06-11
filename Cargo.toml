@@ -32,6 +32,7 @@ indexmap = { version = "1.6", features = ["serde-1"] }
 laminar = { version = "0.5" }
 thiserror = "1.0"
 notify = "4.0"
+x25519-dalek = { version = "1.1", features = ["serde"] }
 # @TODO simplify/replace/remove
 futures = "0.3"
 crossbeam-channel = "0.5"
@@ -123,3 +124,7 @@ package = "clipboard-sync"
 cargo = { buildflags = ["--release"] }
 targets = { clipboard-sync = { path = "/usr/bin/clipboard-sync" } }
 files = { "../debian/service" = { path = "/lib/systemd/user/clipboard-sync.service" } }
+
+[[bin]]
+name = "sync"
+path = "src/main.rs"

@@ -16,6 +16,8 @@ use indexmap::{indexmap, IndexSet};
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 // use std::io::Write;
+use std::convert::TryInto;
+use x25519_dalek::PublicKey;
 
 mod clipboards;
 mod config;
@@ -31,6 +33,7 @@ mod notify;
 mod process;
 mod protocols;
 mod socket;
+#[cfg(test)]
 mod test;
 mod time;
 
@@ -41,7 +44,7 @@ use crate::config::{generate_config, load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
-use crate::message::Group;
+use crate::message::{Group, RelayConfig};
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 use crate::socket::ipv6_support;
@@ -153,6 +156,30 @@ async fn main() -> Result<(), CliError>
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(MAX_FILE_SIZE);
 
+    let relay_host = matches.value_of("relay-host");
+    let relay_public_key = matches.value_of("relay-public-key").and_then(|s| {
+        let key: Option<[u8; 32]> = match base64::decode(s) {
+            Ok(d) => d.try_into().ok(),
+            Err(_) => None,
+        };
+        key.map(PublicKey::from)
+    });
+
+    let relay_config = match relay_host {
+        Some(host) => match relay_public_key {
+            Some(public_key) => Some(RelayConfig {
+                host: host.to_owned(),
+                public_key,
+            }),
+            None => {
+                return Err(CliError::ArgumentError(format!(
+                    "Please provide a valid base64 encoded relay servers public key",
+                )))
+            }
+        },
+        None => None,
+    };
+
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let cli_protocol = Protocol::from(
             matches.value_of("protocol"),
@@ -197,6 +224,7 @@ async fn main() -> Result<(), CliError>
                 protocol: cli_protocol.clone(),
                 heartbeat,
                 message_valid_for,
+                relay: relay_config.clone(),
             },
         };
 
@@ -237,6 +265,8 @@ async fn main() -> Result<(), CliError>
             max_receive_buffer,
             max_file_size,
             clipboard_type,
+            relay_config.clone(),
+            heartbeat,
         );
     };
 

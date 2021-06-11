@@ -139,6 +139,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         protocol: protocol.clone(),
         heartbeat: config.heartbeat,
         message_valid_for: 180,
+        relay: None,
     };
     let groups = indexmap! { config.group => group };
     let full_config = FullConfig::from_protocol_groups(

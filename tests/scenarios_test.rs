@@ -104,9 +104,6 @@ fn send_receive_once(protocol: &'static str, size: usize)
     let output1 = t1.join().unwrap().unwrap();
     let output2 = t2.join().unwrap().unwrap();
 
-    // println!("{} {:?}", protocol, output1);
-    // println!("{} {:?}", protocol, output2);
-
     let assert1 = Assert::new(output1);
     let assert2 = Assert::new(output2);
 

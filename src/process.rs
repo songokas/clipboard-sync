@@ -1,4 +1,5 @@
 use flume::{Receiver, Sender};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -26,10 +27,13 @@ use crate::notify::{create_watch_paths, watch_changed_paths};
 use crate::protocols::{receive_data, send_data, Protocol, SocketPool};
 use crate::socket::*;
 
+pub type SocketAddrPool = HashMap<IpAddr, u16>;
+pub type MessageReceived = (String, String, SocketAddr);
+
 pub async fn receive_clipboard(
     pool: Arc<SocketPool>,
     mut clipboard: Clipboard,
-    channel: Sender<(String, String)>,
+    channel: Sender<MessageReceived>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
     config: FullConfig,
@@ -107,10 +111,7 @@ pub async fn receive_clipboard(
 
         match result {
             Ok((hash, group_name)) => {
-                if hash.is_empty() {
-                    continue;
-                }
-                if let Err(msg) = channel.try_send((group_name, hash)) {
+                if let Err(msg) = channel.try_send((group_name, hash, addr)) {
                     warn!("Unable to update current hash {}", msg);
                 }
             }
@@ -140,7 +141,7 @@ pub async fn receive_clipboard(
 pub async fn send_clipboard(
     pool: Arc<SocketPool>,
     mut clipboard: Clipboard,
-    channel: Receiver<(String, String)>,
+    channel: Receiver<MessageReceived>,
     running: Arc<AtomicBool>,
     config: FullConfig,
     status_channel: Sender<(u64, u64)>,
@@ -151,6 +152,7 @@ pub async fn send_clipboard(
     let mut heartbeat_cache: HashMap<String, Instant> = HashMap::new();
     let mut count = 0;
     let groups = config.groups;
+    let mut socket_addr_pool = SocketAddrPool::new();
 
     info!("Listen for clipboard changes");
 
@@ -168,13 +170,14 @@ pub async fn send_clipboard(
     }
     let mut watcher = create_watch_paths(&paths_to_watch);
 
-    let hash_update = |hash_cache: &mut HashMap<String, String>| {
-        while let Ok((group_name, rhash)) = channel.try_recv() {
+    let hash_update = |hash_cache: &mut HashMap<String, String>, pool: &mut SocketAddrPool| {
+        while let Ok((group_name, rhash, remote_socket)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
                 None => "".to_owned(),
             };
-            if &current_hash != &rhash {
+            pool.insert(remote_socket.ip(), remote_socket.port());
+            if &rhash != "" && &current_hash != &rhash {
                 hash_cache.insert(group_name.clone(), rhash.clone());
                 debug!(
                     "Client updated current hash {} to {} for group {}",
@@ -193,7 +196,7 @@ pub async fn send_clipboard(
             }
         }
 
-        hash_update(&mut hash_cache);
+        hash_update(&mut hash_cache, &mut socket_addr_pool);
 
         for (_, group) in &groups {
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
@@ -205,13 +208,20 @@ pub async fn send_clipboard(
                 Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
                 _ => {
                     if group.heartbeat > 0 {
-                        send_heartbeat(&pool, &group, &mut heartbeat_cache, timeout).await;
+                        send_heartbeat(
+                            &pool,
+                            &socket_addr_pool,
+                            &group,
+                            &mut heartbeat_cache,
+                            timeout,
+                        )
+                        .await;
                     }
 
                     continue;
                 }
             };
-            hash_update(&mut hash_cache);
+            hash_update(&mut hash_cache, &mut socket_addr_pool);
 
             let entry_value = match hash_cache.get(&group.name) {
                 Some(val) => val.to_owned(),
@@ -241,7 +251,16 @@ pub async fn send_clipboard(
                 }
             };
 
-            match send_clipboard_to_group(&pool, &data, &message_type, &group, timeout).await {
+            match send_clipboard_to_group(
+                &pool,
+                &socket_addr_pool,
+                &data,
+                &message_type,
+                &group,
+                timeout,
+            )
+            .await
+            {
                 Ok(sent) if sent > 0 => {
                     debug!("Sent bytes {}", sent);
                     count += 1;
@@ -272,6 +291,7 @@ pub async fn send_clipboard(
 
 pub async fn send_clipboard_contents(
     pool: &SocketPool,
+    addr_pool: &SocketAddrPool,
     contents: String,
     group: &Group,
 ) -> Result<usize, String>
@@ -289,7 +309,9 @@ pub async fn send_clipboard_contents(
     };
     let timeout = |d: Duration| d > Duration::from_millis(DATA_TIMEOUT);
 
-    let sent = match send_clipboard_to_group(pool, &data, &message_type, &group, timeout).await {
+    let sent = match send_clipboard_to_group(pool, addr_pool, &data, &message_type, &group, timeout)
+        .await
+    {
         Ok(sent) => {
             debug!("Sent bytes {}", sent);
             sent
@@ -304,6 +326,7 @@ pub async fn send_clipboard_contents(
 
 async fn send_heartbeat(
     pool: &SocketPool,
+    addr_pool: &SocketAddrPool,
     group: &Group,
     heartbeat_cache: &mut HashMap<String, Instant>,
     timeout: impl Fn(Duration) -> bool,
@@ -317,7 +340,16 @@ async fn send_heartbeat(
     if last.elapsed().as_secs() >= group.heartbeat {
         let data = last.elapsed().as_secs().to_be_bytes();
         heartbeat_cache.insert(group.name.clone(), Instant::now());
-        match send_clipboard_to_group(pool, &data, &MessageType::Heartbeat, &group, timeout).await {
+        match send_clipboard_to_group(
+            pool,
+            addr_pool,
+            &data,
+            &MessageType::Heartbeat,
+            &group,
+            timeout,
+        )
+        .await
+        {
             Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
             Err(err) => error!("Error heartbeat: {}", err),
         };
@@ -484,6 +516,7 @@ fn write_to(
 
 async fn send_clipboard_to_group(
     pool: &SocketPool,
+    addr_pool: &SocketAddrPool,
     buffer: &[u8],
     message_type: &MessageType,
     group: &Group,
@@ -494,26 +527,45 @@ async fn send_clipboard_to_group(
     let mut sent = 0;
     let callback = |d: Duration| d > Duration::from_millis(2000);
 
-    for remote_host in &group.allowed_hosts {
-        let addr = match to_socket_address(remote_host) {
-            Ok(a) => a,
+    for remote_host_str in &group.allowed_hosts {
+        let use_latest = remote_host_str.ends_with(":latest");
+        let remote_host = if use_latest {
+            remote_host_str.replace(":latest", ":0")
+        } else {
+            remote_host_str.to_owned()
+        };
+        let addr = match to_socket_address(&remote_host) {
+            Ok(a) => {
+                if use_latest {
+                    let port: u16 = addr_pool.get(&a.ip()).map(|i| i.clone()).unwrap_or(0);
+                    SocketAddr::new(a.ip(), port)
+                } else {
+                    a
+                }
+            }
             Err(e) => {
-                warn!("{:?}", e);
+                warn!("{}", e);
                 continue;
             }
         };
 
         if addr.port() == 0 {
-            debug!("Not sending to host {}", remote_host);
+            debug!("Not sending to host {}", &remote_host);
             continue;
         }
+
         let remote_ip = addr.ip();
         let identity = retrieve_identity(&addr, group).await?;
         let local_socket = pool
             .obtain_client_socket(&group.send_using_address, &addr, &group.protocol)
             .await?;
-
-        let bytes = encrypt_to_bytes(&buffer, &identity, group, message_type)?;
+        // @TODO move to protocol logic
+        let destination_addr = match &group.protocol {
+            Protocol::Basic => addr,
+            _ => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+        };
+        let bytes =
+            encrypt_group_to_bytes(&buffer, &identity, group, message_type, &destination_addr)?;
 
         debug!(
             "Sending to {}:{} using {}",
@@ -523,9 +575,10 @@ async fn send_clipboard_to_group(
         );
 
         let encryptor = IdentityEncryptor::new(group.clone(), identity);
+
         let host = remote_host
             .strip_suffix(&format!(":{}", addr.port()))
-            .unwrap_or(remote_host);
+            .unwrap_or(&remote_host);
 
         sent += send_data(
             local_socket,
@@ -554,9 +607,11 @@ mod processtest
     fn test_handle_clipboard_change()
     {
         let pool = SocketPool::new();
+        let addr_pool = SocketAddrPool::new();
         let timeout = |d: Duration| d > Duration::from_millis(2000);
         let result = wait!(send_clipboard_to_group(
             &pool,
+            &addr_pool,
             b"test",
             &MessageType::Text,
             &Group::from_name("me"),
@@ -566,6 +621,7 @@ mod processtest
 
         let result = wait!(send_clipboard_to_group(
             &pool,
+            &addr_pool,
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:0", "127.0.0.1:8093"),
@@ -575,6 +631,7 @@ mod processtest
 
         let result = wait!(send_clipboard_to_group(
             &pool,
+            &addr_pool,
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:0"),
@@ -636,7 +693,7 @@ mod processtest
                 &group,
                 "test1".as_bytes().to_vec(),
                 &MessageType::Text,
-                &"empty".into(),
+                &"0.0.0.0".parse::<IpAddr>().unwrap().into(),
                 100,
             )
             .unwrap();
@@ -677,6 +734,7 @@ mod processtest
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
         let pool = Arc::new(SocketPool::new());
+        let addr_pool = SocketAddrPool::new();
 
         let r = tokio::spawn(receive_clipboard(
             pool.clone(),
@@ -690,7 +748,8 @@ mod processtest
             false,
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
-            let sent = send_clipboard_contents(&pool, "test1".to_string(), &group).await;
+            let sent =
+                send_clipboard_contents(&pool, &addr_pool, "test1".to_string(), &group).await;
             assert_eq!(94, sent.unwrap());
             // let server handle it
             sleep(Duration::from_millis(4000)).await;

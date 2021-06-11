@@ -2,6 +2,7 @@ use chacha20poly1305::{Key, XNonce};
 use indexmap::IndexSet;
 use serde::{de, Deserialize, Serialize};
 use std::net::SocketAddr;
+use x25519_dalek::PublicKey;
 
 #[cfg(test)]
 use chrono::Utc;
@@ -9,6 +10,7 @@ use chrono::Utc;
 use indexmap::indexset;
 
 use crate::defaults::KEY_SIZE;
+use crate::encryption::hash;
 use crate::protocols::Protocol;
 
 mod serde_key_str
@@ -57,7 +59,7 @@ mod serde_nonce
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy)]
 pub enum MessageType
 {
     Text,
@@ -97,11 +99,30 @@ pub struct Message
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct PublicMessage
+{
+    pub public_key: PublicKey,
+    #[serde(with = "serde_nonce")]
+    pub nonce: XNonce,
+    pub data: Vec<u8>,
+    pub time: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AdditionalData
 {
     pub group: String,
     pub identity: String,
     pub message_type: MessageType,
+}
+
+pub type GroupId = Vec<u8>;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RelayConfig
+{
+    pub host: String,
+    pub public_key: PublicKey,
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +137,17 @@ pub struct Group
     pub protocol: Protocol,
     pub heartbeat: u64,
     pub message_valid_for: u16,
+    pub relay: Option<RelayConfig>,
+}
+
+impl Group
+{
+    pub fn hash(&self) -> GroupId
+    {
+        let mut value = self.key.to_vec();
+        value.append(&mut self.name.as_bytes().to_vec());
+        return hash(&value).as_bytes().to_vec();
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -131,6 +163,7 @@ pub struct ConfigGroup
     #[serde(default)]
     pub heartbeat: u64,
     pub message_valid_for: Option<u16>,
+    pub relay: Option<RelayConfig>,
 }
 
 #[cfg(test)]
@@ -163,6 +196,7 @@ impl Group
             protocol: Protocol::Basic,
             heartbeat: 0,
             message_valid_for: 0,
+            relay: None,
         };
     }
 
@@ -178,6 +212,7 @@ impl Group
             protocol: Protocol::Basic,
             heartbeat: 0,
             message_valid_for: 0,
+            relay: None,
         };
     }
 

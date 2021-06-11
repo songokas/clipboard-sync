@@ -13,7 +13,7 @@ use crate::time::{get_time, is_timestamp_valid};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity
 {
-    addr: String,
+    address: IpAddr,
 }
 
 pub trait IdentityVerifier
@@ -35,7 +35,7 @@ impl From<&IpAddr> for Identity
     fn from(item: &IpAddr) -> Self
     {
         return Self {
-            addr: item.to_string(),
+            address: item.clone(),
         };
     }
 }
@@ -44,9 +44,7 @@ impl From<IpAddr> for Identity
 {
     fn from(item: IpAddr) -> Self
     {
-        return Self {
-            addr: item.to_string(),
-        };
+        return Self { address: item };
     }
 }
 
@@ -66,21 +64,21 @@ impl From<SocketAddr> for Identity
     }
 }
 
-impl From<&str> for Identity
-{
-    fn from(item: &str) -> Self
-    {
-        return Identity {
-            addr: item.to_owned(),
-        };
-    }
-}
+// impl From<&str> for Identity
+// {
+//     fn from(item: &str) -> Self
+//     {
+//         return Identity {
+//             address: item.to_owned(),
+//         };
+//     }
+// }
 
 impl fmt::Display for Identity
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
     {
-        write!(f, "{}", self.addr)
+        write!(f, "{}", self.address.to_string())
     }
 }
 
@@ -89,6 +87,16 @@ pub async fn retrieve_identity(
     group: &Group,
 ) -> Result<Identity, ConnectionError>
 {
+    match &group.relay {
+        Some(relay) => match to_socket_address(&relay.host) {
+            Ok(relay_addr) if &relay_addr == remote_address => {
+                return Ok(Identity::from(remote_address))
+            }
+            _ => (),
+        },
+        _ => (),
+    };
+
     if let Some(host) = &group.visible_ip {
         return Ok(to_socket_address(format!("{}:0", host)).map(Identity::from)?);
     }
@@ -110,8 +118,19 @@ pub async fn retrieve_identity(
 pub fn identity_matching_hosts(
     hosts: impl IntoIterator<Item = impl AsRef<str>>,
     identity: &Identity,
+    trust_relay: &Option<String>,
 ) -> bool
 {
+    if let Some(ref r) = trust_relay {
+        match to_socket_address(r) {
+            Ok(s) => {
+                if &Identity::from(s.ip()) == identity {
+                    return true;
+                }
+            }
+            _ => (),
+        };
+    }
     for host in hosts {
         let external_ip = match to_socket_address(host) {
             Ok(s) => s.ip(),
@@ -124,11 +143,11 @@ pub fn identity_matching_hosts(
     return false;
 }
 
-pub fn validate(
+pub fn validate<'a>(
     buffer: &[u8],
-    groups: &Groups,
+    groups: &'a Groups,
     identity: &Identity,
-) -> Result<(Message, Group), ValidationError>
+) -> Result<(Message, &'a Group), ValidationError>
 {
     let message: Message = bincode::deserialize(buffer).map_err(|err| {
         ValidationError::DeserializeFailed(format!(
@@ -136,6 +155,7 @@ pub fn validate(
             (*err).to_string()
         ))
     })?;
+
     let group = match groups.iter().find(|(_, group)| group.name == message.group) {
         Some((_, group)) => group,
         _ => {
@@ -159,14 +179,18 @@ pub fn validate(
         ));
     }
 
-    if !identity_matching_hosts(group.allowed_hosts.iter(), identity) {
+    if !identity_matching_hosts(
+        group.allowed_hosts.iter(),
+        identity,
+        &group.relay.as_ref().map(|r| r.host.clone()),
+    ) {
         return Err(ValidationError::IncorrectGroup(format!(
             "Group {} does not allow {}",
             group.name, identity
         )));
     }
 
-    return Ok((message, group.clone()));
+    return Ok((message, group));
 }
 
 #[cfg(test)]
@@ -204,7 +228,10 @@ mod identitytest
     {
         for (expected, remote_addr, group) in identity_provider() {
             let res = wait!(retrieve_identity(&remote_addr, &group));
-            assert_eq!(Identity::from(expected), res.unwrap());
+            assert_eq!(
+                Identity::from(expected.parse::<IpAddr>().unwrap()),
+                res.unwrap()
+            );
         }
     }
 
@@ -240,13 +267,13 @@ mod identitytest
             "test1".to_owned() => Group::from_addr("test1", "127.0.0.1:8900", "127.0.0.1:8900"),
             "test2".to_owned() => Group::from_name("test2"),
         };
-        let sequences: Vec<(&'static str, Vec<u8>, &'static str, bool)> = vec![
+        let sequences: Vec<(&'static str, Vec<u8>, IpAddr, bool)> = vec![
             (
                 "group name and ip match",
                 bincode::serialize(&Message::from_group("test1"))
                     .unwrap()
                     .to_vec(),
-                "127.0.0.1",
+                "127.0.0.1".parse::<IpAddr>().unwrap(),
                 true,
             ),
             (
@@ -254,7 +281,7 @@ mod identitytest
                 bincode::serialize(&Message::from_group("none"))
                     .unwrap()
                     .to_vec(),
-                "127.0.0.1",
+                "127.0.0.1".parse::<IpAddr>().unwrap(),
                 false,
             ),
             (
@@ -262,7 +289,7 @@ mod identitytest
                 bincode::serialize(&Message::from_group("test1"))
                     .unwrap()
                     .to_vec(),
-                "127.0.0.2",
+                "127.0.0.2".parse::<IpAddr>().unwrap(),
                 false,
             ),
             (
@@ -270,11 +297,21 @@ mod identitytest
                 bincode::serialize(&Message::from_group("test1"))
                     .unwrap()
                     .to_vec(),
-                "",
+                "0.0.0.0".parse::<IpAddr>().unwrap(),
                 false,
             ),
-            ("random1", [3, 3, 98].to_vec(), "", false),
-            ("empty data", [].to_vec(), "", false),
+            (
+                "random1",
+                [3, 3, 98].to_vec(),
+                "0.0.0.0".parse::<IpAddr>().unwrap(),
+                false,
+            ),
+            (
+                "empty data",
+                [].to_vec(),
+                "0.0.0.0".parse::<IpAddr>().unwrap(),
+                false,
+            ),
         ];
 
         for (name, bytes, id, expected) in sequences {

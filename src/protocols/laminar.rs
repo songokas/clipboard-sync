@@ -188,7 +188,8 @@ pub async fn send_data(
     let mut size = 0;
 
     for index in 0..indexes {
-        let bytes = encryptor.encrypt_with_index(&data, index as u32, max_payload)?;
+        let bytes =
+            encryptor.encrypt_with_index(&data, index as u32, max_payload, destination_addr)?;
         size += bytes.len();
 
         let packet = if reliable {

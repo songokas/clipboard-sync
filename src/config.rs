@@ -12,7 +12,7 @@ use crate::defaults::{KEY_SIZE, PACKAGE_NAME, RECEIVE_ONCE_WAIT};
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
-use crate::message::{ConfigGroup, Group};
+use crate::message::{ConfigGroup, Group, RelayConfig};
 use crate::protocols::Protocol;
 
 // pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
@@ -196,6 +196,8 @@ pub fn load_groups(
     default_max_receive_buffer: usize,
     default_max_file_size: usize,
     default_clipboard_type: &str,
+    default_relay: Option<RelayConfig>,
+    default_heartbeat: u64,
 ) -> Result<FullConfig, CliError>
 {
     info!("Loading from {} config", file_path);
@@ -282,6 +284,17 @@ pub fn load_groups(
             Key::from_slice(default_key.as_bytes()).clone()
         };
 
+        let relay = match &group.relay {
+            Some(r) => Some(r.clone()),
+            None => default_relay.clone(),
+        };
+
+        let heartbeat = if group.heartbeat > 0 {
+            group.heartbeat
+        } else {
+            default_heartbeat
+        };
+
         groups.insert(
             name.clone(),
             Group {
@@ -295,8 +308,9 @@ pub fn load_groups(
                     .clone()
                     .unwrap_or_else(|| default_clipboard_type.to_owned()),
                 protocol,
-                heartbeat: group.heartbeat,
+                heartbeat,
                 message_valid_for: group.message_valid_for.unwrap_or(default_message_valid_for),
+                relay,
             },
         );
     }
@@ -436,6 +450,8 @@ mod configtest
             100,
             100,
             "clipboard",
+            None,
+            0,
         )
         .unwrap();
 
@@ -531,6 +547,8 @@ mod configtest
             100,
             100,
             "clipboard",
+            None,
+            0,
         );
 
         match full_config {

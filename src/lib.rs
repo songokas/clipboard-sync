@@ -29,10 +29,11 @@ mod process;
 mod protocols;
 mod runner;
 mod socket;
+#[cfg(test)]
 mod test;
 mod time;
 
-use crate::process::send_clipboard_contents;
+use crate::process::{send_clipboard_contents, SocketAddrPool};
 use crate::protocols::SocketPool;
 use crate::runner::{create_config, create_runner, Runner, Status, StatusCount};
 
@@ -200,7 +201,8 @@ pub async fn send(config_str: String, clipboard: String) -> Result<usize, String
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
     let pool = SocketPool::new();
-    return send_clipboard_contents(&pool, clipboard, &groups[0]).await;
+    let addr_pool = SocketAddrPool::new();
+    return send_clipboard_contents(&pool, &addr_pool, clipboard, &groups[0]).await;
 }
 
 #[cfg(target_os = "android")]

@@ -27,6 +27,7 @@ pub const MAX_ENCRYPTION_HEADER_SIZE: u16 = 200; // encryption header size
 
 pub const NTP_SERVER: &str = "0.pool.ntp.org:123";
 pub const MESSAGE_VALID_TIME: u16 = 300;
+pub const DEFAULT_MESSAGE_SIZE: usize = 115;
 
 pub fn default_clipboard() -> String
 {
