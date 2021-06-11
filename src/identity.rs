@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use crate::config::Groups;
 use crate::errors::{ConnectionError, ValidationError};
-use crate::message::{Group, Message};
+use crate::message::{Group, Message, PublicMessage};
 #[cfg(feature = "public-ip")]
 use crate::socket::retrieve_public_ip;
 use crate::socket::{remove_ipv4_mapping, retrieve_local_address, to_socket_address, IpAddrExt};
@@ -191,6 +191,27 @@ pub fn validate<'a>(
     }
 
     return Ok((message, group));
+}
+
+pub fn validate_public(buffer: &[u8], valid_for: u16) -> Result<PublicMessage, ValidationError>
+{
+    let message: PublicMessage = bincode::deserialize(buffer).map_err(|err| {
+        ValidationError::DeserializeFailed(format!(
+            "Validation invalid data provided: {}",
+            (*err).to_string()
+        ))
+    })?;
+
+    if !is_timestamp_valid(message.time, valid_for) {
+        let now = get_time();
+        let diff = if now >= message.time {
+            now - message.time
+        } else {
+            message.time - now
+        };
+        return Err(ValidationError::InvalidTimestamp(diff, valid_for));
+    }
+    return Ok(message);
 }
 
 #[cfg(test)]

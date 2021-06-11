@@ -17,7 +17,7 @@ mod quiche;
 #[cfg(feature = "quinn")]
 #[path = "quinn.rs"]
 mod quinnpr;
-mod tcp;
+pub mod tcp;
 
 // use crate::config::CertLoader;
 #[cfg(feature = "quic")]
