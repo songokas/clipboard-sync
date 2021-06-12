@@ -336,14 +336,12 @@ mod encryptiontest
     fn test_encryption_with_secret_size_match()
     {
         let key_data: [u8; 32] = random(32).try_into().unwrap();
-
         let secret = StaticSecret::from(key_data);
         let public_key = PublicKey::from(&secret);
-        // let encryption_key = secret.diffie_hellman(&public_key);
         let group = Group::from_name("test1");
         let data =
             encrypt_with_key(&group.hash(), &Key::from_slice(&key_data), &public_key).unwrap();
-        assert_eq!(data.len(), DEFAULT_MESSAGE_SIZE + 1);
+        assert_eq!(data.len(), DEFAULT_MESSAGE_SIZE);
     }
 
     #[test]

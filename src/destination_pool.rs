@@ -42,19 +42,21 @@ impl DestinationPool
     {
         match self.addresses.write() {
             Ok(mut all) => {
-                if all.len() >= self.max_groups {
-                    return;
+                if !all.contains_key(&group_id) {
+                    if all.len() >= self.max_groups {
+                        return;
+                    }
+
+                    let result = match self.ips.read() {
+                        Ok(t) => t.get(&address.ip()).map(|h| h.len()),
+                        Err(_) => None,
+                    };
+
+                    match result {
+                        Some(len) if len >= self.max_per_ip => return,
+                        _ => (),
+                    };
                 }
-
-                let result = match self.ips.read() {
-                    Ok(t) => t.get(&address.ip()).map(|h| h.len()),
-                    Err(_) => None,
-                };
-
-                match result {
-                    Some(len) if len >= self.max_per_ip => return,
-                    _ => (),
-                };
 
                 all.entry(group_id.clone())
                     .and_modify(|h| {
@@ -116,5 +118,114 @@ impl DestinationPool
             },
             _ => (),
         };
+    }
+}
+
+#[cfg(test)]
+mod destinationpooltest
+{
+    use super::*;
+    use std::convert::TryInto;
+
+    #[test]
+    fn test_group_limit()
+    {
+        let pool = DestinationPool::new(2, 2, 4);
+        let group_id1: GroupId = vec![1; 64].try_into().unwrap();
+        let destination1: SocketAddr = "127.0.0.1:8001".parse().unwrap();
+        pool.add_destination(group_id1.clone(), destination1);
+        let group_id2: GroupId = vec![2; 64].try_into().unwrap();
+        let destination2: SocketAddr = "127.0.0.1:8002".parse().unwrap();
+        pool.add_destination(group_id2.clone(), destination2);
+
+        let group_id3: GroupId = vec![3; 64].try_into().unwrap();
+        let destination3: SocketAddr = "127.0.0.1:8003".parse().unwrap();
+        pool.add_destination(group_id3.clone(), destination3);
+
+        let destinations = pool.get_destinations(&group_id1);
+        assert_eq!(vec![destination1], destinations);
+        let destinations = pool.get_destinations(&group_id2);
+        assert_eq!(vec![destination2], destinations);
+        let destinations = pool.get_destinations(&group_id3);
+        let expected: Vec<SocketAddr> = vec![];
+        assert_eq!(expected, destinations);
+
+        let group_unkown: GroupId = vec![0; 64].try_into().unwrap();
+        let destinations = pool.get_destinations(&group_unkown);
+        assert_eq!(expected, destinations);
+    }
+
+    #[test]
+    fn test_socket_limit()
+    {
+        let pool = DestinationPool::new(1, 2, 1);
+        let group_id: GroupId = vec![1; 64].try_into().unwrap();
+        let destination1: SocketAddr = "127.0.0.1:8001".parse().unwrap();
+        pool.add_destination(group_id.clone(), destination1);
+
+        let destinations = pool.get_destinations(&group_id);
+        assert_eq!(vec![destination1], destinations);
+
+        let destination2: SocketAddr = "127.0.0.1:8002".parse().unwrap();
+        pool.add_destination(group_id.clone(), destination2);
+
+        let destinations = pool.get_destinations(&group_id);
+        assert_eq!(vec![destination1, destination2], destinations);
+
+        let destination3: SocketAddr = "127.0.0.1:8003".parse().unwrap();
+        pool.add_destination(group_id.clone(), destination3);
+
+        let destinations = pool.get_destinations(&group_id);
+        assert_eq!(vec![destination1, destination2], destinations);
+    }
+
+    #[test]
+    fn test_group_limit_per_ip()
+    {
+        let pool = DestinationPool::new(2, 2, 1);
+        let group_id1: GroupId = vec![1; 64].try_into().unwrap();
+        let destination1: SocketAddr = "127.0.0.1:8000".parse().unwrap();
+        pool.add_destination(group_id1.clone(), destination1);
+
+        let group_id2: GroupId = vec![2; 64].try_into().unwrap();
+        let destination2: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+        pool.add_destination(group_id2.clone(), destination2);
+
+        let destinations = pool.get_destinations(&group_id1);
+        assert_eq!(vec![destination1], destinations);
+
+        let destinations = pool.get_destinations(&group_id2);
+        let expected: Vec<SocketAddr> = vec![];
+        assert_eq!(expected, destinations);
+    }
+
+    #[test]
+    fn test_cleanup()
+    {
+        let pool = DestinationPool::new(2, 2, 2);
+
+        let group_id1: GroupId = vec![1; 64].try_into().unwrap();
+        let destination1: SocketAddr = "127.0.0.1:8001".parse().unwrap();
+        pool.add_destination(group_id1.clone(), destination1);
+        let destination2: SocketAddr = "127.0.0.1:8002".parse().unwrap();
+        pool.add_destination(group_id1.clone(), destination2);
+
+        let group_id2: GroupId = vec![2; 64].try_into().unwrap();
+        let destination3: SocketAddr = "127.0.0.1:8003".parse().unwrap();
+        pool.add_destination(group_id2.clone(), destination3);
+
+        let destinations = pool.get_destinations(&group_id1);
+        assert_eq!(vec![destination2, destination1], destinations);
+
+        let destinations = pool.get_destinations(&group_id2);
+        assert_eq!(vec![destination3], destinations);
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        pool.cleanup(1);
+
+        let destinations = pool.get_destinations(&group_id1);
+        let expected: Vec<SocketAddr> = vec![];
+        assert_eq!(expected, destinations);
     }
 }

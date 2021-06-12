@@ -1,6 +1,8 @@
+use blake2::{Blake2b, Digest};
 use chacha20poly1305::{Key, XNonce};
 use indexmap::IndexSet;
 use serde::{de, Deserialize, Serialize};
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use x25519_dalek::PublicKey;
 
@@ -10,7 +12,6 @@ use chrono::Utc;
 use indexmap::indexset;
 
 use crate::defaults::KEY_SIZE;
-use crate::encryption::hash;
 use crate::protocols::Protocol;
 
 mod serde_key_str
@@ -116,7 +117,7 @@ pub struct AdditionalData
     pub message_type: MessageType,
 }
 
-pub type GroupId = Vec<u8>;
+pub type GroupId = [u8; 64];
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RelayConfig
@@ -144,9 +145,13 @@ impl Group
 {
     pub fn hash(&self) -> GroupId
     {
-        let mut value = self.key.to_vec();
-        value.append(&mut self.name.as_bytes().to_vec());
-        return hash(&value).as_bytes().to_vec();
+        return Blake2b::new()
+            .chain(self.key.as_slice())
+            .chain(self.name.clone())
+            .finalize()
+            .as_slice()
+            .try_into()
+            .expect("group id must match hash output");
     }
 }
 

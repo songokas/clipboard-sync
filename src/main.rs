@@ -158,7 +158,7 @@ async fn main() -> Result<(), CliError>
 
     let relay_host = matches.value_of("relay-host");
     let relay_public_key = matches.value_of("relay-public-key").and_then(|s| {
-        let key: Option<[u8; 32]> = match base64::decode(s) {
+        let key: Option<[u8; KEY_SIZE]> = match base64::decode(s) {
             Ok(d) => d.try_into().ok(),
             Err(_) => None,
         };

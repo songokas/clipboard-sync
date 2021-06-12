@@ -63,7 +63,7 @@ pub enum ConnectionError
     InvalidBuffer(String),
     #[error("{0}")]
     InvalidProtocol(String),
-    #[error("Failed to validate data {0}")]
+    #[error("Failed to validate data: {0}")]
     ReceiveError(#[from] ValidationError),
     #[error("Failed to encrypt {0}")]
     Encryption(#[from] EncryptionError),

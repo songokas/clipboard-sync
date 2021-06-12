@@ -3,10 +3,10 @@
 use futures::stream::{self, StreamExt};
 use laminar::{Packet, SocketEvent};
 use log::{debug, error, info};
+use std::convert::TryInto;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -21,6 +21,7 @@ use crate::destination_pool::DestinationPool;
 use crate::encryption::decrypt_with_secret;
 use crate::errors::{CliError, ConnectionError};
 use crate::identity::validate_public;
+use crate::message::GroupId;
 use crate::protocols::laminarpr::{LaminarReceiver, LaminarSender};
 use crate::protocols::tcp::obtain_client_socket;
 use crate::protocols::{Protocol, SocketPool};
@@ -66,7 +67,7 @@ pub async fn relay_packets(
         config.max_per_ip as usize,
     );
     let count = match protocol {
-        Protocol::Basic | Protocol::Frames => {
+        Protocol::Basic => {
             relay_data(
                 local_socket.socket().expect("expected udp socke"),
                 &destination_pool,
@@ -89,6 +90,15 @@ pub async fn relay_packets(
             )
             .await
         }
+        Protocol::Tcp => {
+            relay_tcp(
+                local_socket.tcp_listener().expect("expected tcp socke"),
+                &destination_pool,
+                timeout,
+                &config,
+            )
+            .await
+        }
         _ => {
             return Err(CliError::ArgumentError(format!(
                 "Protocol {} is not supported for relay",
@@ -99,7 +109,7 @@ pub async fn relay_packets(
     return Ok((format!("{} received", protocol), count));
 }
 
-pub async fn relay_tcp(
+async fn relay_tcp(
     socket: &TcpListener,
     destination_pool: &DestinationPool,
     timeout_callback: impl Fn(Duration) -> bool,
@@ -110,7 +120,7 @@ pub async fn relay_tcp(
     let mut count = 0;
     while !timeout_callback(now.elapsed()) {
         let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
-            Ok(v) => v.unwrap(),
+            Ok(v) => v.expect("tcp connection accept failed"),
             Err(_) => continue,
         };
 
@@ -140,23 +150,26 @@ async fn relay_stream(
 ) -> u64
 {
     let mut buffer = [0; 10000];
-    // let mut data = Vec::new();
     let now = Instant::now();
     let mut total_read = 0;
     let mut destination_streams: Vec<TcpStream> = Vec::new();
-    let local_addr = stream.local_addr().unwrap();
+    let local_addr = stream.local_addr().expect("tcp local address expected");
+    let mut initial_data = Vec::new();
     while !timeout_callback(now.elapsed()) {
-        stream.readable().await.unwrap();
+        stream.readable().await.expect("readable stream error");
 
         match stream.try_read(&mut buffer) {
             Ok(0) => {
                 for destination_stream in destination_streams.iter_mut() {
-                    destination_stream.shutdown().await.unwrap();
+                    destination_stream
+                        .shutdown()
+                        .await
+                        .expect("tcp stream shutdown error");
                 }
                 break;
             }
             Ok(read) => {
-                let data = if total_read == 0 {
+                let data = if initial_data.len() == config.message_size {
                     let group_id = match get_group_id(
                         &buffer[..config.message_size],
                         &StaticSecret::from(config.private_key),
@@ -164,7 +177,7 @@ async fn relay_stream(
                     ) {
                         Ok(id) => id,
                         Err(e) => {
-                            debug!("Group id not found in len received {} {}", read, e);
+                            debug!("Group id not found in data with len {}. {}", read, e);
                             return total_read;
                         }
                     };
@@ -191,9 +204,15 @@ async fn relay_stream(
                 };
 
                 total_read += read as u64;
+                if total_read < config.message_size {
+                    initial_data.append(data);
+                }
 
                 for destination_stream in destination_streams.iter_mut() {
-                    destination_stream.write_all(&data).await.unwrap();
+                    destination_stream
+                        .write_all(&data)
+                        .await
+                        .expect("write full");
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -216,11 +235,10 @@ async fn relay_laminar(
 ) -> u64
 {
     let now = Instant::now();
-    let mut count = 0;
     let callback = |d: Duration| timeout_callback(d);
 
     let shared_sender = Arc::new(sender);
-
+    let count = Arc::new(AtomicU64::new(0));
     while !callback(now.elapsed()) {
         let result = receiver.recv().await;
 
@@ -247,6 +265,7 @@ async fn relay_laminar(
                     let destinations = destination_pool.get_destinations(&group_id);
                     let send_socket = shared_sender.clone();
                     let data_to_send = data[config.message_size..].to_vec();
+                    let scount = count.clone();
 
                     tokio::spawn(async move {
                         for destination in destinations {
@@ -259,11 +278,10 @@ async fn relay_laminar(
                                 error!("Failed to send to {} from {}", destination, addr);
                             } else {
                                 debug!("Relay from {} to {} len {}", addr, destination, size);
+                                scount.fetch_add(1, Ordering::Relaxed);
                             }
                         }
                     });
-
-                    count += 1;
 
                     destination_pool.cleanup(config.keep_sockets_for as u64);
                 }
@@ -272,7 +290,7 @@ async fn relay_laminar(
             _ => thread::sleep(Duration::from_millis(5)),
         }
     }
-    return count;
+    return count.load(Ordering::Relaxed);
 }
 
 async fn relay_data(
@@ -285,7 +303,7 @@ async fn relay_data(
     let mut buffer = [0; MAX_UDP_BUFFER];
     let callback = |d: Duration| timeout_callback(d);
     let now = Instant::now();
-    let mut count = 0;
+    let count = Arc::new(AtomicU64::new(0));
     while !callback(now.elapsed()) {
         let (read, addr) = match receive_from_timeout(&socket, &mut buffer, callback).await {
             Ok(a) => a,
@@ -302,7 +320,7 @@ async fn relay_data(
         ) {
             Ok(id) => id,
             Err(e) => {
-                debug!("Group id not found in len received {} {}", read, e);
+                debug!("Group id not found in data with len {}. {}", read, e);
                 continue;
             }
         };
@@ -310,6 +328,7 @@ async fn relay_data(
         let destinations = destination_pool.get_destinations(&group_id);
         let send_socket = socket.clone();
         let message_limit = config.message_size;
+        let scount = count.clone();
         tokio::spawn(async move {
             for destination in destinations {
                 if destination == addr {
@@ -326,6 +345,7 @@ async fn relay_data(
                             destination,
                             buffer[message_limit..read].len(),
                         );
+                        scount.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(e) => {
                         error!("Failed to send to {} {}", destination, e);
@@ -333,20 +353,25 @@ async fn relay_data(
                 };
             }
         });
-        count += 1;
 
         destination_pool.cleanup(config.keep_sockets_for as u64);
     }
-    return count;
+    return count.load(Ordering::Relaxed);
 }
 
 fn get_group_id(
     data: &[u8],
     secret: &StaticSecret,
     valid_for: u16,
-) -> Result<Vec<u8>, ConnectionError>
+) -> Result<GroupId, ConnectionError>
 {
     let message = validate_public(data, valid_for)?;
     let key = secret.diffie_hellman(&message.public_key);
-    return Ok(decrypt_with_secret(message, &key)?);
+    let result = decrypt_with_secret(message, &key)?;
+    match result.as_slice().try_into() {
+        Ok(v) => Ok(v),
+        Err(_) => Err(ConnectionError::InvalidBuffer(format!(
+            "Expected group id does not match"
+        ))),
+    }
 }

@@ -62,7 +62,7 @@ async fn main() -> Result<(), CliError>
 {
     let yaml = load_yaml!("relay.yml");
     let matches = App::from_yaml(yaml).get_matches();
-    let verbosity = matches.value_of("verbosity").unwrap_or("debug");
+    let verbosity = matches.value_of("verbosity").unwrap_or("info");
 
     env_logger::Builder::from_env(Env::default().default_filter_or(verbosity)).init();
 

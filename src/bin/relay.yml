@@ -21,7 +21,7 @@ args:
     - message-size:
         short: s
         long: message-size
-        help: "how many bytes to consider as message default: 116"
+        help: "how many bytes to consider as message default: 150"
         takes_value: true
     - private-key:
         short: k
