@@ -5,8 +5,9 @@ use std::net::SocketAddr;
 use crate::config::Groups;
 use crate::encryption::{decrypt, encrypt_group_to_bytes, DataEncryptor};
 use crate::errors::ConnectionError;
-use crate::identity::{identity_matching_hosts, validate, Identity, IdentityVerifier};
+use crate::identity::{identity_matching_hosts, Identity, IdentityVerifier};
 use crate::message::{Group, MessageType};
+use crate::validation::validate;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Frame

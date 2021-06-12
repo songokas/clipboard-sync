@@ -120,7 +120,7 @@ pub struct AdditionalData
 pub type GroupId = [u8; 64];
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RelayConfig
+pub struct Relay
 {
     pub host: String,
     pub public_key: PublicKey,
@@ -138,7 +138,7 @@ pub struct Group
     pub protocol: Protocol,
     pub heartbeat: u64,
     pub message_valid_for: u16,
-    pub relay: Option<RelayConfig>,
+    pub relay: Option<Relay>,
 }
 
 impl Group
@@ -168,7 +168,7 @@ pub struct ConfigGroup
     #[serde(default)]
     pub heartbeat: u64,
     pub message_valid_for: Option<u16>,
-    pub relay: Option<RelayConfig>,
+    pub relay: Option<Relay>,
 }
 
 #[cfg(test)]

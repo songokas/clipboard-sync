@@ -141,19 +141,7 @@ fn relay_protocol(protocol: &'static str, size: usize)
 #[test]
 fn test_relay()
 {
-    for (protocol, size) in [
-        ("basic", 10),
-        ("tcp", 10),
-        // #[cfg(feature = "frames")]
-        // ("frames", 10),
-        ("laminar", 10),
-        // #[cfg(feature = "quic-quinn")]
-        // ("quic", 10),
-        // #[cfg(feature = "quic-quiche")]
-        // ("quic", 10),
-    ]
-    .to_vec()
-    {
+    for (protocol, size) in [("basic", 10), ("tcp", 10), ("laminar", 10)].to_vec() {
         relay_protocol(protocol, size);
     }
 }

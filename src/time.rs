@@ -61,9 +61,6 @@ pub async fn update_time_diff(
     ntp_address: String,
 ) -> Result<(String, u64), CliError>
 {
-    let diff = get_time_diff(&ntp_address).await;
-    TIME_DIFF.fetch_add(diff, Ordering::Relaxed);
-
     let mut now = Instant::now();
     let mut updated = 1;
     while running.load(Ordering::Relaxed) {
@@ -110,6 +107,28 @@ async fn get_ntp_time(ntp_address: &str) -> Result<i64, ConnectionError>
         Utc::now().timestamp()
     );
     return Ok(seconds);
+}
+
+pub async fn run_every(
+    duration: Duration,
+    condition: Arc<AtomicBool>,
+    callback: impl Fn() -> bool,
+) -> u64
+{
+    let mut now = Instant::now();
+    let mut updated = 0;
+    while condition.load(Ordering::Relaxed) {
+        sleep(Duration::from_millis(500)).await;
+
+        if now.elapsed() > duration {
+            if !callback() {
+                break;
+            }
+            updated += 1;
+            now = Instant::now();
+        }
+    }
+    return updated;
 }
 
 #[cfg(test)]

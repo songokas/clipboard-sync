@@ -1,5 +1,5 @@
 use flume::{Receiver, Sender};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -20,12 +20,13 @@ use crate::encryption::*;
 use crate::errors::*;
 use crate::filesystem::*;
 use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
-use crate::identity::{retrieve_identity, validate, Identity};
+use crate::identity::{retrieve_identity, Identity};
 use crate::message::*;
 use crate::multicast::Multicast;
 use crate::notify::{create_watch_paths, watch_changed_paths};
 use crate::protocols::{receive_data, send_data, Protocol, SocketPool};
 use crate::socket::*;
+use crate::validation::validate;
 
 pub type SocketAddrPool = HashMap<IpAddr, u16>;
 pub type MessageReceived = (String, String, SocketAddr);
@@ -559,13 +560,8 @@ async fn send_clipboard_to_group(
         let local_socket = pool
             .obtain_client_socket(&group.send_using_address, &addr, &group.protocol)
             .await?;
-        // @TODO move to protocol logic
-        let destination_addr = match &group.protocol {
-            Protocol::Basic => addr,
-            _ => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
-        };
-        let bytes =
-            encrypt_group_to_bytes(&buffer, &identity, group, message_type, &destination_addr)?;
+
+        let bytes = encrypt_group_to_bytes(&buffer, &identity, group, message_type, &addr)?;
 
         debug!(
             "Sending to {}:{} using {}",

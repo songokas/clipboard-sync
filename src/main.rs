@@ -36,6 +36,7 @@ mod socket;
 #[cfg(test)]
 mod test;
 mod time;
+mod validation;
 
 use crate::clipboards::Clipboard;
 #[cfg(feature = "quic")]
@@ -44,7 +45,7 @@ use crate::config::{generate_config, load_groups, FullConfig};
 use crate::defaults::*;
 use crate::errors::CliError;
 use crate::filesystem::read_file_to_string;
-use crate::message::{Group, RelayConfig};
+use crate::message::{Group, Relay};
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 use crate::socket::ipv6_support;
@@ -167,7 +168,7 @@ async fn main() -> Result<(), CliError>
 
     let relay_config = match relay_host {
         Some(host) => match relay_public_key {
-            Some(public_key) => Some(RelayConfig {
+            Some(public_key) => Some(Relay {
                 host: host.to_owned(),
                 public_key,
             }),

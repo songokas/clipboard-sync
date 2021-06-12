@@ -32,6 +32,7 @@ mod socket;
 #[cfg(test)]
 mod test;
 mod time;
+mod validation;
 
 use crate::process::{send_clipboard_contents, SocketAddrPool};
 use crate::protocols::SocketPool;

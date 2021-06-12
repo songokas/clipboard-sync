@@ -12,7 +12,7 @@ use crate::defaults::{KEY_SIZE, PACKAGE_NAME, RECEIVE_ONCE_WAIT};
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
 use crate::filesystem::write_file;
-use crate::message::{ConfigGroup, Group, RelayConfig};
+use crate::message::{ConfigGroup, Group, Relay};
 use crate::protocols::Protocol;
 
 // pub trait CertLoader = Fn() -> Result<Certificates, CliError>;
@@ -196,7 +196,7 @@ pub fn load_groups(
     default_max_receive_buffer: usize,
     default_max_file_size: usize,
     default_clipboard_type: &str,
-    default_relay: Option<RelayConfig>,
+    default_relay: Option<Relay>,
     default_heartbeat: u64,
 ) -> Result<FullConfig, CliError>
 {
@@ -416,6 +416,18 @@ fn create_bind_addresses(
         hash.insert(bind_default_protocol, socket_addresses);
     }
     return Ok(hash);
+}
+
+#[derive(Debug, Clone)]
+pub struct RelayConfig
+{
+    pub max_groups: u64,
+    pub max_sockets: u64,
+    pub keep_sockets_for: u16,
+    pub message_size: usize,
+    pub private_key: [u8; KEY_SIZE],
+    pub valid_for: u16,
+    pub max_per_ip: u16,
 }
 
 #[cfg(test)]

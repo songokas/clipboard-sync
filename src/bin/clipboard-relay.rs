@@ -42,14 +42,17 @@ mod time;
 
 #[path = "../destination_pool.rs"]
 mod destination_pool;
-#[path = "../protocol_relay.rs"]
-mod protocol_relay;
+#[path = "../relays/mod.rs"]
+mod relays;
+#[path = "../validation.rs"]
+mod validation;
 
+use crate::config::RelayConfig;
 use crate::defaults::{BIND_ADDRESS, DEFAULT_MESSAGE_SIZE, KEY_SIZE};
 use crate::encryption::random;
 use crate::errors::CliError;
-use crate::protocol_relay::{relay_packets, RelayConfig};
 use crate::protocols::{Protocol, SocketPool};
+use crate::relays::relay_packets;
 
 const DEFAULT_MAX_GROUP_SIZE: u64 = 1000;
 const DEFAULT_MAX_SOCKET_SIZE: u64 = 10;

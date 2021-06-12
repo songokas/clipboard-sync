@@ -169,13 +169,15 @@ mod destinationpooltest
         let destination2: SocketAddr = "127.0.0.1:8002".parse().unwrap();
         pool.add_destination(group_id.clone(), destination2);
 
-        let destinations = pool.get_destinations(&group_id);
+        let mut destinations = pool.get_destinations(&group_id);
+        destinations.sort();
         assert_eq!(vec![destination1, destination2], destinations);
 
         let destination3: SocketAddr = "127.0.0.1:8003".parse().unwrap();
         pool.add_destination(group_id.clone(), destination3);
 
-        let destinations = pool.get_destinations(&group_id);
+        let mut destinations = pool.get_destinations(&group_id);
+        destinations.sort();
         assert_eq!(vec![destination1, destination2], destinations);
     }
 
@@ -214,8 +216,9 @@ mod destinationpooltest
         let destination3: SocketAddr = "127.0.0.1:8003".parse().unwrap();
         pool.add_destination(group_id2.clone(), destination3);
 
-        let destinations = pool.get_destinations(&group_id1);
-        assert_eq!(vec![destination2, destination1], destinations);
+        let mut destinations = pool.get_destinations(&group_id1);
+        destinations.sort();
+        assert_eq!(vec![destination1, destination2], destinations);
 
         let destinations = pool.get_destinations(&group_id2);
         assert_eq!(vec![destination3], destinations);
