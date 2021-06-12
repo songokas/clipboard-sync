@@ -1,4 +1,4 @@
-use log::info;
+use log::{debug, info};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -44,7 +44,16 @@ pub async fn relay_packets(
     ));
     let cpool = destination_pool.clone();
     let destination_cleanup = move || {
-        cpool.cleanup(60);
+        let (addr_len, ips_len) = cpool.cleanup(60);
+        debug!(
+            "Destination cleanup hash len {} ip limits {}",
+            addr_len
+                .map(|l| l.to_string())
+                .unwrap_or("unknown".to_owned()),
+            ips_len
+                .map(|l| l.to_string())
+                .unwrap_or("unknown".to_owned())
+        );
         // stop cleanup when relay_packets return
         Arc::strong_count(&cpool) > 1
     };
@@ -83,7 +92,7 @@ pub async fn relay_packets(
             tcp::relay_data(
                 local_socket.tcp_listener().expect("expected tcp socke"),
                 destination_pool.clone(),
-                timeout,
+                running.clone(),
                 &config,
             )
             .await

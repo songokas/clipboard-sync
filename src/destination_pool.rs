@@ -40,83 +40,109 @@ impl DestinationPool
 
     pub fn add_destination(&self, group_id: GroupId, address: SocketAddr)
     {
-        match self.addresses.write() {
-            Ok(mut all) => {
-                if !all.contains_key(&group_id) {
-                    if all.len() >= self.max_groups {
-                        return;
-                    }
-
-                    let result = match self.ips.read() {
-                        Ok(t) => t.get(&address.ip()).map(|h| h.len()),
-                        Err(_) => None,
-                    };
-
-                    match result {
-                        Some(len) if len >= self.max_per_ip => return,
-                        _ => (),
-                    };
-                }
-
-                all.entry(group_id.clone())
-                    .and_modify(|h| {
-                        if h.len() < self.max_sockets {
-                            h.insert(address, Instant::now());
-                        }
-                    })
-                    .or_insert_with(|| {
-                        let mut h = HashMap::new();
-
-                        match self.ips.write() {
-                            Ok(mut ip_list) => {
-                                ip_list
-                                    .entry(address.ip())
-                                    .and_modify(|v| {
-                                        v.insert(group_id.clone());
-                                    })
-                                    .or_insert_with(|| {
-                                        let mut h = HashSet::new();
-                                        h.insert(group_id);
-                                        return h;
-                                    });
-                                h.insert(address, Instant::now());
-                            }
-                            Err(_) => (),
-                        };
-                        return h;
-                    });
-            }
-            Err(e) => {
-                error!("Failed to obtain write lock {}", e);
-            }
+        if self.add_hash(group_id, address) {
+            self.add_ip(group_id, address);
         }
     }
 
-    pub fn cleanup(&self, oldest: u64)
+    pub fn cleanup(&self, oldest: u64) -> (Option<usize>, Option<usize>)
     {
-        match self.addresses.write() {
+        let addr_len = self.cleanup_hash(oldest);
+        let ips_len = self.cleanup_ips();
+        return (addr_len, ips_len);
+    }
+
+    fn cleanup_hash(&self, oldest: u64) -> Option<usize>
+    {
+        let addr_len = match self.addresses.try_write() {
             Ok(mut hash) => {
                 hash.retain(|_, v| {
                     v.retain(|_, t| t.elapsed().as_secs() < oldest);
                     v.len() > 0
                 });
+                Some(hash.len())
             }
             Err(e) => {
                 error!("Failed to obtain write lock {}", e);
+                None
             }
         };
+        return addr_len;
+    }
 
-        match self.ips.write() {
-            Ok(mut ips) => match self.addresses.read() {
+    fn cleanup_ips(&self) -> Option<usize>
+    {
+        let ips_len = match self.ips.try_write() {
+            Ok(mut ips) => match self.addresses.try_read() {
                 Ok(addrs) => {
                     ips.retain(|_, v| {
                         v.retain(|group_id| addrs.contains_key(group_id));
                         v.len() > 0
                     });
+                    Some(ips.len())
                 }
-                _ => (),
+                _ => None,
             },
-            _ => (),
+            _ => None,
+        };
+        return ips_len;
+    }
+
+    fn add_hash(&self, group_id: GroupId, address: SocketAddr) -> bool
+    {
+        let ip_hash_limit = match self.ips.read() {
+            Ok(t) => t.get(&address.ip()).map(|h| h.len()),
+            Err(_) => None,
+        };
+
+        let limit_reached = if let Some(len) = ip_hash_limit {
+            len >= self.max_per_ip
+        } else {
+            false
+        };
+
+        match self.addresses.write() {
+            Ok(mut all) => {
+                if !all.contains_key(&group_id) {
+                    if all.len() >= self.max_groups || limit_reached {
+                        return false;
+                    }
+
+                    let mut h = HashMap::new();
+                    h.insert(address, Instant::now());
+                    all.insert(group_id, h);
+                    true
+                } else {
+                    all.entry(group_id.clone()).and_modify(|h| {
+                        if h.len() < self.max_sockets {
+                            h.insert(address, Instant::now());
+                        }
+                    });
+                    false
+                }
+            }
+            Err(e) => {
+                error!("Failed to obtain write lock {}", e);
+                false
+            }
+        }
+    }
+    fn add_ip(&self, group_id: GroupId, address: SocketAddr)
+    {
+        match self.ips.write() {
+            Ok(mut ip_list) => {
+                ip_list
+                    .entry(address.ip())
+                    .and_modify(|v| {
+                        v.insert(group_id);
+                    })
+                    .or_insert_with(|| {
+                        let mut h = HashSet::new();
+                        h.insert(group_id);
+                        return h;
+                    });
+            }
+            Err(_) => (),
         };
     }
 }
@@ -125,7 +151,11 @@ impl DestinationPool
 mod destinationpooltest
 {
     use super::*;
-    use std::convert::TryInto;
+    use std::sync::Arc;
+    use std::thread;
+    use std::{convert::TryInto, time::Duration};
+
+    use crate::encryption::random;
 
     #[test]
     fn test_group_limit()
@@ -230,5 +260,39 @@ mod destinationpooltest
         let destinations = pool.get_destinations(&group_id1);
         let expected: Vec<SocketAddr> = vec![];
         assert_eq!(expected, destinations);
+    }
+
+    #[test]
+    fn test_thead_cleanup()
+    {
+        let pool = Arc::new(DestinationPool::new(10000, 100, 10));
+        let pool1 = pool.clone();
+        let pool2 = pool.clone();
+        let t1 = thread::spawn(move || {
+            let mut i = 30000;
+            while i > 0 {
+                let g: GroupId = random(64).try_into().unwrap();
+                let s: SocketAddr = format!("127.0.0.1:{}", i).parse().unwrap();
+                pool1.add_destination(g.clone(), s);
+                pool1.get_destinations(&g);
+                i -= 1;
+            }
+        });
+        let t2 = thread::spawn(move || {
+            let mut i = 200;
+            let mut r = (None, None);
+            while i > 0 {
+                r = pool2.cleanup(1);
+                thread::sleep(Duration::from_millis(10));
+                i -= 1;
+            }
+            r
+        });
+
+        let _res1 = t1.join();
+        let res2 = t2.join().unwrap();
+
+        assert_eq!(res2.0.unwrap(), 0);
+        assert_eq!(res2.1.unwrap(), 0);
     }
 }
