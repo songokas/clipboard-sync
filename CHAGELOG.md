@@ -2,6 +2,12 @@
 - quic quinn protocol implementation lacks client verification, version negotiation, retry token
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
 
+## [2.1.0] - 2021-06-13
+
+### Added
+
+- clipboard-relay to relay traffic, when direct connection is not possible
+
 ## [2.0.1] - 2021-06-06
 
 ### Fixed

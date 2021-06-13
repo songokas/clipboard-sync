@@ -73,24 +73,18 @@ groups:
     send_using_address: "0.0.0.0:8900"
     heartbeat: 20
     allowed_hosts:
-      - "client1_ip:latest" # latest - client source port from the latest received message
-      - "client2_ip:latest"
+      - "client1_ip:8900:latest" # latest - client source port from the latest received message
+      - "client2_ip:8900:latest"
   dynamic_relay:
     key: "32323232323232323232323232323232"
     send_using_address: "0.0.0.0:8900"
     heartbeat: 20
     allowed_hosts:
-      - "any:latest" # any - client source ip from the latest received message
+      - "relay.net:8900"
     relay:
-      host: "relay.net:8900"
+      host: "relay.net:8900" # relay clipboards through this server
       public_key: "some key"
-      
-  # relay_without_known_ips:
-  #   key: "32323232323232323232323232323232"
-  #   send_using_address: "0.0.0.0:8900"
-  #   heartbeat: 20
-  #   allowed_hosts:
-  #     - "any:latest"
+
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file

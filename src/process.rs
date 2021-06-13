@@ -200,6 +200,17 @@ pub async fn send_clipboard(
         hash_update(&mut hash_cache, &mut socket_addr_pool);
 
         for (_, group) in &groups {
+            if group.heartbeat > 0 {
+                send_heartbeat(
+                    &pool,
+                    &socket_addr_pool,
+                    &group,
+                    &mut heartbeat_cache,
+                    timeout,
+                )
+                .await;
+            }
+
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
                 &mut clipboard,
                 group,
@@ -208,17 +219,6 @@ pub async fn send_clipboard(
             ) {
                 Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
                 _ => {
-                    if group.heartbeat > 0 {
-                        send_heartbeat(
-                            &pool,
-                            &socket_addr_pool,
-                            &group,
-                            &mut heartbeat_cache,
-                            timeout,
-                        )
-                        .await;
-                    }
-
                     continue;
                 }
             };
@@ -333,12 +333,12 @@ async fn send_heartbeat(
     timeout: impl Fn(Duration) -> bool,
 )
 {
-    heartbeat_cache
-        .entry(group.name.clone())
-        .or_insert(Instant::now());
-
-    let last = heartbeat_cache[&group.name];
-    if last.elapsed().as_secs() >= group.heartbeat {
+    let (send, last) = if let Some(last) = heartbeat_cache.get(&group.name) {
+        (last.elapsed().as_secs() >= group.heartbeat, last.clone())
+    } else {
+        (true, Instant::now())
+    };
+    if send {
         let data = last.elapsed().as_secs().to_be_bytes();
         heartbeat_cache.insert(group.name.clone(), Instant::now());
         match send_clipboard_to_group(
@@ -531,14 +531,17 @@ async fn send_clipboard_to_group(
     for remote_host_str in &group.allowed_hosts {
         let use_latest = remote_host_str.ends_with(":latest");
         let remote_host = if use_latest {
-            remote_host_str.replace(":latest", ":0")
+            remote_host_str.replace(":latest", "")
         } else {
             remote_host_str.to_owned()
         };
         let addr = match to_socket_address(&remote_host) {
             Ok(a) => {
                 if use_latest {
-                    let port: u16 = addr_pool.get(&a.ip()).map(|i| i.clone()).unwrap_or(0);
+                    let port: u16 = addr_pool
+                        .get(&a.ip())
+                        .map(|i| i.clone())
+                        .unwrap_or(a.port());
                     SocketAddr::new(a.ip(), port)
                 } else {
                     a
