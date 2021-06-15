@@ -95,16 +95,16 @@ impl DestinationPool
             Err(_) => None,
         };
 
-        let limit_reached = if let Some(len) = ip_hash_limit {
-            len >= self.max_per_ip
-        } else {
-            false
-        };
+        if let Some(len) = ip_hash_limit {
+            if len >= self.max_per_ip {
+                return false;
+            }
+        }
 
         match self.addresses.write() {
             Ok(mut all) => {
                 if !all.contains_key(&group_id) {
-                    if all.len() >= self.max_groups || limit_reached {
+                    if all.len() >= self.max_groups {
                         return false;
                     }
 

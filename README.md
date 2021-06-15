@@ -143,7 +143,7 @@ clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client1-d
 
 ### sync clipboard across your devices on the external network. at least one device must be on a supported nat or with ports forwarded
 
-client 1 public ip client1-device-ip with forwarded ports
+client 1 public ip client1-device-ip with forwarded 8900 port
 
 ```
 clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client2-device-ip:8900:latest --send-using-address 0.0.0.0:8900 --heartbeat 20
@@ -156,6 +156,14 @@ clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client1-d
 ```
 
 ### sync clipboard across your devices on the external network without forwarding ports or having a friedly nat
+
+on a device that will be a relay server
+
+server public ip clipboard-relay.com with forwarded 8900 port
+
+```
+clipboard-relay --private-key 1111111111111111111111111111111111 --bind-address 0.0.0.0:8900
+```
 
 on every device run
 
