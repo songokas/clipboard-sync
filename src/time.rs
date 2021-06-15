@@ -2,23 +2,17 @@ use chrono::Utc;
 use std::convert::TryFrom;
 
 #[cfg(feature = "ntp")]
-use std::sync::atomic::{AtomicI64, Ordering};
-
-#[cfg(feature = "ntp")]
 use crate::errors::{CliError, ConnectionError};
 #[cfg(feature = "ntp")]
 use log::{debug, warn};
 #[cfg(feature = "ntp")]
 use rsntp::AsyncSntpClient;
 #[cfg(feature = "ntp")]
-use std::sync::atomic::AtomicBool;
-#[cfg(feature = "ntp")]
+use std::sync::atomic::AtomicI64;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-#[cfg(feature = "ntp")]
-use std::time::Duration;
-#[cfg(feature = "ntp")]
-use std::time::Instant;
-#[cfg(feature = "ntp")]
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 #[cfg(feature = "ntp")]

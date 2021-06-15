@@ -1,7 +1,7 @@
 
 ANDROID_APP ?= $(HOME)/AndroidStudioProjects/clipboard-sync-android/
 HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip ntp"
-ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip"
+ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip" --lib
 DEB_OPTIONS = --no-build
 ARCHS=i686-unknown-linux-gnu x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ANDROID_ARCHS=x86_64-linux-android i686-linux-android arm-linux-androideabi aarch64-linux-android 

@@ -51,6 +51,7 @@ use crate::config::RelayConfig;
 use crate::defaults::{BIND_ADDRESS, DEFAULT_MESSAGE_SIZE, KEY_SIZE};
 use crate::encryption::random;
 use crate::errors::CliError;
+use crate::filesystem::read_file;
 use crate::protocols::{Protocol, SocketPool};
 use crate::relays::relay_packets;
 
@@ -114,7 +115,11 @@ async fn main() -> Result<(), CliError>
     let private_key = matches
         .value_of("private-key")
         .map(|s| {
-            let result: Result<[u8; KEY_SIZE], _> = s.as_bytes().try_into();
+            let key_data: Vec<u8> = match read_file(s, KEY_SIZE) {
+                Ok((file_contents, _)) => file_contents,
+                Err(_) => s.as_bytes().to_vec(),
+            };
+            let result: Result<[u8; KEY_SIZE], _> = key_data.try_into();
             match result {
                 Ok(key) => Ok(StaticSecret::from(key)),
                 Err(_) => Err(CliError::ArgumentError(format!(

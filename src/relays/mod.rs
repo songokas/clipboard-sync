@@ -97,6 +97,7 @@ pub async fn relay_packets(
             )
             .await
         }
+        #[allow(unreachable_patterns)]
         _ => {
             return Err(CliError::ArgumentError(format!(
                 "Protocol {} is not supported for relay",

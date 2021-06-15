@@ -102,6 +102,12 @@ use ipv6 with multicast
 clipboard-sync  --bind-address "[::]:8900" --allowed-host "[ff02::123%3]:8900"
 ```
 
+run as a user service
+
+```
+systemctl status --user clipboard-sync
+```
+
 
 ## Example scenarios
 
@@ -110,7 +116,7 @@ clipboard-sync  --bind-address "[::]:8900" --allowed-host "[ff02::123%3]:8900"
 on every device run
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host 224.0.0.89:8900 
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host 224.0.0.89:8900 
 ```
 
 ### sync clipboard across your devices on a local network with specific host only
@@ -118,12 +124,12 @@ clipboard-sync --key 1111111111111111111111111111111111 --allowed-host 224.0.0.8
 client 1 192.168.0.100
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host 192.168.0.200:8900
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host 192.168.0.200:8900
 ```
 
 client 2 192.168.0.200
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host 192.168.0.100:8900
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host 192.168.0.100:8900
 ```
 
 ### sync clipboard across your devices on the external network. only certain nat types are supported. or forward ports on your router
@@ -131,13 +137,13 @@ clipboard-sync --key 1111111111111111111111111111111111 --allowed-host 192.168.0
 client 1 public ip client1-device-ip
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client2-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host client2-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
 ```
 
 client 2 public ip client2-device-ip
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client1-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host client1-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
 ```
 
 
@@ -146,13 +152,13 @@ clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client1-d
 client 1 public ip client1-device-ip with forwarded 8900 port
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client2-device-ip:8900:latest --send-using-address 0.0.0.0:8900 --heartbeat 20
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host client2-device-ip:8900:latest --send-using-address 0.0.0.0:8900 --heartbeat 20
 ```
 
 client 2 public ip client2-device-ip behing symetric nat
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host client1-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host client1-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
 ```
 
 ### sync clipboard across your devices on the external network without forwarding ports or having a friedly nat
@@ -162,13 +168,13 @@ on a device that will be a relay server
 server public ip clipboard-relay.com with forwarded 8900 port
 
 ```
-clipboard-relay --private-key 1111111111111111111111111111111111 --bind-address 0.0.0.0:8900
+clipboard-relay --private-key 11111111111111111111111111111111 --bind-address 0.0.0.0:8900
 ```
 
 on every device run
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host clipsync.net:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20 --relay-host clipsync.net:8900 --relay-pulic-key 23423423424242342424234243242423
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host clipsync.net:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20 --relay-host clipsync.net:8900 --relay-public-key "xskF0Ihe1s9gjIjw4VvL86FN8YkA3UHMjBzajRspwns="
 ```
 
 warning your clipboards goes through an external server and while the data is encrypted, you would be much better of with the previous examples
@@ -176,7 +182,7 @@ warning your clipboards goes through an external server and while the data is en
 ### sync clipboard to a file without affecting the main clipboard
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --clipboard /home/user/any-file
+clipboard-sync --key 11111111111111111111111111111111 --clipboard /home/user/any-file
 ```
 
 read the clipboard later
@@ -194,7 +200,7 @@ echo "clipboard contents" > /home/user/any-file
 ### sync clipboard with manual input
 
 ```
-echo "clipboard contents" | clipboard-sync --key 1111111111111111111111111111111111 --clipboard /dev/stdin --send-once
+echo "clipboard contents" | clipboard-sync --key 11111111111111111111111111111111 --clipboard /dev/stdin --send-once
 ```
 
 ## overly complex example config demonstrating available options
@@ -314,6 +320,30 @@ groups:
 and run
 ```
 clipboard-sync
+```
+
+### relay systemd service
+
+```
+[Unit]
+Description=Clipboard relay service
+
+[Service]
+# as root`
+# `adduser --system --home /etc/clipboard-relay --group cliprel`
+# `openssl rand -out /etc/clipboard-relay/key 32 && chown cliprel /etc/clipboard-relay/key && chmod 600 /etc/clipboard-relay/key`
+# with 32 bytes content
+# or
+# `systemctl edit clipboard-relay`
+# and override what you see fit
+ExecStart=/usr/bin/clipboard-relay --private-key /etc/clipboard-relay/key
+NoNewPrivileges=true
+User=cliprel
+Group=cliprel
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 ```
 
 ## TODO
