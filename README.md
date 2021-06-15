@@ -168,7 +168,7 @@ clipboard-relay --private-key 1111111111111111111111111111111111 --bind-address 
 on every device run
 
 ```
-clipboard-sync --key 1111111111111111111111111111111111 --allowed-host clipboard-relay.com:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20 --relay-host clipboard-relay.com:8900 --relay-pulic-key 23423423424242342424234243242423
+clipboard-sync --key 1111111111111111111111111111111111 --allowed-host clipsync.net:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20 --relay-host clipsync.net:8900 --relay-pulic-key 23423423424242342424234243242423
 ```
 
 warning your clipboards goes through an external server and while the data is encrypted, you would be much better of with the previous examples
@@ -197,23 +197,7 @@ echo "clipboard contents" > /home/user/any-file
 echo "clipboard contents" | clipboard-sync --key 1111111111111111111111111111111111 --clipboard /dev/stdin --send-once
 ```
 
-## overly complex example config
-
-use only what you need. its usually enough to have a simple configuration such as:
-
-```yaml
-# file: ~/.config/clipboard-sync/config.yml
-groups:
-  default:
-    key: your_key_that_is_32_chars_long32
-```
-
-and run
-```
-clipboard-sync
-```
-
-### configuration demonstrating available options
+## overly complex example config demonstrating available options
 
 ```yaml
 bind_addresses:
@@ -316,6 +300,20 @@ groups:
       - "192.168.0.111:0" # port 0 - receive only
       - "192.168.0.112:0"
     protocol: frames
+```
+
+use only what you need. its usually enough to have a simple configuration such as:
+
+```yaml
+# file: ~/.config/clipboard-sync/config.yml
+groups:
+  default:
+    key: your_key_that_is_32_chars_long32
+```
+
+and run
+```
+clipboard-sync
 ```
 
 ## TODO
