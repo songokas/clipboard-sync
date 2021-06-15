@@ -1,0 +1,11 @@
+[Unit]
+Description=Clipboard relay service
+
+[Service]
+ExecStart=/usr/bin/clipboard-relay
+NoNewPrivileges=true
+User=nobody
+Group=nobody
+
+[Install]
+WantedBy=multi-user.target
