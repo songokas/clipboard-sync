@@ -3,6 +3,7 @@
 // #![feature(trait_alias)]
 // #![feature(type_alias_impl_trait)
 
+use indexmap::{indexset, IndexSet};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -60,6 +61,7 @@ const DEFAULT_MAX_SOCKET_SIZE: u64 = 10;
 const DEFAULT_SOCKET_KEEP_TIME: u16 = 60;
 const DEFAULT_MAX_GROUPS_PER_IP: u16 = 10;
 const DEFAULT_VALID_FOR: u16 = 300;
+static BIND_ADDRESSES: &[&'static str] = &[BIND_ADDRESS, "0.0.0.0:8901", "0.0.0.0:8902"];
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -69,21 +71,6 @@ async fn main() -> Result<(), CliError>
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
 
     env_logger::Builder::from_env(Env::default().default_filter_or(verbosity)).init();
-
-    let local_address = matches
-        .value_of("bind-address")
-        .unwrap_or_else(|| BIND_ADDRESS);
-
-    let socket_addresses: Vec<SocketAddr> = local_address
-        .split(",")
-        .map(|v| {
-            v.parse::<SocketAddr>().map_err(|_| {
-                CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
-            })
-        })
-        .collect::<Result<Vec<SocketAddr>, CliError>>()?;
-
-    let protocol = Protocol::from(matches.value_of("protocol"))?;
 
     let message_size = matches
         .value_of("message-size")
@@ -155,16 +142,51 @@ async fn main() -> Result<(), CliError>
     let mut handles = Vec::new();
     let pool = Arc::new(SocketPool::new());
     let running = Arc::new(AtomicBool::new(true));
-    for bind_address in socket_addresses {
-        let receive = relay_packets(
-            Arc::clone(&pool),
-            bind_address,
-            Arc::clone(&running),
-            protocol.clone(),
-            config.clone(),
-        );
 
-        handles.push(tokio::spawn(receive));
+    // clipboard-relay --protocol tcp --bind-address 0.0.0.0:8901 --protocol basic --bind-address
+    let local_addresses = matches
+        .values_of("bind-address")
+        .map(|v| v.collect::<IndexSet<&str>>())
+        .unwrap_or_else(|| {
+            BIND_ADDRESSES
+                .to_vec()
+                .into_iter()
+                .collect::<IndexSet<&str>>()
+        });
+    let protocols = matches
+        .values_of("protocol")
+        .map(|v| v.collect::<IndexSet<&str>>())
+        .unwrap_or(indexset! {"basic"});
+
+    for (index, protocol_str) in protocols.iter().enumerate() {
+        let local_address = local_addresses.get_index(index).ok_or_else(|| {
+            CliError::ArgumentError(format!(
+                "bind-address index {} has not been provided",
+                index
+            ))
+        })?;
+        let socket_addresses: Vec<SocketAddr> = local_address
+            .split(",")
+            .map(|v| {
+                v.parse::<SocketAddr>().map_err(|_| {
+                    CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
+                })
+            })
+            .collect::<Result<Vec<SocketAddr>, CliError>>()?;
+
+        let protocol = Protocol::from(Some(protocol_str))?;
+
+        for bind_address in socket_addresses {
+            let receive = relay_packets(
+                Arc::clone(&pool),
+                bind_address,
+                Arc::clone(&running),
+                protocol.clone(),
+                config.clone(),
+            );
+
+            handles.push(tokio::spawn(receive));
+        }
     }
 
     let result = futures::future::try_join_all(handles).await;

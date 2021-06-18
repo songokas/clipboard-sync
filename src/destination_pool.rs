@@ -95,15 +95,14 @@ impl DestinationPool
             Err(_) => None,
         };
 
-        if let Some(len) = ip_hash_limit {
-            if len >= self.max_per_ip {
-                return false;
-            }
-        }
-
         match self.addresses.write() {
             Ok(mut all) => {
                 if !all.contains_key(&group_id) {
+                    if let Some(len) = ip_hash_limit {
+                        if len >= self.max_per_ip {
+                            return false;
+                        }
+                    }
                     if all.len() >= self.max_groups {
                         return false;
                     }
@@ -279,7 +278,7 @@ mod destinationpooltest
             }
         });
         let t2 = thread::spawn(move || {
-            let mut i = 200;
+            let mut i = 300;
             let mut r = (None, None);
             while i > 0 {
                 r = pool2.cleanup(1);

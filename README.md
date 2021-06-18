@@ -165,10 +165,10 @@ clipboard-sync --key 11111111111111111111111111111111 --allowed-host client1-dev
 
 on a device that will be a relay server
 
-server public ip clipboard-relay.com with forwarded 8900 port
+server public ip clipsync.net with forwarded 8900 port
 
 ```
-clipboard-relay --private-key 11111111111111111111111111111111 --bind-address 0.0.0.0:8900
+clipboard-relay --private-key 11111111111111111111111111111111 --protocol basic --bind-address 0.0.0.0:8900 --protocol laminar --bind-address 0.0.0.0:8901
 ```
 
 on every device run
@@ -177,7 +177,7 @@ on every device run
 clipboard-sync --key 11111111111111111111111111111111 --allowed-host clipsync.net:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20 --relay-host clipsync.net:8900 --relay-public-key "xskF0Ihe1s9gjIjw4VvL86FN8YkA3UHMjBzajRspwns="
 ```
 
-warning your clipboards goes through an external server and while the data is encrypted, you would be much better of with the previous examples
+warning: your clipboards goes through an external server and while the data is encrypted, there is a third party involved
 
 ### sync clipboard to a file without affecting the main clipboard
 

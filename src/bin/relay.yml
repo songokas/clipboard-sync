@@ -11,13 +11,15 @@ args:
     - bind-address:
         short: b
         long: bind-address
-        help: "address to listen on default: [::]:8900 for ipv6,dualstack 0.0.0.0:8900 for ipv4 only systems"
+        help: "address to listen on. multiple options accepted. default: 0.0.0.0:8900"
         takes_value: true
+        multiple: true
     - protocol:
         short: p
         long: protocol
-        help: "use protocol - basic, laminar, frames. default: basic"
+        help: "use protocol - basic, laminar, tcp. multiple options accepted. default: basic"
         takes_value: true
+        multiple: true
     - message-size:
         short: s
         long: message-size

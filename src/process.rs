@@ -10,6 +10,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
+use urlencoding::decode;
 
 use crate::clipboards::{
     create_targets_for_cut_files, create_text_targets, Clipboard, ClipboardType,
@@ -410,11 +411,14 @@ fn clipboard_to_bytes(
             }
             let clipboard_contents = String::from_utf8(data).ok()?;
             // debug!("Send file clipboard {}", clipboard_contents);
-            let files: Vec<&str> = clipboard_contents.lines().collect();
+            let files: Vec<String> = clipboard_contents
+                .lines()
+                .filter_map(|p| decode(p).ok())
+                .collect();
             return Some((
                 hash,
                 MessageType::Files,
-                files_to_bytes(files, max_file_size).ok()?,
+                files_to_bytes(files.iter().map(AsRef::as_ref).collect(), max_file_size).ok()?,
             ));
         }
         _ => {
