@@ -5,9 +5,11 @@ use flume::Receiver;
 use flume::Sender;
 use indexmap::{indexmap, IndexSet};
 use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use x25519_dalek::PublicKey;
 
 use chacha20poly1305::Key;
 use futures::try_join;
@@ -27,6 +29,13 @@ use crate::message::{Group, Relay};
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct AndroidRelay
+{
+    host: String,
+    public_key: String,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct AndroidConfig
 {
@@ -38,7 +47,7 @@ pub struct AndroidConfig
     bind_address: IndexSet<SocketAddr>,
     visible_ip: Option<String>,
     heartbeat: u64,
-    relay: Option<Relay>,
+    relay: Option<AndroidRelay>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -130,6 +139,21 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
     )
     .map_err(|e| e.to_string())?;
 
+    let relay = if let Some(r) = config.relay {
+        let decoded = base64::decode(&r.public_key)
+            .map_err(|e| format!("Invalid relay public key provided: {}", e))?;
+        let key: [u8; KEY_SIZE] = decoded
+            .try_into()
+            .map_err(|_| format!("Invalid relay public key length"))?;
+        let public_key = PublicKey::from(key);
+        Some(Relay {
+            host: r.host,
+            public_key,
+        })
+    } else {
+        None
+    };
+
     let group = Group {
         name: config.group.clone(),
         allowed_hosts: config.hosts,
@@ -140,7 +164,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         protocol: protocol.clone(),
         heartbeat: config.heartbeat,
         message_valid_for: 180,
-        relay: config.relay,
+        relay,
     };
     let groups = indexmap! { config.group => group };
     let full_config = FullConfig::from_protocol_groups(
