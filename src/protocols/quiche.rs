@@ -227,7 +227,7 @@ async fn send_handshake(
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
     let cwrite = conn.send(&mut out)?;
-    let enc_write = encryptor.encrypt(out[..cwrite].to_vec(), &MessageType::Handshake)?;
+    let enc_write = encryptor.encrypt(out[..cwrite].to_vec(), &MessageType::Handshake, &destination)?;
 
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {

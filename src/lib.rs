@@ -27,6 +27,7 @@ mod multicast;
 mod notify;
 pub mod process;
 pub mod protocols;
+#[cfg(not(target_os = "android"))]
 pub mod relays;
 mod runner;
 pub mod socket;

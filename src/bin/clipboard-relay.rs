@@ -30,7 +30,8 @@ const DEFAULT_VALID_FOR: u16 = 300;
 static BIND_ADDRESSES: &[&'static str] = &[BIND_ADDRESS, "0.0.0.0:8901", "0.0.0.0:8902"];
 
 #[tokio::main]
-async fn main() -> Result<(), CliError> {
+async fn main() -> Result<(), CliError>
+{
     let yaml = load_yaml!("relay.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
@@ -123,6 +124,13 @@ async fn main() -> Result<(), CliError> {
         .map(|v| v.collect::<IndexSet<&str>>())
         .unwrap_or(indexset! {"basic"});
 
+    #[cfg(feature = "quic")]
+    let load_certs = || {
+        Err(CliError::ArgumentError(
+            "Relay quic protocol not implemented".to_string(),
+        ))
+    };
+
     for (index, protocol_str) in protocols.iter().enumerate() {
         let local_address = local_addresses.get_index(index).ok_or_else(|| {
             CliError::ArgumentError(format!(
@@ -139,7 +147,11 @@ async fn main() -> Result<(), CliError> {
             })
             .collect::<Result<Vec<SocketAddr>, CliError>>()?;
 
-        let protocol = Protocol::from(Some(protocol_str))?;
+        let protocol = Protocol::from(
+            Some(protocol_str),
+            #[cfg(feature = "quic")]
+            load_certs,
+        )?;
 
         for bind_address in socket_addresses {
             let receive = relay_packets(

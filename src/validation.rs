@@ -60,6 +60,7 @@ pub fn validate<'a>(
     return Ok((message, group));
 }
 
+#[allow(dead_code)]
 pub fn validate_public(buffer: &[u8], valid_for: u16) -> Result<PublicMessage, ValidationError>
 {
     let message: PublicMessage = bincode::deserialize(buffer).map_err(|err| {
@@ -81,6 +82,7 @@ pub fn validate_public(buffer: &[u8], valid_for: u16) -> Result<PublicMessage, V
     return Ok(message);
 }
 
+#[allow(dead_code)]
 pub fn get_group_id(
     data: &[u8],
     secret: &StaticSecret,

@@ -23,7 +23,7 @@ use crate::defaults::{
     DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL, MAX_FILE_SIZE, MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
 };
 use crate::errors::CliError;
-use crate::message::Group;
+use crate::message::{Group, Relay};
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
 
@@ -38,6 +38,7 @@ pub struct AndroidConfig
     bind_address: IndexSet<SocketAddr>,
     visible_ip: Option<String>,
     heartbeat: u64,
+    relay: Option<Relay>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -108,7 +109,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         return Err(format!("Please provide any group name"));
     }
     if !(config.hosts.len() > 0) {
-        return Err(format!("Please host where to send clipboard"));
+        return Err(format!("Please provide host where to send clipboard"));
     }
     if !(config.send_using_address.len() > 0) {
         return Err(format!("Please provide socket send address"));
@@ -139,7 +140,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         protocol: protocol.clone(),
         heartbeat: config.heartbeat,
         message_valid_for: 180,
-        relay: None,
+        relay: config.relay,
     };
     let groups = indexmap! { config.group => group };
     let full_config = FullConfig::from_protocol_groups(
