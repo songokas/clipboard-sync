@@ -1,5 +1,4 @@
 // #![feature(ip)]
-#![allow(dead_code)]
 // #![feature(trait_alias)]
 // #![feature(type_alias_impl_trait)]
 
@@ -11,50 +10,28 @@ use std::sync::Arc;
 
 use clap::{load_yaml, App};
 use env_logger::Env;
-// use std::collections::HashSet;
 use indexmap::{indexmap, IndexSet};
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
-// use std::io::Write;
-use std::convert::TryInto;
 use x25519_dalek::PublicKey;
 
-mod clipboards;
-mod config;
-mod defaults;
-mod encryption;
-mod errors;
-mod filesystem;
-mod fragmenter;
-mod identity;
-mod message;
-mod multicast;
-mod notify;
-mod process;
-mod protocols;
-mod socket;
-#[cfg(test)]
-mod test;
-mod time;
-mod validation;
-
-use crate::clipboards::Clipboard;
+use clipboard_sync::clipboards::Clipboard;
 #[cfg(feature = "quic")]
-use crate::config::load_default_certificates;
-use crate::config::{generate_config, load_groups, FullConfig};
-use crate::defaults::*;
-use crate::errors::CliError;
-use crate::filesystem::read_file_to_string;
-use crate::message::{Group, Relay};
-use crate::process::{receive_clipboard, send_clipboard};
-use crate::protocols::{Protocol, SocketPool};
-use crate::socket::ipv6_support;
+use clipboard_sync::config::load_default_certificates;
+use clipboard_sync::config::{generate_config, load_groups, FullConfig};
+use clipboard_sync::defaults::*;
+use clipboard_sync::errors::CliError;
+use clipboard_sync::filesystem::read_file_to_string;
+use clipboard_sync::message::{Group, Relay};
+use clipboard_sync::process::{receive_clipboard, send_clipboard};
+use clipboard_sync::protocols::{Protocol, SocketPool};
+use clipboard_sync::socket::ipv6_support;
 #[cfg(feature = "ntp")]
-use crate::time::update_time_diff;
+use clipboard_sync::time::update_time_diff;
 
 #[tokio::main]
-async fn main() -> Result<(), CliError>
-{
+async fn main() -> Result<(), CliError> {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");

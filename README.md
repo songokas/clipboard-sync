@@ -336,14 +336,14 @@ Description=Clipboard relay service
 # or
 # `systemctl edit clipboard-relay`
 # and override what you see fit
-ExecStart=/usr/bin/clipboard-relay --private-key /etc/clipboard-relay/key
+ExecStart=/usr/bin/clipboard-relay --private-key /etc/clipboard-relay/key --protocol basic --protocol laminar --protocol tcp
 NoNewPrivileges=true
 User=cliprel
 Group=cliprel
 Restart=on-failure
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.targett
 ```
 
 ## TODO

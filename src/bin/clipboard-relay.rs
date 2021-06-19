@@ -1,5 +1,4 @@
 // #![feature(ip)]
-#![allow(dead_code)]
 // #![feature(trait_alias)]
 // #![feature(type_alias_impl_trait)
 
@@ -15,46 +14,13 @@ use clap::{load_yaml, App};
 use env_logger::Env;
 use std::sync::atomic::AtomicBool;
 
-#[path = "../config.rs"]
-mod config;
-#[path = "../defaults.rs"]
-mod defaults;
-#[path = "../encryption.rs"]
-mod encryption;
-#[path = "../errors.rs"]
-mod errors;
-#[path = "../filesystem.rs"]
-mod filesystem;
-#[path = "../fragmenter.rs"]
-mod fragmenter;
-#[path = "../identity.rs"]
-mod identity;
-#[path = "../message.rs"]
-mod message;
-#[path = "../protocols/mod.rs"]
-mod protocols;
-#[path = "../socket.rs"]
-mod socket;
-#[cfg(test)]
-#[path = "../test.rs"]
-mod test;
-#[path = "../time.rs"]
-mod time;
-
-#[path = "../destination_pool.rs"]
-mod destination_pool;
-#[path = "../relays/mod.rs"]
-mod relays;
-#[path = "../validation.rs"]
-mod validation;
-
-use crate::config::RelayConfig;
-use crate::defaults::{BIND_ADDRESS, DEFAULT_MESSAGE_SIZE, KEY_SIZE};
-use crate::encryption::random;
-use crate::errors::CliError;
-use crate::filesystem::read_file;
-use crate::protocols::{Protocol, SocketPool};
-use crate::relays::relay_packets;
+use clipboard_sync::config::RelayConfig;
+use clipboard_sync::defaults::{BIND_ADDRESS, DEFAULT_MESSAGE_SIZE, KEY_SIZE};
+use clipboard_sync::encryption::random;
+use clipboard_sync::errors::CliError;
+use clipboard_sync::filesystem::read_file;
+use clipboard_sync::protocols::{Protocol, SocketPool};
+use clipboard_sync::relays::relay_packets;
 
 const DEFAULT_MAX_GROUP_SIZE: u64 = 1000;
 const DEFAULT_MAX_SOCKET_SIZE: u64 = 10;
@@ -64,8 +30,7 @@ const DEFAULT_VALID_FOR: u16 = 300;
 static BIND_ADDRESSES: &[&'static str] = &[BIND_ADDRESS, "0.0.0.0:8901", "0.0.0.0:8902"];
 
 #[tokio::main]
-async fn main() -> Result<(), CliError>
-{
+async fn main() -> Result<(), CliError> {
     let yaml = load_yaml!("relay.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
