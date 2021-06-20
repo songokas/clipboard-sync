@@ -78,8 +78,8 @@ async fn relay_stream(
                     debug!(
                         "Ignoring packet without header from {}. Packet length {} expected {}",
                         stream.peer_addr().expect("missing peer address"),
-                        read + 1,
-                        config.message_size + 1
+                        read,
+                        config.message_size
                     );
                     continue;
                 }

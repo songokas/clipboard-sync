@@ -12,6 +12,7 @@ pub const DEFAULT_PROTOCOL: &str = "basic";
 pub const PACKAGE_NAME: &str = "clipboard-sync";
 pub const MAX_CHANNEL: usize = 100;
 pub const KEY_SIZE: usize = 32;
+pub const NONCE_SIZE: usize = 24;
 pub const MAX_FILE_SIZE: usize = 22 * 1024 * 1024;
 pub const MAX_RECEIVE_BUFFER: usize = 50 * 1024 * 1024;
 pub const MAX_UDP_PAYLOAD: usize = 63535;

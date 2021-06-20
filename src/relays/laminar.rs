@@ -35,12 +35,12 @@ pub async fn relay_data(
                     let addr: SocketAddr = packet.addr();
                     let data: &[u8] = packet.payload();
 
-                    if data.len() < config.message_size + 1 {
+                    if data.len() < config.message_size {
                         debug!(
                             "Ignoring packet without header from {}. Packet length {} expected {}",
                             addr,
                             data.len(),
-                            config.message_size + 1
+                            config.message_size
                         );
                         continue;
                     }

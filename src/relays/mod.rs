@@ -43,10 +43,12 @@ pub async fn relay_packets(
         config.max_per_ip as usize,
     ));
     let cpool = destination_pool.clone();
+    let cprotocol = protocol.clone();
     let destination_cleanup = move || {
         let (addr_len, ips_len) = cpool.cleanup(60);
         debug!(
-            "Destination cleanup hash len {} ip limits {}",
+            "Destination cleanup for {} hash len {} ip limits {}",
+            cprotocol,
             addr_len
                 .map(|l| l.to_string())
                 .unwrap_or("unknown".to_owned()),

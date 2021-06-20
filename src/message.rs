@@ -11,7 +11,7 @@ use chrono::Utc;
 #[cfg(test)]
 use indexmap::indexset;
 
-use crate::defaults::KEY_SIZE;
+use crate::defaults::{KEY_SIZE, NONCE_SIZE};
 use crate::protocols::Protocol;
 
 mod serde_key_str
@@ -56,6 +56,13 @@ mod serde_nonce
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<XNonce, D::Error>
     {
         let nonce_data: Vec<u8> = Deserialize::deserialize(deserializer)?;
+        if nonce_data.len() != NONCE_SIZE {
+            return Err(de::Error::custom(format!(
+                "Nonce size must be {} bytes. Provided {}",
+                NONCE_SIZE,
+                nonce_data.len(),
+            )));
+        }
         Ok(XNonce::from_slice(&nonce_data).clone())
     }
 }
@@ -226,5 +233,120 @@ impl Group
         let mut group = Group::from_name(name);
         group.visible_ip = Some(visible_ip.to_owned());
         return group;
+    }
+}
+
+#[cfg(test)]
+mod messagetest
+{
+    use super::*;
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct TestNonce
+    {
+        #[serde(with = "serde_nonce")]
+        pub nonce: XNonce,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct TestKey
+    {
+        #[serde(with = "serde_key_str")]
+        pub key: Option<Key>,
+    }
+
+    #[test]
+    fn test_key_serialize()
+    {
+        let key_data = "12345678123456781234567812345678";
+        let key = Key::from_slice(key_data.as_bytes());
+        let data = TestKey {
+            key: Some(key.clone()),
+        };
+        let result = bincode::serialize(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_key_deserialize()
+    {
+        let key_data = [
+            32, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_ok());
+
+        let key_data = [
+            32, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56, 56, 49, 50, 51, 52,
+            53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_ok());
+
+        let key_data = [
+            1, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+            49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_err());
+
+        let key_data = [
+            1, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_err());
+
+        let key_data = [];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_nonce_serialize()
+    {
+        let nonce_data = "123456781234567812345678";
+        let nonce = XNonce::from_slice(nonce_data.as_bytes());
+        let data = TestNonce {
+            nonce: nonce.clone(),
+        };
+        let result = bincode::serialize(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_nonce_deserialize()
+    {
+        let data = [
+            24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_ok());
+
+        let data = [
+            24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_ok());
+
+        let data = [
+            0, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+            49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_err());
+
+        let data = [
+            24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_err());
+
+        let data = [];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_err());
     }
 }

@@ -102,9 +102,9 @@ args:
         takes_value: true
     - relay-host:
         long: relay-host
-        help: "relay host same as in allowed-host"
+        help: "relay server hostname. add it to allowed host in order to use it. example: clipsync.net:8900"
         takes_value: true
     - relay-public-key:
         long: relay-public-key
-        help: relay servers public key in base64
+        help: "relay servers public key in base64. example: xskF0Ihe1s9gjIjw4VvL86FN8YkA3UHMjBzajRspwns=" 
         takes_value: true

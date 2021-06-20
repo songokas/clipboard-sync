@@ -106,7 +106,7 @@ mod validationtest
     use indexmap::indexmap;
 
     use super::*;
-    use crate::message::Group;
+    use crate::{encryption::random, message::Group};
     use std::net::IpAddr;
 
     #[test]
@@ -167,5 +167,30 @@ mod validationtest
             let result = validate(&bytes, &groups, &Identity::from(id));
             assert_eq!(result.is_ok(), expected, "{}", name);
         }
+    }
+
+    #[test]
+    fn test_validate_public()
+    {
+        //@TODO success case
+        let data = random(160);
+        let valid_for = 60;
+        let group_ip = validate_public(&data, valid_for);
+        assert!(group_ip.is_err());
+    }
+
+    #[test]
+    fn test_get_group_id()
+    {
+        //@TODO success case
+        let data = random(160);
+        let key = [
+            1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5,
+            6, 7, 8,
+        ];
+        let secret = StaticSecret::from(key);
+        let valid_for = 60;
+        let group_ip = get_group_id(&data, &secret, valid_for);
+        assert!(group_ip.is_err());
     }
 }
