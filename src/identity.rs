@@ -25,6 +25,11 @@ impl Identity
     {
         return Self::from(remove_ipv4_mapping(item));
     }
+
+    pub fn is_global(&self) -> bool
+    {
+        return IpAddrExt::is_global(&self.address);
+    }
 }
 
 impl From<&IpAddr> for Identity
@@ -133,7 +138,7 @@ pub fn identity_matching_hosts(
             Ok(s) => s.ip(),
             _ => continue,
         };
-        if (external_ip.is_multicast() && !IpAddrExt::is_global(&external_ip))
+        if (external_ip.is_multicast() && !identity.is_global())
             || &Identity::from(external_ip) == identity
         {
             return true;
