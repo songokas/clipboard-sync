@@ -133,7 +133,9 @@ pub fn identity_matching_hosts(
             Ok(s) => s.ip(),
             _ => continue,
         };
-        if external_ip.is_multicast() || &Identity::from(external_ip) == identity {
+        if (external_ip.is_multicast() && !IpAddrExt::is_global(&external_ip))
+            || &Identity::from(external_ip) == identity
+        {
             return true;
         }
     }

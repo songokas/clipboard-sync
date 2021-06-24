@@ -8,6 +8,11 @@
 
 - clipboard-relay to relay traffic, when direct connection is not possible
 
+### Fixed
+
+- file clipboard encode/decode
+- basic protocol use tcp with multicast for first host
+
 ## [2.0.1] - 2021-06-06
 
 ### Fixed

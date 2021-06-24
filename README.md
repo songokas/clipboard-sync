@@ -161,7 +161,7 @@ client 2 public ip client2-device-ip behing symetric nat
 clipboard-sync --key 11111111111111111111111111111111 --allowed-host client1-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
 ```
 
-### sync clipboard across your devices on the external network without forwarding ports or having a friedly nat
+### sync clipboard across your devices on the external network without forwarding ports or having a friendly nat
 
 on a device that will be a relay server
 
@@ -177,7 +177,7 @@ on every device run
 clipboard-sync --key 11111111111111111111111111111111 --allowed-host clipsync.net:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20 --relay-host clipsync.net:8900 --relay-public-key "xskF0Ihe1s9gjIjw4VvL86FN8YkA3UHMjBzajRspwns="
 ```
 
-warning: your clipboards goes through an external server and while the data is encrypted, there is a third party involved
+warning: your clipboards goes through an external server and while the data is encrypted, there is a third party involved (unless you're running clipboard-relay yourself)
 
 ### sync clipboard to a file without affecting the main clipboard
 
