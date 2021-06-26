@@ -111,7 +111,7 @@ impl DataEncryptor for GroupsEncryptor
         destination: &SocketAddr,
     ) -> Result<Vec<u8>, ConnectionError>
     {
-        let bytes = encrypt_group_to_bytes(data, identity, group, message_type, destination)?;
+        let bytes = encrypt_group_to_bytes(data, identity, group, message_type, Some(destination))?;
         return Ok(bytes);
     }
 }
@@ -166,7 +166,7 @@ impl FrameEncryptor for IdentityEncryptor
             &self.identity,
             &self.group,
             message_type,
-            destination,
+            Some(destination),
         )?;
         return Ok(bytes);
     }
@@ -188,7 +188,7 @@ impl FrameIndexEncryptor for IdentityEncryptor
             &self.identity,
             &self.group,
             &MessageType::Frame,
-            destination,
+            Some(destination),
         )?;
         return Ok(bytes);
     }

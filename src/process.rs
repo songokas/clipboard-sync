@@ -578,7 +578,12 @@ async fn send_clipboard_to_group(
             .obtain_client_socket(&group.send_using_address, &addr, &group.protocol)
             .await?;
 
-        let bytes = encrypt_group_to_bytes(&buffer, &identity, group, message_type, &addr)?;
+        let relay_destination = match &group.protocol {
+            Protocol::Basic | Protocol::Tcp => Some(&addr),
+            _ => None,
+        };
+        let bytes =
+            encrypt_group_to_bytes(&buffer, &identity, group, message_type, relay_destination)?;
 
         debug!(
             "Sending to {}:{} using {}",

@@ -138,7 +138,7 @@ pub fn encrypt_group_to_bytes(
     identity: &Identity,
     group: &Group,
     message_type: &MessageType,
-    destination: &SocketAddr,
+    relay_destination: Option<&SocketAddr>,
 ) -> Result<Vec<u8>, EncryptionError>
 {
     let message = encrypt(
@@ -151,19 +151,24 @@ pub fn encrypt_group_to_bytes(
     let mut bytes = bincode::serialize(&message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
 
-    let bytes = match &group.relay {
-        Some(relay) => match to_socket_address(&relay.host) {
-            Ok(relay_addr) if &relay_addr == destination => {
-                let mut relay_bytes =
-                    encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
-                relay_bytes.append(&mut bytes);
-                relay_bytes
-            }
-            _ => bytes,
-        },
-        _ => bytes,
+    let destination = match relay_destination {
+        Some(d) => d,
+        None => return Ok(bytes),
     };
-    return Ok(bytes);
+
+    let relay = match &group.relay {
+        Some(relay) => relay,
+        None => return Ok(bytes),
+    };
+
+    match to_socket_address(&relay.host) {
+        Ok(relay_addr) if &relay_addr == destination => {}
+        _ => return Ok(bytes),
+    };
+
+    let mut relay_bytes = encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
+    relay_bytes.append(&mut bytes);
+    return Ok(relay_bytes);
 }
 
 pub fn decrypt(
