@@ -8,6 +8,7 @@ description = "Secure clipboard sync across your devices"
 homepage = "https://github.com/songokas/clipboard-sync"
 repository = "https://github.com/songokas/clipboard-sync"
 license = "LICENSE"
+default-run = "clipboard-sync"
 
 [dependencies]
 chacha20poly1305 = "0.8"
@@ -94,6 +95,7 @@ ntp = ["rsntp"]
 
 frames = []
 default = ["frames", "clipboard", "public-ip", "ntp"]
+no-x = ["frames", "public-ip", "ntp"]
 
 
 [package.metadata.deb]

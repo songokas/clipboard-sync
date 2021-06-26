@@ -412,7 +412,15 @@ fn clipboard_to_bytes(
             // debug!("Send file clipboard {}", clipboard_contents);
             let files: Vec<String> = clipboard_contents
                 .lines()
-                .filter_map(|p| decode_path(p).ok())
+                .filter_map(|p| {
+                    let no_prefix = p.strip_prefix("file://").unwrap_or(p);
+                    let add_prefix = if p != no_prefix {
+                        |s| format!("file://{}", s)
+                    } else {
+                        |s| s
+                    };
+                    decode_path(no_prefix).ok().map(add_prefix)
+                })
                 .collect();
             return Some((
                 hash,

@@ -46,8 +46,20 @@ sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
 
 ### Install from source
 
+install dependencies
+
+```
+sudo apt install libxcb1-dev libxcb-shape0-dev libxcb-render0-dev libxcb-xfixes0-dev
+```
+
 ```
 cargo install --root=~/bin/ --git=https://github.com/songokas/clipboard-sync
+```
+
+no xserver, no dependencies above, no clipboard support
+
+```
+cargo install --root=~/bin/ --no-default-features --features no-x --git=https://github.com/songokas/clipboard-sync
 ```
 
 ## Howto run
