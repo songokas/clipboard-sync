@@ -7,7 +7,9 @@ use std::io;
 use std::io::prelude::*;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::Component;
 use std::path::{Path, PathBuf};
+use urlencoding::{decode, encode, FromUrlEncodingError};
 use walkdir::WalkDir;
 
 use crate::errors::*;
@@ -207,6 +209,48 @@ pub fn bytes_to_dir(
     return Ok(files_created);
 }
 
+pub fn encode_path(path: impl AsRef<Path>) -> Option<String>
+{
+    let enc_path: Result<PathBuf, ()> = path
+        .as_ref()
+        .components()
+        .map(|c| {
+            let cpath = c.as_os_str().to_str().ok_or(())?;
+            let pc = if let Component::RootDir = c {
+                cpath.to_owned()
+            } else {
+                encode(cpath)
+            };
+            Ok(pc)
+        })
+        .collect();
+    return enc_path.map(|b| b.to_string_lossy().to_string()).ok();
+}
+
+pub fn decode_path(path: impl AsRef<Path>) -> Result<String, FromUrlEncodingError>
+{
+    let enc_path: Result<PathBuf, FromUrlEncodingError> = path
+        .as_ref()
+        .components()
+        .map(|c| {
+            let cpath = c
+                .as_os_str()
+                .to_str()
+                .ok_or(FromUrlEncodingError::UriCharacterError {
+                    character: 'a',
+                    index: 1,
+                })?;
+            let pc = if let Component::RootDir = c {
+                cpath.to_owned()
+            } else {
+                decode(cpath)?
+            };
+            Ok(pc)
+        })
+        .collect();
+    return enc_path.map(|b| b.to_string_lossy().to_string());
+}
+
 #[cfg(test)]
 mod filesystemtest
 {
@@ -307,5 +351,49 @@ mod filesystemtest
             true,
             bytes_to_dir("/tmp/all/deep/a", vec![3], "unknown", 100).is_ok()
         );
+    }
+
+    #[test]
+    fn test_encode_path()
+    {
+        let data = [
+            ("hello/amigo/1", "hello/amigo/1"),
+            // prefix is not supported
+            ("file:///hello/amigo/1", "file%3A/hello/amigo/1"),
+            ("/hello/amigo/1", "/hello/amigo/1"),
+            ("///hello/amigo/1", "/hello/amigo/1"),
+            (
+                "/hello with spaces/amigo/1",
+                "/hello%20with%20spaces/amigo/1",
+            ),
+            ("^,&%$%20hello/", "%5E%2C%26%25%24%2520hello"),
+        ];
+
+        for (path, expected) in data {
+            let encoded = encode_path(Path::new(path));
+            assert_eq!(Some(expected.to_string()), encoded);
+        }
+    }
+
+    #[test]
+    fn test_decode_path()
+    {
+        let data = [
+            ("hello/amigo/1", "hello/amigo/1"),
+            ("file:/hello/amigo/1", "file%3A/hello/amigo/1"),
+            ("/hello/amigo/1", "/hello/amigo/1"),
+            ("/hello/amigo/1", "///hello/amigo/1"),
+            (
+                "/hello with spaces/amigo/1",
+                "/hello%20with%20spaces/amigo/1",
+            ),
+            ("^,&%$ hello", "^,&%$%20hello/"),
+            ("^,&%$%20hello", "%5E%2C%26%25%24%2520hello"),
+        ];
+
+        for (expected, path) in data {
+            let decoded = decode_path(&path);
+            assert_eq!(expected.to_string(), decoded.unwrap());
+        }
     }
 }

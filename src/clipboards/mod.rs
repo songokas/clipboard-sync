@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
-use urlencoding::encode;
 
 #[cfg(target_os = "android")]
 pub mod channel_clipboard;
@@ -9,6 +8,8 @@ pub mod channel_clipboard;
 pub mod delayed_clipboard;
 #[cfg(all(not(feature = "clipboard"), not(target_os = "android")))]
 pub mod empty_clipboard;
+
+use crate::filesystem::encode_path;
 
 #[cfg(target_os = "android")]
 use self::channel_clipboard::ChannelClipboardContext;
@@ -80,7 +81,7 @@ pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
 {
     let file_content = files
         .iter()
-        .filter_map(|p| p.to_str().map(|s| format!("file://{}", encode(s))))
+        .filter_map(|pb| encode_path(pb.as_path()).map(|s| format!("file://{}", s)))
         .collect::<Vec<String>>()
         .join("\n");
     #[cfg(target_os = "linux")]
