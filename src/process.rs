@@ -162,7 +162,10 @@ pub async fn send_clipboard(
 
     let mut paths_to_watch: HashMap<PathBuf, Vec<&str>> = HashMap::new();
 
-    for (_, group) in &groups {
+    for (_, group) in groups
+        .iter()
+        .filter(|(_, g)| g.clipboard != DEFAULT_CLIPBOARD)
+    {
         let key = PathBuf::from(&group.clipboard);
         paths_to_watch
             .entry(key)
@@ -228,7 +231,7 @@ pub async fn send_clipboard(
                 Some(val) => val.to_owned(),
                 None => {
                     if config.send_clipboard_on_startup {
-                        String::from("")
+                        String::new()
                     } else {
                         hash_cache.insert(group.name.clone(), hash.clone());
                         hash.clone()

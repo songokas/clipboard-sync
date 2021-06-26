@@ -16,7 +16,7 @@ args:
     - bind-address:
         short: l
         long: bind-address
-        help: "address to listen on default: [::]:8900 for ipv6,dualstack 0.0.0.0:8900 for ipv4 only systems"
+        help: "address to listen on. default: 0.0.0.0:8900"
         takes_value: true
     - send-using-address:
         short: s

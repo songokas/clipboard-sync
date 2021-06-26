@@ -110,8 +110,13 @@ pub fn dir_to_bytes(directory: &str, max_file_size: usize) -> Result<Vec<u8>, En
     if hash.is_empty() {
         return Ok(vec![]);
     }
-    let add_bytes = bincode::serialize(&hash)
-        .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+    let add_bytes = bincode::serialize(&hash).map_err(|err| {
+        EncryptionError::SerializeFailed(format!(
+            "Failed to serialize directory {} {}",
+            directory,
+            (*err).to_string()
+        ))
+    })?;
     return Ok(add_bytes);
 }
 

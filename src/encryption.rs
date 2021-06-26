@@ -68,7 +68,6 @@ pub fn encrypt(
     };
 
     // debug!("Encrypt additional data: {:?}", add);
-
     let add_bytes = bincode::serialize(&add)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
 
