@@ -71,7 +71,7 @@ pub async fn receive_clipboard(
 
     while running.load(Ordering::Relaxed) {
         let (buf, addr) = match receive_data(
-            Arc::clone(&local_socket),
+            local_socket.clone(),
             &encryptor,
             &protocol,
             config.max_receive_buffer,
@@ -575,15 +575,25 @@ async fn send_clipboard_to_group(
         let remote_ip = addr.ip();
         let identity = retrieve_identity(&addr, group).await?;
         let local_socket = pool
-            .obtain_client_socket(&group.send_using_address, &addr, &group.protocol)
+            .obtain_client_socket(
+                &group.send_using_address,
+                &addr,
+                &group.protocol,
+                &group.heartbeat > &0_u64,
+            )
             .await?;
 
-        let relay_destination = match &group.protocol {
+        let use_relay_destination = match &group.protocol {
             Protocol::Basic | Protocol::Tcp => Some(&addr),
             _ => None,
         };
-        let bytes =
-            encrypt_group_to_bytes(&buffer, &identity, group, message_type, relay_destination)?;
+        let bytes = encrypt_group_to_bytes(
+            &buffer,
+            &identity,
+            group,
+            message_type,
+            use_relay_destination,
+        )?;
 
         debug!(
             "Sending to {}:{} using {}",

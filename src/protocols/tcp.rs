@@ -1,5 +1,5 @@
-use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
@@ -8,23 +8,40 @@ use tokio::time::{timeout, Duration};
 use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
 use crate::identity::{Identity, IdentityVerifier};
+use crate::socket::StreamPool;
+use crate::stream::receive_stream;
 
 pub async fn receive_data(
-    socket: &TcpListener,
+    listener: (&TcpListener, Arc<StreamPool>),
     verifier: &impl IdentityVerifier,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
 {
+    let (socket, pool) = listener;
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
         let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
-            Ok(v) => v?,
-            Err(_) => continue,
+            Ok(v) => {
+                let (s, a) = v?;
+                (Arc::new(s), a)
+            }
+            Err(_) => match pool.get_stream_with_data().await {
+                Some(s) => {
+                    let addr = match s.peer_addr() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    (s, addr)
+                }
+                None => continue,
+            },
         };
         verifier
             .verify(&Identity::from(addr))
             .ok_or_else(|| ConnectionError::InvalidSource(addr))?;
+
+        pool.add(stream.clone()).await;
 
         let timeout_with_duration = |d: Duration| -> bool {
             return d > Duration::from_millis(CONNECTION_TIMEOUT) && timeout_callback(d);
@@ -33,47 +50,6 @@ pub async fn receive_data(
     }
     return Err(ConnectionError::Timeout(
         "tcp receive".to_owned(),
-        now.elapsed(),
-    ));
-}
-
-pub async fn receive_stream(
-    stream: TcpStream,
-    addr: SocketAddr,
-    max_len: usize,
-    timeout: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
-{
-    let mut buffer = [0; 10000];
-    let mut data = Vec::new();
-    let now = Instant::now();
-    while !timeout(now.elapsed()) {
-        stream.readable().await?;
-
-        match stream.try_read(&mut buffer) {
-            Ok(0) => {
-                return Ok((data, addr));
-            }
-            Ok(n) => {
-                let mut data_read = buffer[0..n].to_vec();
-                if (data.len() + data_read.len()) > max_len {
-                    return Err(ConnectionError::LimitReached {
-                        received: data.len() + data_read.len(),
-                        max_len,
-                    });
-                }
-                data.append(&mut data_read);
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                continue;
-            }
-            Err(e) => {
-                return Err(e.into());
-            }
-        }
-    }
-    return Err(ConnectionError::Timeout(
-        "tcp receive stream".to_owned(),
         now.elapsed(),
     ));
 }
@@ -123,6 +99,16 @@ pub fn obtain_server_socket(local_address: SocketAddr) -> Result<TcpListener, Co
 
     let listener = socket.listen(1024)?;
     return Ok(listener);
+}
+
+pub async fn connect_stream(
+    local_addr: SocketAddr,
+    destination: SocketAddr,
+) -> Result<TcpStream, ConnectionError>
+{
+    let socket = obtain_client_socket(local_addr)?;
+    let stream = socket.connect(destination).await?;
+    return Ok(stream);
 }
 
 #[cfg(test)]

@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{timeout, Duration};
 use x25519_dalek::StaticSecret;
@@ -15,21 +14,33 @@ use crate::config::RelayConfig;
 use crate::defaults::DATA_TIMEOUT;
 use crate::destination_pool::DestinationPool;
 use crate::errors::ConnectionError;
-use crate::protocols::tcp::obtain_client_socket;
+use crate::socket::StreamPool;
+use crate::stream::stream_data;
 use crate::validation::get_group_id;
 
 pub async fn relay_data(
-    socket: &TcpListener,
+    listener: (&TcpListener, Arc<StreamPool>),
     destination_pool: Arc<DestinationPool>,
     running: Arc<AtomicBool>,
     config: &RelayConfig,
 ) -> u64
 {
+    let (socket, pool) = listener;
     let count = Arc::new(AtomicU64::new(0));
     while running.load(Ordering::Relaxed) {
         let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
-            Ok(v) => v.expect("tcp connection accept failed"),
-            Err(_) => continue,
+            Ok(v) => {
+                let (s, a) = v.expect("socket stream expected");
+                let stream = Arc::new(s);
+                (stream, a)
+            }
+            Err(_) => match pool.get_stream_with_data().await {
+                Some(s) => {
+                    let addr = s.peer_addr().unwrap();
+                    (s, addr)
+                }
+                None => continue,
+            },
         };
         let srunning = running.clone();
         let timeout_with_duration = move |d: Duration| -> bool {
@@ -38,6 +49,7 @@ pub async fn relay_data(
         tokio::spawn(relay_stream(
             stream,
             destination_pool.clone(),
+            pool.clone(),
             addr,
             timeout_with_duration,
             config.clone(),
@@ -48,8 +60,9 @@ pub async fn relay_data(
 }
 
 async fn relay_stream(
-    stream: TcpStream,
+    stream: Arc<TcpStream>,
     destination_pool: Arc<DestinationPool>,
+    stream_pool: Arc<StreamPool>,
     from_addr: SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
     config: RelayConfig,
@@ -59,17 +72,15 @@ async fn relay_stream(
     let mut buffer = [0; 10000];
     let now = Instant::now();
     let mut total_read = 0;
-    let mut destination_streams: Vec<TcpStream> = Vec::new();
-    let local_addr = stream.local_addr().expect("tcp local address expected");
+    let mut destination_streams = Vec::new();
     let mut initial = true;
 
-    // let mut initial_data = Vec::new();
     while !timeout_callback(now.elapsed()) {
         stream.readable().await.expect("readable stream error");
 
         match stream.try_read(&mut buffer) {
             Ok(0) => {
-                close_streams(&mut destination_streams).await;
+                // close_streams(&mut destination_streams).await;
                 count.fetch_add(1, Ordering::Relaxed);
                 break;
             }
@@ -87,15 +98,21 @@ async fn relay_stream(
                     destination_streams = match get_streams(
                         &buffer[..config.message_size],
                         &destination_pool,
-                        local_addr,
+                        &stream_pool,
                         from_addr,
                         read,
                         &config,
                     )
                     .await
                     {
-                        Ok(s) => s,
-                        Err(_) => break,
+                        Ok(s) => {
+                            stream_pool.add(stream.clone()).await;
+                            s
+                        }
+                        Err(e) => {
+                            error!("Failed to obtain streams: {}", e);
+                            break;
+                        }
                     };
                     initial = false;
                     buffer[config.message_size..].to_vec()
@@ -105,7 +122,7 @@ async fn relay_stream(
 
                 total_read += read as u64;
 
-                send_data(&mut destination_streams, data, &from_addr).await;
+                send_data(&destination_streams, data, &from_addr).await;
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                 continue;
@@ -119,27 +136,26 @@ async fn relay_stream(
     return total_read;
 }
 
-async fn close_streams(destination_streams: &mut Vec<TcpStream>)
-{
-    for destination_stream in destination_streams.iter_mut() {
-        destination_stream
-            .shutdown()
-            .await
-            .expect("tcp stream shutdown error");
-    }
-}
+// async fn close_streams(destination_streams: &mut Vec<TcpStream>)
+// {
+//     for destination_stream in destination_streams.iter_mut() {
+//         if let Err(e) = destination_stream.shutdown().await {
+//             error!("Tcp failed to close stream {}", e);
+//         }
+//     }
+// }
 
-async fn send_data(destination_streams: &mut Vec<TcpStream>, data: Vec<u8>, from_addr: &SocketAddr)
+async fn send_data(destination_streams: &[Arc<TcpStream>], data: Vec<u8>, from_addr: &SocketAddr)
 {
-    for destination_stream in destination_streams.iter_mut() {
-        destination_stream
-            .write_all(&data)
-            .await
-            .expect("write full");
+    for destination_stream in destination_streams {
+        let destination_addr = destination_stream.peer_addr().unwrap();
+        if let Err(e) = stream_data(destination_stream, data.clone()).await {
+            error!("Tcp failed to send data {}", e);
+        }
         debug!(
             "Relay from {} to {} len {}",
             from_addr,
-            destination_stream.peer_addr().unwrap(),
+            destination_addr,
             data.len()
         );
     }
@@ -148,11 +164,11 @@ async fn send_data(destination_streams: &mut Vec<TcpStream>, data: Vec<u8>, from
 async fn get_streams(
     buffer: &[u8],
     destination_pool: &DestinationPool,
-    local_addr: SocketAddr,
+    stream_pool: &StreamPool,
     from_addr: SocketAddr,
     read: usize,
     config: &RelayConfig,
-) -> Result<Vec<TcpStream>, ConnectionError>
+) -> Result<Vec<Arc<TcpStream>>, ConnectionError>
 {
     let group_id = match get_group_id(
         &buffer,
@@ -165,20 +181,17 @@ async fn get_streams(
             return Err(e);
         }
     };
-    destination_pool.add_destination(group_id.clone(), from_addr.clone());
+    destination_pool.add_destination(group_id.clone(), from_addr.clone())?;
+
     let streams = stream::iter(destination_pool.get_destinations(&group_id))
         .filter_map(|d| async move {
             if d == from_addr {
                 None
             } else {
-                if let Some(s) = obtain_client_socket(local_addr).ok() {
-                    s.connect(d).await.ok()
-                } else {
-                    None
-                }
+                stream_pool.get_by_destination(&d).await
             }
         })
-        .collect::<Vec<TcpStream>>()
+        .collect::<Vec<Arc<TcpStream>>>()
         .await;
     return Ok(streams);
 }

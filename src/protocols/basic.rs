@@ -11,8 +11,9 @@ use tokio::time::{timeout, Duration};
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::errors::ConnectionError;
 use crate::identity::{Identity, IdentityVerifier};
-use crate::protocols::tcp::{obtain_client_socket, obtain_server_socket, receive_stream};
+use crate::protocols::tcp::{connect_stream, obtain_server_socket};
 use crate::socket::{receive_from_timeout, IpAddrExt};
+use crate::stream::receive_stream;
 
 pub async fn receive_data(
     socket: Arc<UdpSocket>,
@@ -82,7 +83,7 @@ async fn tcp_receive(
         else => Err(ConnectionError::Timeout("basic receive".to_owned(), duration)),
     }?;
     verify_peer(&stream, &addr)?;
-    return receive_stream(stream, addr, max_len, callback).await;
+    return receive_stream(Arc::new(stream), addr, max_len, callback).await;
 }
 
 async fn tcp_send(
@@ -132,16 +133,6 @@ async fn listen_stream(
         "basic listen stream".to_owned(),
         now.elapsed(),
     ));
-}
-
-async fn connect_stream(
-    local_addr: SocketAddr,
-    destination: SocketAddr,
-) -> Result<TcpStream, ConnectionError>
-{
-    let socket = obtain_client_socket(local_addr)?;
-    let stream = socket.connect(destination).await?;
-    return Ok(stream);
 }
 
 pub fn verify_peer(stream: &TcpStream, expected_peer: &SocketAddr)

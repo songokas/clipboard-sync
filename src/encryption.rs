@@ -162,13 +162,13 @@ pub fn encrypt_group_to_bytes(
     };
 
     match to_socket_address(&relay.host) {
-        Ok(relay_addr) if &relay_addr == destination => {}
+        Ok(relay_addr) if &relay_addr == destination => {
+            let mut relay_bytes = encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
+            relay_bytes.append(&mut bytes);
+            return Ok(relay_bytes);
+        }
         _ => return Ok(bytes),
     };
-
-    let mut relay_bytes = encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
-    relay_bytes.append(&mut bytes);
-    return Ok(relay_bytes);
 }
 
 pub fn decrypt(

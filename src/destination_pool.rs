@@ -1,9 +1,11 @@
-use crate::message::GroupId;
 use log::error;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::RwLock;
 use std::time::Instant;
+
+use crate::errors::LimitError;
+use crate::message::GroupId;
 
 pub struct DestinationPool
 {
@@ -38,11 +40,19 @@ impl DestinationPool
         }
     }
 
-    pub fn add_destination(&self, group_id: GroupId, address: SocketAddr)
+    pub fn add_destination(
+        &self,
+        group_id: GroupId,
+        address: SocketAddr,
+    ) -> Result<bool, LimitError>
     {
-        if self.add_hash(group_id, address) {
-            self.add_ip(group_id, address);
-        }
+        self.add_hash(group_id, address).and_then(|added| {
+            if added {
+                self.add_ip(group_id, address)
+            } else {
+                Ok(added)
+            }
+        })
     }
 
     pub fn cleanup(&self, oldest: u64) -> (Option<usize>, Option<usize>)
@@ -88,11 +98,11 @@ impl DestinationPool
         return ips_len;
     }
 
-    fn add_hash(&self, group_id: GroupId, address: SocketAddr) -> bool
+    fn add_hash(&self, group_id: GroupId, address: SocketAddr) -> Result<bool, LimitError>
     {
         let ip_hash_limit = match self.ips.read() {
             Ok(t) => t.get(&address.ip()).map(|h| h.len()),
-            Err(_) => None,
+            Err(e) => return Err(LimitError::Lock(format!("Unable to obtain ip lock {}", e))),
         };
 
         match self.addresses.write() {
@@ -100,33 +110,33 @@ impl DestinationPool
                 if !all.contains_key(&group_id) {
                     if let Some(len) = ip_hash_limit {
                         if len >= self.max_per_ip {
-                            return false;
+                            return Err(LimitError::Ips(self.max_per_ip));
                         }
                     }
                     if all.len() >= self.max_groups {
-                        return false;
+                        return Err(LimitError::Groups(self.max_groups));
                     }
 
                     let mut h = HashMap::new();
                     h.insert(address, Instant::now());
                     all.insert(group_id, h);
-                    true
+                    Ok(true)
                 } else {
                     all.entry(group_id.clone()).and_modify(|h| {
                         if h.len() < self.max_sockets {
                             h.insert(address, Instant::now());
                         }
                     });
-                    false
+                    Ok(false)
                 }
             }
-            Err(e) => {
-                error!("Failed to obtain write lock {}", e);
-                false
-            }
+            Err(e) => Err(LimitError::Lock(format!(
+                "Unable to obtain hash lock {}",
+                e
+            ))),
         }
     }
-    fn add_ip(&self, group_id: GroupId, address: SocketAddr)
+    fn add_ip(&self, group_id: GroupId, address: SocketAddr) -> Result<bool, LimitError>
     {
         match self.ips.write() {
             Ok(mut ip_list) => {
@@ -138,11 +148,12 @@ impl DestinationPool
                     .or_insert_with(|| {
                         let mut h = HashSet::new();
                         h.insert(group_id);
-                        return h;
+                        h
                     });
+                Ok(true)
             }
-            Err(_) => (),
-        };
+            Err(e) => Err(LimitError::Lock(format!("Unable to write to ips {}", e))),
+        }
     }
 }
 

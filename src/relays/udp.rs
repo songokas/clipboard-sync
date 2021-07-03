@@ -54,7 +54,11 @@ pub async fn relay_data(
                 continue;
             }
         };
-        destination_pool.add_destination(group_id.clone(), addr.clone());
+
+        if let Err(e) = destination_pool.add_destination(group_id.clone(), addr.clone()) {
+            error!("Add destination error: {}", e);
+            continue;
+        }
 
         tokio::spawn(send_to(
             socket.clone(),

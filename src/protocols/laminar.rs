@@ -139,7 +139,6 @@ pub async fn receive_data(
                     }
                 }
                 SocketEvent::Timeout(_) => {
-                    //for some reason timeout returned even if no data is received
                     if total_size == 0 {
                         return Err(ConnectionError::IoError(Error::new(
                             ErrorKind::TimedOut,
@@ -152,6 +151,12 @@ pub async fn receive_data(
                     ));
                 }
                 SocketEvent::Disconnect(_) => {
+                    if total_size == 0 {
+                        return Err(ConnectionError::IoError(Error::new(
+                            ErrorKind::TimedOut,
+                            format!("laminar disconnect"),
+                        )));
+                    }
                     return Err(ConnectionError::FailedToConnect(
                         "Client disconnected".to_owned(),
                     ));

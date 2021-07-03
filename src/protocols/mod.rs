@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpStream;
 use tokio::net::{TcpListener, TcpSocket, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::time::Duration;
@@ -27,13 +28,16 @@ use crate::errors::CliError;
 use crate::errors::ConnectionError;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
 use crate::identity::IdentityVerifier;
+use crate::socket::StreamPool;
 use crate::socket::{get_matching_address, Destination};
+use crate::stream::stream_data;
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Protocol {
+pub enum Protocol
+{
     Basic,
     #[cfg(feature = "frames")]
     Frames,
@@ -43,8 +47,10 @@ pub enum Protocol {
     Tcp,
 }
 
-impl Protocol {
-    pub fn requires_public_key(&self) -> bool {
+impl Protocol
+{
+    pub fn requires_public_key(&self) -> bool
+    {
         #[cfg(feature = "quic")]
         if let Self::Quic(_) = self {
             return true;
@@ -56,7 +62,8 @@ impl Protocol {
     pub fn from(
         protocol_opt: Option<&str>,
         #[cfg(feature = "quic")] certs_callback: impl Fn() -> Result<Certificates, CliError>,
-    ) -> Result<Protocol, CliError> {
+    ) -> Result<Protocol, CliError>
+    {
         let protocol = match protocol_opt {
             #[cfg(feature = "quic")]
             Some(v) if v == "quic" => {
@@ -80,8 +87,10 @@ impl Protocol {
     }
 }
 
-impl fmt::Display for Protocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Protocol
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
         return match self {
             #[cfg(feature = "quic")]
             Self::Quic(_) => write!(f, "quic"),
@@ -94,46 +103,62 @@ impl fmt::Display for Protocol {
     }
 }
 
-pub enum LocalSocket {
+pub enum LocalSocket
+{
     Socket(Arc<UdpSocket>),
     Laminar(laminarpr::LaminarSocket),
     Tcp(Mutex<TcpSocket>),
-    TcpListener(TcpListener),
+    Stream(Arc<TcpStream>),
+    TcpListener((TcpListener, Arc<StreamPool>)),
     #[cfg(feature = "quinn")]
     Quinn((Endpoint, Arc<Mutex<Incoming>>)),
 }
 
 #[allow(irrefutable_let_patterns)]
-impl LocalSocket {
-    pub fn socket(&self) -> Option<Arc<UdpSocket>> {
+impl LocalSocket
+{
+    pub fn socket(&self) -> Option<Arc<UdpSocket>>
+    {
         if let Self::Socket(s) = self {
             return Some(Arc::clone(&s));
         }
         return None;
     }
 
-    pub fn tcp_listener(&self) -> Option<&TcpListener> {
-        if let Self::TcpListener(s) = self {
-            return Some(&s);
+    pub fn tcp_listener(&self) -> Option<(&TcpListener, Arc<StreamPool>)>
+    {
+        if let Self::TcpListener((s, p)) = self {
+            return Some((&s, p.clone()));
         }
         return None;
     }
 
-    pub fn tcp_consume(self) -> Option<TcpSocket> {
+    pub fn tcp_consume(self) -> Option<TcpSocket>
+    {
         if let Self::Tcp(s) = self {
             return Some(s.into_inner());
         }
         return None;
     }
 
-    pub fn laminar_sender(&self) -> Option<laminarpr::LaminarSender> {
+    pub fn stream(&self) -> Option<Arc<TcpStream>>
+    {
+        if let Self::Stream(s) = self {
+            return Some(Arc::clone(&s));
+        }
+        return None;
+    }
+
+    pub fn laminar_sender(&self) -> Option<laminarpr::LaminarSender>
+    {
         if let Self::Laminar(a) = self {
             return Some(a.get_sender());
         }
         return None;
     }
 
-    pub fn laminar_receiver(&self) -> Option<laminarpr::LaminarReceiver> {
+    pub fn laminar_receiver(&self) -> Option<laminarpr::LaminarReceiver>
+    {
         if let Self::Laminar(a) = self {
             return Some(a.get_receiver());
         }
@@ -141,7 +166,8 @@ impl LocalSocket {
     }
 
     #[cfg(feature = "quinn")]
-    pub fn quinn_client(&self) -> Option<&Endpoint> {
+    pub fn quinn_client(&self) -> Option<&Endpoint>
+    {
         if let Self::Quinn((c, _)) = self {
             return Some(c);
         }
@@ -149,7 +175,8 @@ impl LocalSocket {
     }
 
     #[cfg(feature = "quinn")]
-    pub fn quinn_server(&self) -> Option<Arc<Mutex<Incoming>>> {
+    pub fn quinn_server(&self) -> Option<Arc<Mutex<Incoming>>>
+    {
         if let Self::Quinn((_, s)) = self {
             return Some(s.clone());
         }
@@ -159,14 +186,19 @@ impl LocalSocket {
 
 type LocalSocketPool = HashMap<SocketAddr, Arc<LocalSocket>>;
 
-pub struct SocketPool {
-    pool: Mutex<LocalSocketPool>,
+pub struct SocketPool
+{
+    local_pool: Mutex<LocalSocketPool>,
+    stream_pool: Arc<StreamPool>,
 }
 
-impl SocketPool {
-    pub fn new() -> Self {
+impl SocketPool
+{
+    pub fn new() -> Self
+    {
         return SocketPool {
-            pool: Mutex::new(LocalSocketPool::new()),
+            local_pool: Mutex::new(LocalSocketPool::new()),
+            stream_pool: Arc::new(StreamPool::new()),
         };
     }
 
@@ -175,18 +207,23 @@ impl SocketPool {
         local_addresses: &IndexSet<SocketAddr>,
         remote_address: &SocketAddr,
         protocol: &Protocol,
-    ) -> Result<Arc<LocalSocket>, ConnectionError> {
-        let local_address =
+        using_heartbeat: bool,
+    ) -> Result<Arc<LocalSocket>, ConnectionError>
+    {
+        let local_address = || {
             get_matching_address(local_addresses, remote_address).ok_or_else(|| {
                 ConnectionError::FailedToConnect(format!(
                 "Unable to find local address from {:?} that can connect to the remote address {}",
                 local_addresses, remote_address
             ))
-            })?;
-        match self.pool.lock().await.get(local_address) {
+            })
+        };
+
+        match self.local_pool.lock().await.get(local_address()?) {
             Some(s) => return Ok(s.clone()),
             _ => (),
         };
+
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {
@@ -198,15 +235,28 @@ impl SocketPool {
                 ))));
             }
             Protocol::Laminar => {
-                let socket = laminarpr::run_laminar(local_address)?;
+                let socket = laminarpr::run_laminar(local_address()?)?;
                 return Ok(Arc::new(LocalSocket::Laminar(socket)));
             }
             Protocol::Tcp => {
-                let socket = tcp::obtain_client_socket(local_address.clone())?;
+                match self.stream_pool.get_by_destination(remote_address).await {
+                    Some(s) => return Ok(Arc::new(LocalSocket::Stream(s))),
+                    _ => (),
+                };
+                if using_heartbeat {
+                    let stream =
+                        tcp::connect_stream(local_address()?.clone(), remote_address.clone())
+                            .await?;
+                    let shared_stream = Arc::new(stream);
+                    self.stream_pool.add(shared_stream.clone()).await;
+                    let socket = Arc::new(LocalSocket::Stream(shared_stream.clone()));
+                    return Ok(socket);
+                }
+                let socket = tcp::obtain_client_socket(local_address()?.clone())?;
                 return Ok(Arc::new(LocalSocket::Tcp(Mutex::new(socket))));
             }
             _ => {
-                let socket = UdpSocket::bind(local_address).await?;
+                let socket = UdpSocket::bind(local_address()?).await?;
                 if remote_address.ip().is_multicast() {
                     socket.set_multicast_loop_v4(false).unwrap_or(());
                     socket.set_multicast_loop_v6(false).unwrap_or(());
@@ -221,7 +271,8 @@ impl SocketPool {
         &self,
         local_address: SocketAddr,
         protocol: &Protocol,
-    ) -> Result<Arc<LocalSocket>, ConnectionError> {
+    ) -> Result<Arc<LocalSocket>, ConnectionError>
+    {
         match protocol {
             #[cfg(feature = "quinn")]
             Protocol::Quic(c) => {
@@ -235,12 +286,15 @@ impl SocketPool {
                 let socket = laminarpr::run_laminar(&local_address)?;
                 let lsocket = Arc::new(LocalSocket::Laminar(socket));
                 let rsocket = Arc::clone(&lsocket);
-                self.pool.lock().await.insert(local_address, lsocket);
+                self.local_pool.lock().await.insert(local_address, lsocket);
                 return Ok(rsocket);
             }
             Protocol::Tcp => {
                 let listener = tcp::obtain_server_socket(local_address)?;
-                return Ok(Arc::new(LocalSocket::TcpListener(listener)));
+                return Ok(Arc::new(LocalSocket::TcpListener((
+                    listener,
+                    self.stream_pool.clone(),
+                ))));
             }
             _ => {
                 let socket = UdpSocket::bind(&local_address)
@@ -248,15 +302,16 @@ impl SocketPool {
                     .map_err(|e| ConnectionError::BindError(local_address.clone(), e))?;
                 let lsocket = Arc::new(LocalSocket::Socket(Arc::new(socket)));
                 let rsocket = Arc::clone(&lsocket);
-                self.pool.lock().await.insert(local_address, lsocket);
+                self.local_pool.lock().await.insert(local_address, lsocket);
                 return Ok(rsocket);
             }
         }
     }
 
     #[cfg(test)]
-    fn count(&self) -> usize {
-        return match self.pool.try_lock() {
+    fn count(&self) -> usize
+    {
+        return match self.local_pool.try_lock() {
             Ok(h) => h.len(),
             _ => 0,
         };
@@ -276,7 +331,8 @@ pub async fn send_data(
     destination: Destination,
     data: Vec<u8>,
     timeout: impl Fn(Duration) -> bool + std::marker::Send + std::marker::Sync + 'static,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
@@ -344,15 +400,19 @@ pub async fn send_data(
             laminarpr::send_data(&socket, encryptor, data, &destination.into()).await
         }
         Protocol::Tcp => {
-            let socket = Arc::try_unwrap(local_socket)
-                .map_err(|_| {
-                    ConnectionError::InvalidProtocol("unable to use tcp socket".to_owned())
-                })?
-                .tcp_consume()
-                .ok_or(ConnectionError::InvalidProtocol(
-                    "Basic protocol socket expected".to_owned(),
-                ))?;
-            tcp::send_data(socket, data, &destination.into()).await
+            if let Some(stream) = local_socket.stream() {
+                stream_data(&stream, data).await
+            } else {
+                let socket = Arc::try_unwrap(local_socket)
+                    .map_err(|_| {
+                        ConnectionError::InvalidProtocol("unable to use tcp socket".to_owned())
+                    })?
+                    .tcp_consume()
+                    .ok_or(ConnectionError::InvalidProtocol(
+                        "Tcp protocol socket expected".to_owned(),
+                    ))?;
+                tcp::send_data(socket, data, &destination.into()).await
+            }
         }
     };
 }
@@ -363,7 +423,8 @@ pub async fn receive_data(
     protocol: &Protocol,
     max_len: usize,
     timeout: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError> {
+) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+{
     return match protocol {
         #[cfg(feature = "frames")]
         Protocol::Frames => {
@@ -448,7 +509,8 @@ pub async fn receive_data(
 }
 
 #[cfg(test)]
-mod protocolstest {
+mod protocolstest
+{
     use super::*;
     #[cfg(feature = "quic")]
     use crate::config::Certificates;
@@ -456,7 +518,8 @@ mod protocolstest {
     #[cfg(feature = "quic-quinn")]
     use tokio::time::sleep;
 
-    async fn test_pool_client_socket_can_be_obtained_once(protocol: Protocol, port: u32) {
+    async fn test_pool_client_socket_can_be_obtained_once(protocol: Protocol, port: u32)
+    {
         let pool = SocketPool::new();
         let local_addresses = indexset! {format!("127.0.0.1:{}", port).parse().unwrap()};
         let remote_address = "127.0.0.1:8000".parse().unwrap();
@@ -477,7 +540,8 @@ mod protocolstest {
     async fn test_pool_client_socket_can_be_obtained_many_times_if_server_socket_is_used(
         protocol: Protocol,
         port: u32,
-    ) {
+    )
+    {
         let pool = SocketPool::new();
         let local_addresses = indexset! {format!("127.0.0.1:{}", port).parse().unwrap()};
         let remote_address = "127.0.0.1:8000".parse().unwrap();
@@ -502,10 +566,8 @@ mod protocolstest {
         assert_eq!(pool.count(), 1);
     }
 
-    async fn test_pool_client_socket_can_be_obtained_once_its_dropped(
-        protocol: Protocol,
-        port: u32,
-    ) {
+    async fn test_pool_client_socket_can_be_obtained_once_its_dropped(protocol: Protocol, port: u32)
+    {
         let pool = SocketPool::new();
         let local_addresses = indexset! {format!("127.0.0.1:{}", port).parse().unwrap()};
         let remote_address = "127.0.0.1:8000".parse().unwrap();
@@ -529,7 +591,8 @@ mod protocolstest {
     }
 
     #[tokio::test]
-    async fn test_socket_pool_all_protos() {
+    async fn test_socket_pool_all_protos()
+    {
         #[cfg(feature = "quic")]
         let certs = Certificates {
             private_key: "tests/certs/localhost.key".to_owned(),
