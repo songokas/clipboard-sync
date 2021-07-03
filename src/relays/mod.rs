@@ -46,15 +46,20 @@ pub async fn relay_packets(
     let cprotocol = protocol.clone();
     let destination_cleanup = move || {
         let (addr_len, ips_len) = cpool.cleanup(60);
+        let sockets_left = pool.cleanup(60);
+
         debug!(
-            "Destination cleanup for {} hash len {} ip limits {}",
+            "Destination cleanup for {} hash {} ips {} streams {}",
             cprotocol,
             addr_len
                 .map(|l| l.to_string())
                 .unwrap_or("unknown".to_owned()),
             ips_len
                 .map(|l| l.to_string())
-                .unwrap_or("unknown".to_owned())
+                .unwrap_or("unknown".to_owned()),
+            sockets_left
+                .map(|l| l.to_string())
+                .unwrap_or("unknown".to_owned()),
         );
         // stop cleanup when relay_packets return
         Arc::strong_count(&cpool) > 1

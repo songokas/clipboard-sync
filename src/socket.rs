@@ -3,14 +3,10 @@ use cached::TimedSizedCache;
 use indexmap::IndexSet;
 
 use log::debug;
-use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
 use std::time::Instant;
-use tokio::net::TcpStream;
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
 
 use crate::errors::{ConnectionError, DnsError};
@@ -292,46 +288,6 @@ impl Ipv6AddrExt for Ipv6Addr
             }
             _ => None,
         }
-    }
-}
-
-pub struct StreamPool
-{
-    streams: RwLock<HashMap<SocketAddr, Arc<TcpStream>>>,
-}
-
-impl StreamPool
-{
-    pub fn new() -> Self
-    {
-        return StreamPool {
-            streams: RwLock::new(HashMap::new()),
-        };
-    }
-
-    pub async fn get_stream_with_data(&self) -> Option<Arc<TcpStream>>
-    {
-        for (_, stream) in self.streams.read().await.iter() {
-            let mut b1 = [0; 1];
-            match stream.peek(&mut b1).await {
-                Ok(_) => return Some(stream.clone()),
-                _ => continue,
-            };
-        }
-        return None;
-    }
-
-    pub async fn get_by_destination(&self, addr: &SocketAddr) -> Option<Arc<TcpStream>>
-    {
-        self.streams.read().await.get(addr).cloned()
-    }
-
-    pub async fn add(&self, stream: Arc<TcpStream>)
-    {
-        self.streams
-            .write()
-            .await
-            .insert(stream.peer_addr().unwrap(), stream);
     }
 }
 

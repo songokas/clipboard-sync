@@ -14,8 +14,7 @@ use crate::config::RelayConfig;
 use crate::defaults::DATA_TIMEOUT;
 use crate::destination_pool::DestinationPool;
 use crate::errors::ConnectionError;
-use crate::socket::StreamPool;
-use crate::stream::stream_data;
+use crate::stream::{stream_data, StreamPool};
 use crate::validation::get_group_id;
 
 pub async fn relay_data(

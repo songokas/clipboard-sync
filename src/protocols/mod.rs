@@ -26,11 +26,11 @@ use crate::config::Certificates;
 use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
+use crate::errors::LimitError;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
 use crate::identity::IdentityVerifier;
-use crate::socket::StreamPool;
 use crate::socket::{get_matching_address, Destination};
-use crate::stream::stream_data;
+use crate::stream::{stream_data, StreamPool};
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
@@ -308,6 +308,11 @@ impl SocketPool
         }
     }
 
+    pub fn cleanup(&self, oldest: u64) -> Result<usize, LimitError>
+    {
+        return self.stream_pool.cleanup(oldest);
+    }
+
     #[cfg(test)]
     fn count(&self) -> usize
     {
@@ -526,12 +531,12 @@ mod protocolstest
 
         assert_eq!(pool.count(), 0);
         let _1 = pool
-            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
             .await
             .unwrap();
         assert_eq!(pool.count(), 0);
         let local_socket2 = pool
-            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
             .await;
         assert_eq!(pool.count(), 0);
         assert!(local_socket2.is_err());
@@ -555,12 +560,12 @@ mod protocolstest
         assert_eq!(pool.count(), 1);
 
         let _2 = pool
-            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
             .await
             .unwrap();
         assert_eq!(pool.count(), 1);
         let _3 = pool
-            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
             .await
             .unwrap();
         assert_eq!(pool.count(), 1);
@@ -574,18 +579,18 @@ mod protocolstest
         assert_eq!(pool.count(), 0);
         {
             let _1 = pool
-                .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+                .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
                 .await
                 .unwrap();
         }
         #[cfg(feature = "quic-quinn")]
         sleep(Duration::from_millis(100)).await;
         let _2 = pool
-            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
             .await
             .unwrap();
         let local_socket3 = pool
-            .obtain_client_socket(&local_addresses, &remote_address, &protocol)
+            .obtain_client_socket(&local_addresses, &remote_address, &protocol, false)
             .await;
         assert!(local_socket3.is_err());
     }

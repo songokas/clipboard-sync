@@ -8,8 +8,7 @@ use tokio::time::{timeout, Duration};
 use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
 use crate::identity::{Identity, IdentityVerifier};
-use crate::socket::StreamPool;
-use crate::stream::receive_stream;
+use crate::stream::{receive_stream, StreamPool};
 
 pub async fn receive_data(
     listener: (&TcpListener, Arc<StreamPool>),
@@ -129,6 +128,7 @@ mod tcptest
         let local_client: SocketAddr = client_str.parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();
         let client_sock = obtain_client_socket(local_client).unwrap();
+        let stream_pool = Arc::new(StreamPool::new());
 
         let data_sent = random(size);
         let for_sending = data_sent.clone();
@@ -139,9 +139,12 @@ mod tcptest
 
         let res = try_join!(
             tokio::spawn(async move {
-                receive_data(&server_sock, &enc_r, max_len, |d: Duration| {
-                    d > Duration::from_millis(8000)
-                })
+                receive_data(
+                    (&server_sock, stream_pool.clone()),
+                    &enc_r,
+                    max_len,
+                    |d: Duration| d > Duration::from_millis(8000),
+                )
                 .await
             }),
             tokio::spawn(async move { send_data(client_sock, for_sending, &local_server).await }),
@@ -174,10 +177,12 @@ mod tcptest
         let group = Group::from_addr("test1", &client_str, &client_str);
         let groups = indexmap! {group.name.clone() => group.clone()};
         let enc_r = GroupsEncryptor::new(groups);
+        let stream_pool = Arc::new(StreamPool::new());
 
         let local_server: SocketAddr = client_str.parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();
-        let result = receive_data(&server_sock, &enc_r, 10, |_: Duration| true).await;
+        let result =
+            receive_data((&server_sock, stream_pool), &enc_r, 10, |_: Duration| true).await;
         assert_error_type!(result, ConnectionError::Timeout(..));
     }
 }
