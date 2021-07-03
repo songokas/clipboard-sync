@@ -8,7 +8,7 @@ use tokio::time::{timeout, Duration};
 use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
 use crate::identity::{Identity, IdentityVerifier};
-use crate::stream::{receive_stream, StreamPool};
+use crate::stream::{receive_stream, stream_data, StreamPool};
 
 pub async fn receive_data(
     listener: (&TcpListener, Arc<StreamPool>),
@@ -60,9 +60,9 @@ pub async fn send_data(
 ) -> Result<usize, ConnectionError>
 {
     let mut stream = socket.connect(destination.clone()).await?;
-    stream.write_all(&data).await?;
+    let total_sent = stream_data(&stream, data).await?;
     stream.shutdown().await?;
-    return Ok(data.len());
+    return Ok(total_sent);
 }
 
 pub fn obtain_client_socket(local_address: SocketAddr) -> Result<TcpSocket, ConnectionError>

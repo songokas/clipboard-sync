@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -11,6 +12,8 @@ use tokio::time::Duration;
 use crate::errors::ConnectionError;
 use crate::errors::LimitError;
 
+const INIDICATION_SIZE: usize = std::mem::size_of::<u64>();
+
 pub async fn receive_stream(
     stream: Arc<TcpStream>,
     addr: SocketAddr,
@@ -21,6 +24,7 @@ pub async fn receive_stream(
     let mut buffer = [0; 10000];
     let mut data = Vec::new();
     let now = Instant::now();
+    let mut expected_size = 0;
     while !timeout(now.elapsed()) {
         stream.readable().await?;
 
@@ -29,7 +33,25 @@ pub async fn receive_stream(
                 return Ok((data, addr));
             }
             Ok(n) => {
-                let mut data_read = buffer[0..n].to_vec();
+                let mut data_read = if expected_size == 0 {
+                    if n < INIDICATION_SIZE {
+                        return Err(ConnectionError::InvalidBuffer(format!(
+                            "Tcp stream received {}, but at least {} expected",
+                            n, INIDICATION_SIZE
+                        )));
+                    }
+                    let size: [u8; 8] = buffer[..INIDICATION_SIZE].try_into().map_err(|e| {
+                        ConnectionError::InvalidBuffer(format!(
+                            "Unable to receive data len to indicated size {}",
+                            e
+                        ))
+                    })?;
+                    expected_size = u64::from_be_bytes(size);
+                    buffer[INIDICATION_SIZE..n].to_vec()
+                } else {
+                    buffer[0..n].to_vec()
+                };
+
                 if (data.len() + data_read.len()) > max_len {
                     return Err(ConnectionError::LimitReached {
                         received: data.len() + data_read.len(),
@@ -37,7 +59,10 @@ pub async fn receive_stream(
                     });
                 }
                 data.append(&mut data_read);
-                // if data[-4..0] ==
+
+                if expected_size != 0 && data.len() as u64 >= expected_size {
+                    return Ok((data, addr));
+                }
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                 continue;
@@ -56,12 +81,22 @@ pub async fn receive_stream(
 pub async fn stream_data(stream: &TcpStream, data: Vec<u8>) -> Result<usize, ConnectionError>
 {
     let mut total_written = 0;
+    let size: u64 = data.len().try_into().map_err(|e| {
+        ConnectionError::InvalidBuffer(format!(
+            "Unable to convert data len to indicated size {}",
+            e
+        ))
+    })?;
+    let mut data_indication = size.to_be_bytes().to_vec();
+    data_indication.extend(data);
     loop {
         stream.writable().await?;
-        match stream.try_write(&data[total_written..]) {
+        match stream.try_write(&data_indication[total_written..]) {
             Ok(n) => {
                 total_written += n;
-                if data.len() <= total_written {
+                if total_written >= data_indication.len() {
+                    // remove indication from bytes sent
+                    total_written -= INIDICATION_SIZE;
                     break;
                 }
             }

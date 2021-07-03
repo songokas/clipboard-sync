@@ -43,13 +43,13 @@ impl DestinationPool
         &self,
         group_id: GroupId,
         address: SocketAddr,
-    ) -> Result<bool, LimitError>
+    ) -> Result<(bool, bool), LimitError>
     {
         self.add_hash(group_id, address).and_then(|added| {
             if added {
-                self.add_ip(group_id, address)
+                self.add_ip(group_id, address).map(|r| (added, r))
             } else {
-                Ok(added)
+                Ok((added, false))
             }
         })
     }
@@ -176,6 +176,7 @@ mod destinationpooltest
     use std::thread;
     use std::{convert::TryInto, time::Duration};
 
+    use crate::assert_error_type;
     use crate::encryption::random;
 
     #[test]
@@ -193,8 +194,10 @@ mod destinationpooltest
 
         let group_id3: GroupId = vec![3; 64].try_into().unwrap();
         let destination3: SocketAddr = "127.0.0.1:8003".parse().unwrap();
-        pool.add_destination(group_id3.clone(), destination3)
-            .unwrap();
+        assert_error_type!(
+            pool.add_destination(group_id3.clone(), destination3),
+            LimitError::Groups(_)
+        );
 
         let destinations = pool.get_destinations(&group_id1);
         assert_eq!(vec![destination1], destinations);
@@ -249,8 +252,11 @@ mod destinationpooltest
 
         let group_id2: GroupId = vec![2; 64].try_into().unwrap();
         let destination2: SocketAddr = "127.0.0.1:9000".parse().unwrap();
-        pool.add_destination(group_id2.clone(), destination2)
-            .unwrap();
+
+        assert_error_type!(
+            pool.add_destination(group_id2.clone(), destination2),
+            LimitError::Ips(_)
+        );
 
         let destinations = pool.get_destinations(&group_id1);
         assert_eq!(vec![destination1], destinations);
