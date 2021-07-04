@@ -72,11 +72,13 @@ async fn main() -> Result<(), CliError>
                 Ok((file_contents, _)) => file_contents,
                 Err(_) => s.as_bytes().to_vec(),
             };
+            let key_size = key_data.len();
             let result: Result<[u8; KEY_SIZE], _> = key_data.try_into();
             match result {
                 Ok(key) => Ok(StaticSecret::from(key)),
                 Err(_) => Err(CliError::ArgumentError(format!(
-                    "Invalid private key provided"
+                    "Invalid private key provided. Expected {} provided {}",
+                    KEY_SIZE, key_size
                 ))),
             }
         })

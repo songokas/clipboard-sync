@@ -14,6 +14,8 @@ use crate::config::RelayConfig;
 use crate::defaults::DATA_TIMEOUT;
 use crate::destination_pool::DestinationPool;
 use crate::errors::ConnectionError;
+use crate::fragmenter::NoRelayEncryptor;
+use crate::fragmenter::RelayEncryptor;
 use crate::stream::{stream_data, StreamPool};
 use crate::validation::get_group_id;
 
@@ -35,7 +37,10 @@ pub async fn relay_data(
             }
             Err(_) => match pool.get_stream_with_data().await {
                 Some(s) => {
-                    let addr = s.peer_addr().unwrap();
+                    let addr = match s.peer_addr() {
+                        Ok(a) => a,
+                        Err(_) => continue,
+                    };
                     (s, addr)
                 }
                 None => continue,
@@ -73,6 +78,7 @@ async fn relay_stream(
     let mut total_read = 0;
     let mut destination_streams = Vec::new();
     let mut initial = true;
+    let encryptor = NoRelayEncryptor {};
 
     while !timeout_callback(now.elapsed()) {
         stream.readable().await.expect("readable stream error");
@@ -87,7 +93,10 @@ async fn relay_stream(
                 if read < config.message_size {
                     debug!(
                         "Ignoring packet without header from {}. Packet length {} expected {}",
-                        stream.peer_addr().expect("missing peer address"),
+                        stream
+                            .peer_addr()
+                            .map(|p| p.to_string())
+                            .unwrap_or("missing peer address".into()),
                         read,
                         config.message_size
                     );
@@ -121,7 +130,7 @@ async fn relay_stream(
 
                 total_read += read as u64;
 
-                send_data(&destination_streams, data, &from_addr).await;
+                send_data(&destination_streams, &encryptor, data, &from_addr).await;
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                 continue;
@@ -144,13 +153,24 @@ async fn relay_stream(
 //     }
 // }
 
-async fn send_data(destination_streams: &[Arc<TcpStream>], data: Vec<u8>, from_addr: &SocketAddr)
+async fn send_data(
+    destination_streams: &[Arc<TcpStream>],
+    encryptor: &impl RelayEncryptor,
+    data: Vec<u8>,
+    from_addr: &SocketAddr,
+)
 {
     for destination_stream in destination_streams {
-        let destination_addr = destination_stream.peer_addr().unwrap();
-        if let Err(e) = stream_data(destination_stream, data.clone()).await {
+        if let Err(e) = stream_data(destination_stream, encryptor, data.clone()).await {
             error!("Tcp failed to send data {}", e);
         }
+        let destination_addr = match destination_stream.peer_addr() {
+            Ok(a) => a,
+            Err(e) => {
+                error!("Failed to retrieve destination addr {}", e);
+                continue;
+            }
+        };
         debug!(
             "Relay from {} to {} len {}",
             from_addr,

@@ -1,3 +1,4 @@
+use log::debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -7,6 +8,7 @@ use tokio::time::{timeout, Duration};
 
 use crate::defaults::CONNECTION_TIMEOUT;
 use crate::errors::ConnectionError;
+use crate::fragmenter::RelayEncryptor;
 use crate::identity::{Identity, IdentityVerifier};
 use crate::stream::{receive_stream, stream_data, StreamPool};
 
@@ -23,14 +25,16 @@ pub async fn receive_data(
         let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
             Ok(v) => {
                 let (s, a) = v?;
+                debug!("Tcp received new connection {}", a);
                 (Arc::new(s), a)
             }
             Err(_) => match pool.get_stream_with_data().await {
                 Some(s) => {
                     let addr = match s.peer_addr() {
-                        Ok(s) => s,
+                        Ok(a) => a,
                         Err(_) => continue,
                     };
+                    debug!("Tcp matched existing stream to remote {}", addr);
                     (s, addr)
                 }
                 None => continue,
@@ -40,12 +44,20 @@ pub async fn receive_data(
             .verify(&Identity::from(addr))
             .ok_or_else(|| ConnectionError::InvalidSource(addr))?;
 
-        pool.add(stream.clone()).await;
-
         let timeout_with_duration = |d: Duration| -> bool {
             return d > Duration::from_millis(CONNECTION_TIMEOUT) && timeout_callback(d);
         };
-        return receive_stream(stream, addr, max_len, timeout_with_duration).await;
+        return match receive_stream(stream.clone(), addr, max_len, timeout_with_duration).await {
+            Ok((d, s)) if d.len() > 0 => {
+                pool.add(stream).await;
+                Ok((d, s))
+            }
+            Ok((d, s)) => {
+                pool.remove(&s).await;
+                Ok((d, s))
+            }
+            Err(e) => Err(e),
+        };
     }
     return Err(ConnectionError::Timeout(
         "tcp receive".to_owned(),
@@ -55,12 +67,13 @@ pub async fn receive_data(
 
 pub async fn send_data(
     socket: TcpSocket,
+    encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     destination: &SocketAddr,
 ) -> Result<usize, ConnectionError>
 {
     let mut stream = socket.connect(destination.clone()).await?;
-    let total_sent = stream_data(&stream, data).await?;
+    let total_sent = stream_data(&stream, encryptor, data).await?;
     stream.shutdown().await?;
     return Ok(total_sent);
 }
@@ -117,6 +130,7 @@ mod tcptest
     use crate::assert_error_type;
     use crate::encryption::random;
     use crate::fragmenter::GroupsEncryptor;
+    use crate::fragmenter::NoRelayEncryptor;
     use crate::message::Group;
     use futures::try_join;
     use indexmap::indexmap;
@@ -129,6 +143,7 @@ mod tcptest
         let server_sock = obtain_server_socket(local_server).unwrap();
         let client_sock = obtain_client_socket(local_client).unwrap();
         let stream_pool = Arc::new(StreamPool::new());
+        let encryptor = NoRelayEncryptor {};
 
         let data_sent = random(size);
         let for_sending = data_sent.clone();
@@ -147,7 +162,9 @@ mod tcptest
                 )
                 .await
             }),
-            tokio::spawn(async move { send_data(client_sock, for_sending, &local_server).await }),
+            tokio::spawn(async move {
+                send_data(client_sock, &encryptor, for_sending, &local_server).await
+            }),
         )
         .unwrap();
 

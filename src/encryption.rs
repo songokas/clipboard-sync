@@ -133,12 +133,11 @@ pub fn decrypt_with_secret(
     });
 }
 
-pub fn encrypt_group_to_bytes(
+pub fn encrypt_serialize_to_bytes(
     contents: &[u8],
     identity: &Identity,
     group: &Group,
     message_type: &MessageType,
-    relay_destination: Option<&SocketAddr>,
 ) -> Result<Vec<u8>, EncryptionError>
 {
     let message = encrypt(
@@ -148,26 +147,46 @@ pub fn encrypt_group_to_bytes(
         group.name.clone(),
         message_type.clone(),
     )?;
-    let mut bytes = bincode::serialize(&message)
+    let bytes = bincode::serialize(&message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
+    return Ok(bytes);
+}
 
-    let destination = match relay_destination {
-        Some(d) => d,
-        None => return Ok(bytes),
-    };
+pub fn encrypt_group_to_bytes(
+    contents: &[u8],
+    identity: &Identity,
+    group: &Group,
+    message_type: &MessageType,
+    destination: &SocketAddr,
+) -> Result<Vec<u8>, EncryptionError>
+{
+    let bytes = encrypt_serialize_to_bytes(contents, identity, group, message_type)?;
 
+    match relay_header(group, destination) {
+        Ok(Some(mut h)) => {
+            h.extend(bytes);
+            Ok(h)
+        }
+        _ => Ok(bytes),
+    }
+}
+
+pub fn relay_header(
+    group: &Group,
+    destination: &SocketAddr,
+) -> Result<Option<Vec<u8>>, EncryptionError>
+{
     let relay = match &group.relay {
         Some(relay) => relay,
-        None => return Ok(bytes),
+        None => return Ok(None),
     };
 
     match to_socket_address(&relay.host) {
         Ok(relay_addr) if &relay_addr == destination => {
-            let mut relay_bytes = encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
-            relay_bytes.append(&mut bytes);
-            return Ok(relay_bytes);
+            let relay_bytes = encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
+            return Ok(Some(relay_bytes));
         }
-        _ => return Ok(bytes),
+        _ => return Ok(None),
     };
 }
 

@@ -574,6 +574,7 @@ async fn send_clipboard_to_group(
 
         let remote_ip = addr.ip();
         let identity = retrieve_identity(&addr, group).await?;
+
         let local_socket = pool
             .obtain_client_socket(
                 &group.send_using_address,
@@ -583,17 +584,7 @@ async fn send_clipboard_to_group(
             )
             .await?;
 
-        let use_relay_destination = match &group.protocol {
-            Protocol::Basic | Protocol::Tcp => Some(&addr),
-            _ => None,
-        };
-        let bytes = encrypt_group_to_bytes(
-            &buffer,
-            &identity,
-            group,
-            message_type,
-            use_relay_destination,
-        )?;
+        let bytes = encrypt_serialize_to_bytes(&buffer, &identity, group, message_type)?;
 
         debug!(
             "Sending to {}:{} using {}",

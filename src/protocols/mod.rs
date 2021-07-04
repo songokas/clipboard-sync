@@ -1,4 +1,5 @@
 use indexmap::IndexSet;
+use log::debug;
 use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
@@ -27,6 +28,7 @@ use crate::encryption::DataEncryptor;
 use crate::errors::CliError;
 use crate::errors::ConnectionError;
 use crate::errors::LimitError;
+use crate::fragmenter::RelayEncryptor;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
 use crate::identity::IdentityVerifier;
 use crate::socket::{get_matching_address, Destination};
@@ -239,14 +241,21 @@ impl SocketPool
                 return Ok(Arc::new(LocalSocket::Laminar(socket)));
             }
             Protocol::Tcp => {
+                self.cleanup(60).unwrap_or_default();
                 match self.stream_pool.get_by_destination(remote_address).await {
-                    Some(s) => return Ok(Arc::new(LocalSocket::Stream(s))),
+                    Some(s) => match s.peer_addr() {
+                        Ok(_) => {
+                            self.stream_pool.add(s.clone()).await;
+                            return Ok(Arc::new(LocalSocket::Stream(s)));
+                        }
+                        Err(_) => (),
+                    },
                     _ => (),
                 };
                 if using_heartbeat {
-                    let stream =
-                        tcp::connect_stream(local_address()?.clone(), remote_address.clone())
-                            .await?;
+                    let use_local = local_address()?.clone();
+                    debug!("Tcp create stream from {} to {}", use_local, remote_address);
+                    let stream = tcp::connect_stream(use_local, remote_address.clone()).await?;
                     let shared_stream = Arc::new(stream);
                     self.stream_pool.add(shared_stream.clone()).await;
                     let socket = Arc::new(LocalSocket::Stream(shared_stream.clone()));
@@ -323,20 +332,24 @@ impl SocketPool
     }
 }
 
-pub async fn send_data(
+pub async fn send_data<E, T>(
     local_socket: Arc<LocalSocket>,
-    encryptor: impl FrameEncryptor
+    encryptor: E,
+    protocol: &Protocol,
+    destination: Destination,
+    data: Vec<u8>,
+    timeout: T,
+) -> Result<usize, ConnectionError>
+where
+    E: FrameEncryptor
         + FrameDataDecryptor
         + FrameIndexEncryptor
+        + RelayEncryptor
         + Send
         + Sync
         + Clone
         + 'static,
-    protocol: &Protocol,
-    destination: Destination,
-    data: Vec<u8>,
-    timeout: impl Fn(Duration) -> bool + std::marker::Send + std::marker::Sync + 'static,
-) -> Result<usize, ConnectionError>
+    T: Fn(Duration) -> bool + std::marker::Send + std::marker::Sync + 'static,
 {
     return match protocol {
         #[cfg(feature = "frames")]
@@ -390,6 +403,7 @@ pub async fn send_data(
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Basic protocol socket expected".to_owned(),
                     ))?,
+                &encryptor,
                 data,
                 &destination.into(),
                 timeout,
@@ -406,7 +420,7 @@ pub async fn send_data(
         }
         Protocol::Tcp => {
             if let Some(stream) = local_socket.stream() {
-                stream_data(&stream, data).await
+                stream_data(&stream, &encryptor, data).await
             } else {
                 let socket = Arc::try_unwrap(local_socket)
                     .map_err(|_| {
@@ -416,7 +430,7 @@ pub async fn send_data(
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Tcp protocol socket expected".to_owned(),
                     ))?;
-                tcp::send_data(socket, data, &destination.into()).await
+                tcp::send_data(socket, &encryptor, data, &destination.into()).await
             }
         }
     };

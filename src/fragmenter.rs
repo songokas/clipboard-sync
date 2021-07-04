@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 use crate::config::Groups;
-use crate::encryption::{decrypt, encrypt_group_to_bytes, DataEncryptor};
-use crate::errors::ConnectionError;
+use crate::encryption::{decrypt, encrypt_group_to_bytes, relay_header, DataEncryptor};
+use crate::errors::{ConnectionError, EncryptionError};
 use crate::identity::{identity_matching_hosts, Identity, IdentityVerifier};
 use crate::message::{Group, MessageType};
 use crate::validation::validate;
@@ -55,6 +55,11 @@ pub trait FrameIndexEncryptor
         max_payload: usize,
         destination: &SocketAddr,
     ) -> Result<Vec<u8>, ConnectionError>;
+}
+
+pub trait RelayEncryptor
+{
+    fn relay_header(&self, destination: &SocketAddr) -> Result<Option<Vec<u8>>, EncryptionError>;
 }
 
 //@TODO once trait_alias
@@ -111,7 +116,7 @@ impl DataEncryptor for GroupsEncryptor
         destination: &SocketAddr,
     ) -> Result<Vec<u8>, ConnectionError>
     {
-        let bytes = encrypt_group_to_bytes(data, identity, group, message_type, Some(destination))?;
+        let bytes = encrypt_group_to_bytes(data, identity, group, message_type, destination)?;
         return Ok(bytes);
     }
 }
@@ -166,9 +171,17 @@ impl FrameEncryptor for IdentityEncryptor
             &self.identity,
             &self.group,
             message_type,
-            Some(destination),
+            destination,
         )?;
         return Ok(bytes);
+    }
+}
+
+impl RelayEncryptor for IdentityEncryptor
+{
+    fn relay_header(&self, destination: &SocketAddr) -> Result<Option<Vec<u8>>, EncryptionError>
+    {
+        relay_header(&self.group, destination)
     }
 }
 
@@ -188,7 +201,7 @@ impl FrameIndexEncryptor for IdentityEncryptor
             &self.identity,
             &self.group,
             &MessageType::Frame,
-            Some(destination),
+            destination,
         )?;
         return Ok(bytes);
     }
@@ -235,4 +248,14 @@ pub fn size_to_indexes(size: usize, max_payload: usize) -> usize
 {
     let reminder = if size % max_payload > 0 { 1 } else { 0 };
     return (size / max_payload) + reminder;
+}
+
+pub struct NoRelayEncryptor {}
+
+impl RelayEncryptor for NoRelayEncryptor
+{
+    fn relay_header(&self, _: &SocketAddr) -> Result<Option<Vec<u8>>, EncryptionError>
+    {
+        return Ok(None);
+    }
 }

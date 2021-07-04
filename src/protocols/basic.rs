@@ -10,6 +10,7 @@ use tokio::time::{timeout, Duration};
 
 use crate::defaults::{CONNECTION_TIMEOUT, MAX_UDP_BUFFER, MAX_UDP_PAYLOAD};
 use crate::errors::ConnectionError;
+use crate::fragmenter::RelayEncryptor;
 use crate::identity::{Identity, IdentityVerifier};
 use crate::protocols::tcp::{connect_stream, obtain_server_socket};
 use crate::socket::{receive_from_timeout, IpAddrExt};
@@ -47,6 +48,7 @@ pub async fn receive_data(
 
 pub async fn send_data(
     socket: Arc<UdpSocket>,
+    encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     destination: &SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
@@ -54,9 +56,17 @@ pub async fn send_data(
 {
     if data.len() > MAX_UDP_PAYLOAD {
         socket.send_to(b"1", destination).await?;
-        return tcp_send(socket, data, destination, timeout_callback).await;
+        return tcp_send(socket, encryptor, data, destination, timeout_callback).await;
     }
-    return Ok(socket.send_to(&data, destination).await?);
+
+    let data_to_send = match encryptor.relay_header(destination) {
+        Ok(Some(mut h)) => {
+            h.extend(data);
+            h
+        }
+        _ => data,
+    };
+    return Ok(socket.send_to(&data_to_send, destination).await?);
 }
 
 async fn tcp_receive(
@@ -88,6 +98,7 @@ async fn tcp_receive(
 
 async fn tcp_send(
     socket: Arc<UdpSocket>,
+    encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     destination: &SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
@@ -110,7 +121,7 @@ async fn tcp_send(
     }?;
 
     verify_peer(&stream, destination)?;
-    let total_sent = stream_data(&stream, data).await?;
+    let total_sent = stream_data(&stream, encryptor, data).await?;
     stream.shutdown().await?;
     return Ok(total_sent);
 }
@@ -161,6 +172,7 @@ mod basictest
     use crate::assert_error_type;
     use crate::encryption::random;
     use crate::fragmenter::GroupsEncryptor;
+    use crate::fragmenter::NoRelayEncryptor;
     use crate::message::Group;
     use futures::try_join;
     use indexmap::indexmap;
@@ -173,6 +185,7 @@ mod basictest
         let server_sock = Arc::new(UdpSocket::bind(local_server).await.unwrap());
         let client_sock = Arc::new(UdpSocket::bind(local_client).await.unwrap());
         client_sock.connect(local_server).await.unwrap();
+        let encryptor = NoRelayEncryptor {};
 
         let data_sent = random(size);
         let for_sending = data_sent.clone();
@@ -189,9 +202,13 @@ mod basictest
                 .await
             }),
             tokio::spawn(async move {
-                send_data(client_sock, for_sending, &local_server, |d: Duration| {
-                    d > Duration::from_millis(2000)
-                })
+                send_data(
+                    client_sock,
+                    &encryptor,
+                    for_sending,
+                    &local_server,
+                    |d: Duration| d > Duration::from_millis(2000),
+                )
                 .await
             }),
         )
