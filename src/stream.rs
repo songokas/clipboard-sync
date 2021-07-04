@@ -16,24 +16,26 @@ const INIDICATION_SIZE: usize = std::mem::size_of::<u64>();
 
 pub async fn receive_stream(
     stream: Arc<TcpStream>,
-    addr: SocketAddr,
     max_len: usize,
-    timeout: impl Fn(Duration) -> bool,
-) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
+    timeout_callback: impl Fn(Duration) -> bool,
+) -> Result<Vec<u8>, ConnectionError>
 {
     let mut buffer = [0; 10000];
     let mut data = Vec::new();
     let now = Instant::now();
     let mut expected_size = 0;
-    while !timeout(now.elapsed()) {
-        stream.readable().await?;
+    while !timeout_callback(now.elapsed()) {
+        match timeout(Duration::from_millis(100), stream.readable()).await {
+            Ok(_) => (),
+            Err(_) => continue,
+        }
 
         match stream.try_read(&mut buffer) {
             Ok(0) => {
-                return Ok((data, addr));
+                return Ok(data);
             }
             Ok(n) => {
-                let mut data_read = if expected_size == 0 {
+                let data_read = if expected_size == 0 {
                     if n < INIDICATION_SIZE {
                         return Err(ConnectionError::InvalidBuffer(format!(
                             "Tcp stream received {}, but at least {} expected",
@@ -58,10 +60,10 @@ pub async fn receive_stream(
                         max_len,
                     });
                 }
-                data.append(&mut data_read);
+                data.extend(data_read);
 
                 if expected_size != 0 && data.len() as u64 >= expected_size {
-                    return Ok((data, addr));
+                    return Ok(data);
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -82,6 +84,7 @@ pub async fn stream_data(
     stream: &TcpStream,
     encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
     let mut total_written = 0;
@@ -101,15 +104,19 @@ pub async fn stream_data(
     };
     data_to_send.extend(data);
 
-    loop {
-        stream.writable().await?;
+    let now = Instant::now();
+
+    while !timeout_callback(now.elapsed()) {
+        if let Err(_) = timeout(Duration::from_millis(100), stream.writable()).await {
+            continue;
+        }
         match stream.try_write(&data_to_send[total_written..]) {
             Ok(n) => {
                 total_written += n;
                 if total_written >= data_to_send.len() {
                     // remove indication from bytes sent
                     total_written -= INIDICATION_SIZE;
-                    break;
+                    return Ok(total_written);
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -120,7 +127,10 @@ pub async fn stream_data(
             }
         }
     }
-    return Ok(total_written);
+    return Err(ConnectionError::Timeout(
+        "tcp send stream".to_owned(),
+        now.elapsed(),
+    ));
 }
 
 pub struct StreamPool
@@ -240,9 +250,12 @@ mod streamtest
         let listener = TcpListener::bind(bind).await.unwrap();
         tokio::spawn(async move {
             let mut arr = Vec::new();
+            let data = [23, 32];
             loop {
-                let s = listener.accept().await.unwrap();
-                arr.push(s);
+                let (t, _) = listener.accept().await.unwrap();
+                t.writable().await.unwrap();
+                t.try_write(&data).unwrap();
+                arr.push(t);
             }
         });
 

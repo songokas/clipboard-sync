@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::{timeout, Duration};
 
-use crate::defaults::CONNECTION_TIMEOUT;
+use crate::defaults::DATA_TIMEOUT;
 use crate::errors::ConnectionError;
 use crate::fragmenter::RelayEncryptor;
 use crate::identity::{Identity, IdentityVerifier};
@@ -22,7 +22,7 @@ pub async fn receive_data(
     let (socket, pool) = listener;
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
-        let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
+        let (stream, peer_addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
             Ok(v) => {
                 let (s, a) = v?;
                 debug!("Tcp received new connection {}", a);
@@ -34,29 +34,32 @@ pub async fn receive_data(
                         Ok(a) => a,
                         Err(_) => continue,
                     };
-                    debug!("Tcp matched existing stream to remote {}", addr);
+                    debug!("Tcp matched existing stream for {}", addr);
                     (s, addr)
                 }
                 None => continue,
             },
         };
         verifier
-            .verify(&Identity::from(addr))
-            .ok_or_else(|| ConnectionError::InvalidSource(addr))?;
+            .verify(&Identity::from(peer_addr))
+            .ok_or_else(|| ConnectionError::InvalidSource(peer_addr))?;
 
         let timeout_with_duration = |d: Duration| -> bool {
-            return d > Duration::from_millis(CONNECTION_TIMEOUT) && timeout_callback(d);
+            return d > Duration::from_millis(DATA_TIMEOUT) && timeout_callback(d);
         };
-        return match receive_stream(stream.clone(), addr, max_len, timeout_with_duration).await {
-            Ok((d, s)) if d.len() > 0 => {
+        return match receive_stream(stream.clone(), max_len, timeout_with_duration).await {
+            Ok(d) if d.len() > 0 => {
                 pool.add(stream).await;
-                Ok((d, s))
+                Ok((d, peer_addr))
             }
-            Ok((d, s)) => {
-                pool.remove(&s).await;
-                Ok((d, s))
+            Ok(d) => {
+                pool.remove(&peer_addr).await;
+                Ok((d, peer_addr))
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                pool.remove(&peer_addr).await;
+                Err(e)
+            }
         };
     }
     return Err(ConnectionError::Timeout(
@@ -70,10 +73,11 @@ pub async fn send_data(
     encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     destination: &SocketAddr,
+    timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
     let mut stream = socket.connect(destination.clone()).await?;
-    let total_sent = stream_data(&stream, encryptor, data).await?;
+    let total_sent = stream_data(&stream, encryptor, data, timeout_callback).await?;
     stream.shutdown().await?;
     return Ok(total_sent);
 }
@@ -163,7 +167,14 @@ mod tcptest
                 .await
             }),
             tokio::spawn(async move {
-                send_data(client_sock, &encryptor, for_sending, &local_server).await
+                send_data(
+                    client_sock,
+                    &encryptor,
+                    for_sending,
+                    &local_server,
+                    |d: Duration| d > Duration::from_millis(8000),
+                )
+                .await
             }),
         )
         .unwrap();

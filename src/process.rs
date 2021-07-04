@@ -79,6 +79,7 @@ pub async fn receive_clipboard(
         )
         .await
         {
+            Ok((d, _)) if d.len() == 0 => continue,
             Ok(v) => v,
             Err(ConnectionError::InvalidKey(e)) | Err(ConnectionError::InvalidProtocol(e)) => {
                 error!("Unable to continue. {}", e);
@@ -587,10 +588,11 @@ async fn send_clipboard_to_group(
         let bytes = encrypt_serialize_to_bytes(&buffer, &identity, group, message_type)?;
 
         debug!(
-            "Sending to {}:{} using {}",
+            "Sending to {}:{} using {} length {}",
             remote_ip,
             addr.port(),
-            identity
+            identity,
+            bytes.len(),
         );
 
         let encryptor = IdentityEncryptor::new(group.clone(), identity);

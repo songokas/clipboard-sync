@@ -71,7 +71,7 @@ pub async fn send_data(
 
 async fn tcp_receive(
     socket: Arc<UdpSocket>,
-    addr: SocketAddr,
+    peer_addr: SocketAddr,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<(Vec<u8>, SocketAddr), ConnectionError>
@@ -79,7 +79,7 @@ async fn tcp_receive(
     let duration = Duration::from_millis(CONNECTION_TIMEOUT);
     let callback = |d: Duration| d > duration || timeout_callback(d);
     let local_addr = socket.local_addr()?;
-    let destination = addr.clone();
+    let destination = peer_addr.clone();
 
     debug!(
         "tcp receive on local address {} from remote {}",
@@ -92,8 +92,9 @@ async fn tcp_receive(
         Ok(stream) = connect_stream(local_addr, destination) => Ok(stream),
         else => Err(ConnectionError::Timeout("basic receive".to_owned(), duration)),
     }?;
-    verify_peer(&stream, &addr)?;
-    return receive_stream(Arc::new(stream), addr, max_len, callback).await;
+    verify_peer(&stream, &peer_addr)?;
+    let bytes = receive_stream(Arc::new(stream), max_len, callback).await?;
+    return Ok((bytes, peer_addr));
 }
 
 async fn tcp_send(
@@ -121,7 +122,7 @@ async fn tcp_send(
     }?;
 
     verify_peer(&stream, destination)?;
-    let total_sent = stream_data(&stream, encryptor, data).await?;
+    let total_sent = stream_data(&stream, encryptor, data, timeout_callback).await?;
     stream.shutdown().await?;
     return Ok(total_sent);
 }

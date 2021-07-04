@@ -338,7 +338,7 @@ pub async fn send_data<E, T>(
     protocol: &Protocol,
     destination: Destination,
     data: Vec<u8>,
-    timeout: T,
+    timeout_callback: T,
 ) -> Result<usize, ConnectionError>
 where
     E: FrameEncryptor
@@ -363,7 +363,7 @@ where
                 encryptor,
                 data,
                 destination.into(),
-                timeout,
+                timeout_callback,
             )
             .await
         }
@@ -392,7 +392,7 @@ where
                 data,
                 destination,
                 c.verify_dir.clone(),
-                timeout,
+                timeout_callback,
             )
             .await
         }
@@ -406,7 +406,7 @@ where
                 &encryptor,
                 data,
                 &destination.into(),
-                timeout,
+                timeout_callback,
             )
             .await
         }
@@ -420,7 +420,7 @@ where
         }
         Protocol::Tcp => {
             if let Some(stream) = local_socket.stream() {
-                stream_data(&stream, &encryptor, data).await
+                stream_data(&stream, &encryptor, data, timeout_callback).await
             } else {
                 let socket = Arc::try_unwrap(local_socket)
                     .map_err(|_| {
@@ -430,7 +430,14 @@ where
                     .ok_or(ConnectionError::InvalidProtocol(
                         "Tcp protocol socket expected".to_owned(),
                     ))?;
-                tcp::send_data(socket, &encryptor, data, &destination.into()).await
+                tcp::send_data(
+                    socket,
+                    &encryptor,
+                    data,
+                    &destination.into(),
+                    timeout_callback,
+                )
+                .await
             }
         }
     };

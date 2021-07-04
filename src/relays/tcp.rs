@@ -71,7 +71,7 @@ async fn relay_stream(
     timeout_callback: impl Fn(Duration) -> bool,
     config: RelayConfig,
     count: Arc<AtomicU64>,
-) -> u64
+) -> Result<u64, ConnectionError>
 {
     let mut buffer = [0; 10000];
     let now = Instant::now();
@@ -81,13 +81,15 @@ async fn relay_stream(
     let encryptor = NoRelayEncryptor {};
 
     while !timeout_callback(now.elapsed()) {
-        stream.readable().await.expect("readable stream error");
+        match timeout(Duration::from_millis(100), stream.readable()).await {
+            Ok(r) => r?,
+            Err(_) => continue,
+        };
 
         match stream.try_read(&mut buffer) {
             Ok(0) => {
-                // close_streams(&mut destination_streams).await;
                 count.fetch_add(1, Ordering::Relaxed);
-                break;
+                return Ok(total_read);
             }
             Ok(read) => {
                 if read < config.message_size {
@@ -118,8 +120,7 @@ async fn relay_stream(
                             s
                         }
                         Err(e) => {
-                            error!("Failed to obtain streams: {}", e);
-                            break;
+                            return Err(e);
                         }
                     };
                     initial = false;
@@ -130,46 +131,43 @@ async fn relay_stream(
 
                 total_read += read as u64;
 
-                send_data(&destination_streams, &encryptor, data, &from_addr).await;
+                send_data(&destination_streams, &encryptor, data, &from_addr, |e| {
+                    timeout_callback(e)
+                })
+                .await;
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                 continue;
             }
             Err(e) => {
                 error!("Failed to relay tcp connection {}", e);
-                break;
+                return Err(ConnectionError::from(e));
             }
         };
     }
-    return total_read;
+    return Ok(total_read);
 }
-
-// async fn close_streams(destination_streams: &mut Vec<TcpStream>)
-// {
-//     for destination_stream in destination_streams.iter_mut() {
-//         if let Err(e) = destination_stream.shutdown().await {
-//             error!("Tcp failed to close stream {}", e);
-//         }
-//     }
-// }
 
 async fn send_data(
     destination_streams: &[Arc<TcpStream>],
     encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     from_addr: &SocketAddr,
+    timeout_callback: impl Fn(Duration) -> bool,
 )
 {
     for destination_stream in destination_streams {
-        if let Err(e) = stream_data(destination_stream, encryptor, data.clone()).await {
+        if let Err(e) = stream_data(destination_stream, encryptor, data.clone(), |d| {
+            timeout_callback(d)
+        })
+        .await
+        {
             error!("Tcp failed to send data {}", e);
+            continue;
         }
         let destination_addr = match destination_stream.peer_addr() {
-            Ok(a) => a,
-            Err(e) => {
-                error!("Failed to retrieve destination addr {}", e);
-                continue;
-            }
+            Ok(a) => a.to_string(),
+            Err(_) => "unknown peer".into(),
         };
         debug!(
             "Relay from {} to {} len {}",
