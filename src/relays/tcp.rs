@@ -14,8 +14,6 @@ use crate::config::RelayConfig;
 use crate::defaults::DATA_TIMEOUT;
 use crate::destination_pool::DestinationPool;
 use crate::errors::ConnectionError;
-use crate::fragmenter::NoRelayEncryptor;
-use crate::fragmenter::RelayEncryptor;
 use crate::stream::{stream_data, StreamPool};
 use crate::validation::get_group_id;
 
@@ -30,8 +28,14 @@ pub async fn relay_data(
     let count = Arc::new(AtomicU64::new(0));
     while running.load(Ordering::Relaxed) {
         let (stream, addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
-            Ok(v) => {
-                let (s, a) = v.expect("socket stream expected");
+            Ok(result) => {
+                let (s, a) = match result {
+                    Ok(d) => d,
+                    Err(e) => {
+                        error!("Failed to accept tcp connection {}", e);
+                        continue;
+                    }
+                };
                 let stream = Arc::new(s);
                 (stream, a)
             }
@@ -78,7 +82,6 @@ async fn relay_stream(
     let mut total_read = 0;
     let mut destination_streams = Vec::new();
     let mut initial = true;
-    let encryptor = NoRelayEncryptor {};
 
     while !timeout_callback(now.elapsed()) {
         match timeout(Duration::from_millis(100), stream.readable()).await {
@@ -89,6 +92,7 @@ async fn relay_stream(
         match stream.try_read(&mut buffer) {
             Ok(0) => {
                 count.fetch_add(1, Ordering::Relaxed);
+                stream_pool.remove(&from_addr).await;
                 return Ok(total_read);
             }
             Ok(read) => {
@@ -120,18 +124,19 @@ async fn relay_stream(
                             s
                         }
                         Err(e) => {
+                            stream_pool.remove(&from_addr).await;
                             return Err(e);
                         }
                     };
                     initial = false;
-                    buffer[config.message_size..].to_vec()
+                    buffer[config.message_size..read].to_vec()
                 } else {
                     buffer[..read].to_vec()
                 };
 
                 total_read += read as u64;
 
-                send_data(&destination_streams, &encryptor, data, &from_addr, |e| {
+                send_data(&destination_streams, data, &from_addr, |e| {
                     timeout_callback(e)
                 })
                 .await;
@@ -141,34 +146,35 @@ async fn relay_stream(
             }
             Err(e) => {
                 error!("Failed to relay tcp connection {}", e);
+                stream_pool.remove(&from_addr).await;
                 return Err(ConnectionError::from(e));
             }
         };
     }
-    return Ok(total_read);
+    return Err(ConnectionError::Timeout(
+        "tcp receive".to_owned(),
+        now.elapsed(),
+    ));
 }
 
 async fn send_data(
     destination_streams: &[Arc<TcpStream>],
-    encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     from_addr: &SocketAddr,
     timeout_callback: impl Fn(Duration) -> bool,
 )
 {
     for destination_stream in destination_streams {
-        if let Err(e) = stream_data(destination_stream, encryptor, data.clone(), |d| {
-            timeout_callback(d)
-        })
-        .await
-        {
-            error!("Tcp failed to send data {}", e);
-            continue;
-        }
         let destination_addr = match destination_stream.peer_addr() {
             Ok(a) => a.to_string(),
             Err(_) => "unknown peer".into(),
         };
+        if let Err(e) = stream_data(destination_stream, data.clone(), |d| timeout_callback(d)).await
+        {
+            error!("Tcp failed to send data with length {} {}", data.len(), e);
+            continue;
+        }
+
         debug!(
             "Relay from {} to {} len {}",
             from_addr,

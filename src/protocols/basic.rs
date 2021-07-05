@@ -14,7 +14,7 @@ use crate::fragmenter::RelayEncryptor;
 use crate::identity::{Identity, IdentityVerifier};
 use crate::protocols::tcp::{connect_stream, obtain_server_socket};
 use crate::socket::{receive_from_timeout, IpAddrExt};
-use crate::stream::{receive_stream, stream_data};
+use crate::stream::{receive_stream, send_stream};
 
 pub async fn receive_data(
     socket: Arc<UdpSocket>,
@@ -122,7 +122,7 @@ async fn tcp_send(
     }?;
 
     verify_peer(&stream, destination)?;
-    let total_sent = stream_data(&stream, encryptor, data, timeout_callback).await?;
+    let total_sent = send_stream(&stream, encryptor, data, timeout_callback).await?;
     stream.shutdown().await?;
     return Ok(total_sent);
 }

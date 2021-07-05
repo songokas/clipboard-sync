@@ -1,4 +1,3 @@
-use log::debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,7 +9,7 @@ use crate::defaults::DATA_TIMEOUT;
 use crate::errors::ConnectionError;
 use crate::fragmenter::RelayEncryptor;
 use crate::identity::{Identity, IdentityVerifier};
-use crate::stream::{receive_stream, stream_data, StreamPool};
+use crate::stream::{receive_stream, send_stream, StreamPool};
 
 pub async fn receive_data(
     listener: (&TcpListener, Arc<StreamPool>),
@@ -25,7 +24,7 @@ pub async fn receive_data(
         let (stream, peer_addr) = match timeout(Duration::from_millis(100), socket.accept()).await {
             Ok(v) => {
                 let (s, a) = v?;
-                debug!("Tcp received new connection {}", a);
+                // debug!("Tcp received new connection {}", a);
                 (Arc::new(s), a)
             }
             Err(_) => match pool.get_stream_with_data().await {
@@ -34,7 +33,7 @@ pub async fn receive_data(
                         Ok(a) => a,
                         Err(_) => continue,
                     };
-                    debug!("Tcp matched existing stream for {}", addr);
+                    // debug!("Tcp matched existing stream for {}", addr);
                     (s, addr)
                 }
                 None => continue,
@@ -77,7 +76,7 @@ pub async fn send_data(
 ) -> Result<usize, ConnectionError>
 {
     let mut stream = socket.connect(destination.clone()).await?;
-    let total_sent = stream_data(&stream, encryptor, data, timeout_callback).await?;
+    let total_sent = send_stream(&stream, encryptor, data, timeout_callback).await?;
     stream.shutdown().await?;
     return Ok(total_sent);
 }

@@ -32,7 +32,7 @@ use crate::fragmenter::RelayEncryptor;
 use crate::fragmenter::{FrameDataDecryptor, FrameDecryptor, FrameEncryptor, FrameIndexEncryptor};
 use crate::identity::IdentityVerifier;
 use crate::socket::{get_matching_address, Destination};
-use crate::stream::{stream_data, StreamPool};
+use crate::stream::{send_stream, StreamPool};
 
 #[cfg(feature = "quinn")]
 use quinn::{Endpoint, Incoming};
@@ -420,7 +420,7 @@ where
         }
         Protocol::Tcp => {
             if let Some(stream) = local_socket.stream() {
-                stream_data(&stream, &encryptor, data, timeout_callback).await
+                send_stream(&stream, &encryptor, data, timeout_callback).await
             } else {
                 let socket = Arc::try_unwrap(local_socket)
                     .map_err(|_| {

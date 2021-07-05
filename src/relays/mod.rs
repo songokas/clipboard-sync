@@ -74,7 +74,7 @@ pub async fn relay_packets(
     let count = match protocol {
         Protocol::Basic => {
             udp::relay_data(
-                local_socket.socket().expect("expected udp socke"),
+                local_socket.socket().expect("expected udp socket"),
                 destination_pool.clone(),
                 timeout,
                 &config,
