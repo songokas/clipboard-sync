@@ -7,9 +7,9 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
-const ENCRYPTION_KEY: &'static str = "12345678912345678912345678912345";
-const PRIVATE_KEY: &'static str = "33232323233323233333333333333333";
-const PUBLIC_KEY: &'static str = "Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=";
+const ENCRYPTION_KEY: &str = "12345678912345678912345678912345";
+const PRIVATE_KEY: &str = "33232323233323233333333333333333";
+const PUBLIC_KEY: &str = "Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=";
 
 fn relay_protocol(protocol: &'static str, size: usize)
 {
@@ -159,5 +159,5 @@ fn run_command(
     }
     cmd.write_stdin(stdin);
     cmd.timeout(Duration::from_millis(timeout));
-    return cmd.output();
+    cmd.output()
 }

@@ -77,7 +77,12 @@ pub fn to_socket_address(socket_addr: impl AsRef<str>) -> Result<SocketAddr, Dns
             e
         ))
     };
-    for addr in socket_addr.as_ref().to_socket_addrs().map_err(to_err)? {
+    let addr = socket_addr
+        .as_ref()
+        .to_socket_addrs()
+        .map_err(to_err)?
+        .next();
+    if let Some(addr) = addr {
         debug!("Retrieved socket {} for dns {}", addr, socket_addr.as_ref());
         return Ok(addr);
     }

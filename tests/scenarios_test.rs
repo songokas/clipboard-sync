@@ -8,7 +8,7 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
-const ANY_KEY: &'static str = "12345678912345678912345678912345";
+const ANY_KEY: &str = "12345678912345678912345678912345";
 
 fn send_receive_once(protocol: &'static str, size: usize)
 {
@@ -410,5 +410,5 @@ fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result
     }
     cmd.write_stdin(stdin);
     cmd.timeout(Duration::from_millis(timeout));
-    return cmd.output();
+    cmd.output()
 }
