@@ -357,7 +357,7 @@ fn test_send_receive_same_port()
                 "basic",
             ],
             "",
-            2000,
+            3000,
         )
     });
 
@@ -388,7 +388,7 @@ fn test_send_receive_same_port()
                 protocol,
             ],
             &contents,
-            2000,
+            3000,
         )
     });
 

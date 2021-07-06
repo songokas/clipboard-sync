@@ -24,7 +24,7 @@ pub fn get_time() -> u64
     {
         let diff = TIME_DIFF.load(Ordering::Relaxed);
         let now = Utc::now().timestamp();
-        return (now + diff) as u64;
+        (now + diff) as u64
     }
     #[cfg(not(feature = "ntp"))]
     return Utc::now().timestamp() as u64;
@@ -46,7 +46,7 @@ pub fn is_timestamp_valid(timestamp: u64, valid_for: u16) -> bool
         Ok(i) => i,
         _ => return false,
     };
-    return valid_for >= diff;
+    valid_for >= diff
 }
 
 #[cfg(feature = "ntp")]
@@ -67,7 +67,7 @@ pub async fn update_time_diff(
             updated += 1;
         }
     }
-    return Ok((format!("ntp updated"), updated));
+    Ok(("ntp updated".into(), updated))
 }
 
 #[cfg(feature = "ntp")]
@@ -79,7 +79,11 @@ async fn get_time_diff(ntp_address: &str) -> i64
         return 0;
     };
     let now = Utc::now().timestamp();
-    return if real >= now { real - now } else { now - real };
+    if real >= now {
+        real - now
+    } else {
+        now - real
+    }
 }
 
 #[cfg(feature = "ntp")]
@@ -100,7 +104,7 @@ async fn get_ntp_time(ntp_address: &str) -> Result<i64, ConnectionError>
         seconds,
         Utc::now().timestamp()
     );
-    return Ok(seconds);
+    Ok(seconds)
 }
 
 pub async fn run_every(
@@ -122,7 +126,7 @@ pub async fn run_every(
             now = Instant::now();
         }
     }
-    return updated;
+    updated
 }
 
 #[cfg(test)]

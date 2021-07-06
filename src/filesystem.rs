@@ -25,7 +25,7 @@ pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<(Vec<u8>, b
     let all_file = size_read < (max_size + 1);
     let resize_to = if all_file { size_read } else { max_size };
     buffer.resize_with(resize_to, Default::default);
-    return Ok((buffer, all_file));
+    Ok((buffer, all_file))
 }
 
 #[allow(unused_variables)]
@@ -56,7 +56,7 @@ pub fn read_file_to_string<P: AsRef<Path>>(
 ) -> Result<(String, bool), io::Error>
 {
     let (buffer, full) = read_file(path, max_size)?;
-    return Ok((String::from_utf8_lossy(&buffer).to_string(), full));
+    Ok((String::from_utf8_lossy(&buffer).to_string(), full))
 }
 
 pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructure
@@ -95,7 +95,7 @@ pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructu
         };
         hash.push((file_name.to_owned(), data));
     }
-    return hash;
+    hash
 }
 
 pub fn dir_to_bytes(directory: &str, max_file_size: usize) -> Result<Vec<u8>, EncryptionError>
@@ -117,7 +117,7 @@ pub fn dir_to_bytes(directory: &str, max_file_size: usize) -> Result<Vec<u8>, En
             (*err).to_string()
         ))
     })?;
-    return Ok(add_bytes);
+    Ok(add_bytes)
 }
 
 pub fn files_to_dir_structure(files: Vec<&str>, max_file_size: usize) -> DirStructure
@@ -156,7 +156,7 @@ pub fn files_to_dir_structure(files: Vec<&str>, max_file_size: usize) -> DirStru
         };
         hash.push((file_name, data));
     }
-    return hash;
+    hash
 }
 
 pub fn files_to_bytes(files: Vec<&str>, max_file_size: usize) -> Result<Vec<u8>, EncryptionError>
@@ -167,7 +167,7 @@ pub fn files_to_bytes(files: Vec<&str>, max_file_size: usize) -> Result<Vec<u8>,
     }
     let add_bytes = bincode::serialize(&hash)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    return Ok(add_bytes);
+    Ok(add_bytes)
 }
 
 pub fn bytes_to_dir(
@@ -211,7 +211,7 @@ pub fn bytes_to_dir(
     }
     write_file(&path, data, 0o600)?;
     files_created.push(path);
-    return Ok(files_created);
+    Ok(files_created)
 }
 
 pub fn encode_path(path: impl AsRef<Path>) -> Option<String>
@@ -229,7 +229,7 @@ pub fn encode_path(path: impl AsRef<Path>) -> Option<String>
             Ok(pc)
         })
         .collect();
-    return enc_path.map(|b| b.to_string_lossy().to_string()).ok();
+    enc_path.map(|b| b.to_string_lossy().to_string()).ok()
 }
 
 pub fn decode_path(path: impl AsRef<Path>) -> Result<String, FromUrlEncodingError>
@@ -253,7 +253,7 @@ pub fn decode_path(path: impl AsRef<Path>) -> Result<String, FromUrlEncodingErro
             Ok(pc)
         })
         .collect();
-    return enc_path.map(|b| b.to_string_lossy().to_string());
+    enc_path.map(|b| b.to_string_lossy().to_string())
 }
 
 #[cfg(test)]

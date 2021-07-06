@@ -47,7 +47,7 @@ pub async fn relay_data(
 
                     let group_id = match get_group_id(
                         &data[..config.message_size],
-                        &StaticSecret::from(config.private_key.clone()),
+                        &StaticSecret::from(config.private_key),
                         config.valid_for,
                     ) {
                         Ok(id) => id,
@@ -56,8 +56,7 @@ pub async fn relay_data(
                             continue;
                         }
                     };
-                    if let Err(e) = destination_pool.add_destination(group_id.clone(), addr.clone())
-                    {
+                    if let Err(e) = destination_pool.add_destination(group_id, addr) {
                         error!("Add destination error: {}", e);
                         continue;
                     }
@@ -75,7 +74,7 @@ pub async fn relay_data(
             _ => thread::sleep(Duration::from_millis(5)),
         }
     }
-    return count.load(Ordering::Relaxed);
+    count.load(Ordering::Relaxed)
 }
 
 async fn send_to(

@@ -73,7 +73,7 @@ pub fn create_text_targets(contents: &[u8]) -> HashMap<ClipboardType, &[u8]>
         clipboard_list.insert(ClipboardType::PlainUtf8, contents);
         clipboard_list.insert(ClipboardType::SimpleText, contents);
     }
-    return clipboard_list;
+    clipboard_list
 }
 
 pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
@@ -98,5 +98,5 @@ pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
     }
     clipboard_list.insert(ClipboardType::Text, file_content.clone());
 
-    return (clipboard_list, file_content);
+    (clipboard_list, file_content)
 }

@@ -37,16 +37,16 @@ pub trait DataEncryptor
 
 pub fn random(number_of_chars: usize) -> Vec<u8>
 {
-    return (0..number_of_chars).map(|_| rand::random::<u8>()).collect();
+    (0..number_of_chars).map(|_| rand::random::<u8>()).collect()
 }
 
 pub fn random_alphanumeric(number_of_chars: usize) -> String
 {
-    return rand::thread_rng()
+    rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(number_of_chars)
         .map(char::from)
-        .collect();
+        .collect()
 }
 
 pub fn encrypt(
@@ -57,7 +57,7 @@ pub fn encrypt(
     message_type: MessageType,
 ) -> Result<Message, EncryptionError>
 {
-    let cipher = XChaCha20Poly1305::new(&key);
+    let cipher = XChaCha20Poly1305::new(key);
     let nonce_data = random(size_of::<XNonce>());
     let nonce = XNonce::from_slice(&nonce_data);
 
@@ -78,13 +78,13 @@ pub fn encrypt(
     let ciphertext = cipher
         .encrypt(nonce, msg)
         .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()))?;
-    return Ok(Message {
-        nonce: nonce.clone(),
+    Ok(Message {
+        nonce: *nonce,
         group,
         data: ciphertext,
         message_type,
         time: get_time(),
-    });
+    })
 }
 
 pub fn encrypt_with_secret(
@@ -93,7 +93,7 @@ pub fn encrypt_with_secret(
     public_key: PublicKey,
 ) -> Result<PublicMessage, EncryptionError>
 {
-    let cipher = XChaCha20Poly1305::new(&Key::from_slice(encryption_key.as_bytes()));
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(encryption_key.as_bytes()));
     let nonce_data = random(size_of::<XNonce>());
     let nonce = XNonce::from_slice(&nonce_data);
 
@@ -106,12 +106,12 @@ pub fn encrypt_with_secret(
         .map_err(|err| EncryptionError::EncryptionFailed(err.to_string()))?;
     let message = PublicMessage {
         public_key,
-        nonce: nonce.clone(),
+        nonce: *nonce,
         data,
         time: get_time(),
     };
 
-    return Ok(message);
+    Ok(message)
 }
 
 pub fn decrypt_with_secret(
@@ -119,18 +119,18 @@ pub fn decrypt_with_secret(
     encryption_key: &SharedSecret,
 ) -> Result<Vec<u8>, EncryptionError>
 {
-    let cipher = XChaCha20Poly1305::new(&Key::from_slice(encryption_key.as_bytes()));
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(encryption_key.as_bytes()));
 
     let msg = Payload {
         msg: &message.data,
         aad: message.public_key.as_bytes(),
     };
-    return cipher.decrypt(&message.nonce, msg).map_err(|err| {
+    cipher.decrypt(&message.nonce, msg).map_err(|err| {
         EncryptionError::DecryptionFailed(format!(
             "Failed to decrypt incorrect message {}",
             err.to_string()
         ))
-    });
+    })
 }
 
 pub fn encrypt_serialize_to_bytes(
@@ -145,11 +145,11 @@ pub fn encrypt_serialize_to_bytes(
         &group.key,
         identity,
         group.name.clone(),
-        message_type.clone(),
+        *message_type,
     )?;
     let bytes = bincode::serialize(&message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    return Ok(bytes);
+    Ok(bytes)
 }
 
 pub fn encrypt_group_to_bytes(
@@ -184,10 +184,10 @@ pub fn relay_header(
     match to_socket_address(&relay.host) {
         Ok(relay_addr) if &relay_addr == destination => {
             let relay_bytes = encrypt_with_key(&group.hash(), &group.key, &relay.public_key)?;
-            return Ok(Some(relay_bytes));
+            Ok(Some(relay_bytes))
         }
-        _ => return Ok(None),
-    };
+        _ => Ok(None),
+    }
 }
 
 pub fn decrypt(
@@ -212,7 +212,7 @@ pub fn decrypt(
     };
 
     let cipher = XChaCha20Poly1305::new(&group.key);
-    return cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
+    cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
         EncryptionError::DecryptionFailed(format!(
             "Failed to decrypt incorrect message for group {} type {} from {} {}",
             message.group,
@@ -220,7 +220,7 @@ pub fn decrypt(
             identity,
             err.to_string()
         ))
-    });
+    })
 }
 
 pub fn hash(bytes: &[u8]) -> String
@@ -228,14 +228,14 @@ pub fn hash(bytes: &[u8]) -> String
     let mut hasher = DefaultHasher::new();
     hasher.write(bytes);
     let hex = hasher.finish();
-    return hex.to_string();
+    hex.to_string()
 }
 
 pub fn compress(data: &[u8]) -> io::Result<Vec<u8>>
 {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     e.write_all(data)?;
-    return e.finish();
+    e.finish()
 }
 
 pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
@@ -243,7 +243,7 @@ pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
     let mut d = ZlibDecoder::new(&data[..]);
     let mut buffer = Vec::new();
     d.read_to_end(&mut buffer)?;
-    return Ok(buffer);
+    Ok(buffer)
 }
 
 pub fn hex_dump(buf: &[u8]) -> String
@@ -269,12 +269,12 @@ fn encrypt_with_key(
             )));
         }
     };
-    let shared_secret = secret.diffie_hellman(&endpoint_public_key);
+    let shared_secret = secret.diffie_hellman(endpoint_public_key);
     let public_key = PublicKey::from(&secret);
-    let relay_message = encrypt_with_secret(&hash, &shared_secret, public_key)?;
+    let relay_message = encrypt_with_secret(hash, &shared_secret, public_key)?;
     let relay_bytes = bincode::serialize(&relay_message)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    return Ok(relay_bytes);
+    Ok(relay_bytes)
 }
 
 #[cfg(test)]

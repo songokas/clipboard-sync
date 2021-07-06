@@ -31,7 +31,7 @@ pub async fn receive_data(
 
     verifier
         .verify(&Identity::from(addr))
-        .ok_or_else(|| ConnectionError::InvalidSource(addr))?;
+        .ok_or(ConnectionError::InvalidSource(addr))?;
 
     if read == 1 && buffer[0] == 49 {
         return tcp_receive(socket, addr, max_len, timeout_callback).await;
@@ -43,7 +43,7 @@ pub async fn receive_data(
             max_len,
         });
     }
-    return Ok((buffer[..read].to_vec(), addr));
+    Ok((buffer[..read].to_vec(), addr))
 }
 
 pub async fn send_data(
@@ -66,7 +66,7 @@ pub async fn send_data(
         }
         _ => data,
     };
-    return Ok(socket.send_to(&data_to_send, destination).await?);
+    Ok(socket.send_to(&data_to_send, destination).await?)
 }
 
 async fn tcp_receive(
@@ -79,7 +79,7 @@ async fn tcp_receive(
     let duration = Duration::from_millis(CONNECTION_TIMEOUT);
     let callback = |d: Duration| d > duration || timeout_callback(d);
     let local_addr = socket.local_addr()?;
-    let destination = peer_addr.clone();
+    let destination = peer_addr;
 
     debug!(
         "tcp receive on local address {} from remote {}",
@@ -94,7 +94,7 @@ async fn tcp_receive(
     }?;
     verify_peer(&stream, &peer_addr)?;
     let bytes = receive_stream(Arc::new(stream), max_len, callback).await?;
-    return Ok((bytes, peer_addr));
+    Ok((bytes, peer_addr))
 }
 
 async fn tcp_send(
@@ -116,7 +116,7 @@ async fn tcp_send(
 
     let mut stream = select! {
         // biased;
-        Ok(stream) = connect_stream(local_addr, destination.clone()) => Ok(stream),
+        Ok(stream) = connect_stream(local_addr, *destination) => Ok(stream),
         Ok(stream) = listen_stream(local_addr, callback) => Ok(stream),
         else => Err(ConnectionError::Timeout("basic send".to_owned(), duration)),
     }?;
@@ -124,7 +124,7 @@ async fn tcp_send(
     verify_peer(&stream, destination)?;
     let total_sent = send_stream(&stream, encryptor, data, timeout_callback).await?;
     stream.shutdown().await?;
-    return Ok(total_sent);
+    Ok(total_sent)
 }
 
 async fn listen_stream(
@@ -141,10 +141,10 @@ async fn listen_stream(
         };
         return Ok(stream);
     }
-    return Err(ConnectionError::Timeout(
+    Err(ConnectionError::Timeout(
         "basic listen stream".to_owned(),
         now.elapsed(),
-    ));
+    ))
 }
 
 pub fn verify_peer(stream: &TcpStream, expected_peer: &SocketAddr)
@@ -158,12 +158,10 @@ pub fn verify_peer(stream: &TcpStream, expected_peer: &SocketAddr)
             if &a != expected_peer {
                 return Err(ConnectionError::InvalidSource(a));
             }
-            return Ok(true);
+            Ok(true)
         }
-        _ => {
-            return Err(ConnectionError::NoSourceIp());
-        }
-    };
+        _ => Err(ConnectionError::NoSourceIp()),
+    }
 }
 
 #[cfg(test)]

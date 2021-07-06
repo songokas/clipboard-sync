@@ -70,20 +70,20 @@ impl Status
 {
     pub fn on(s: String, clipboard: String) -> Self
     {
-        return Status {
+        Status {
             state: true,
             message: s,
             clipboard,
-        };
+        }
     }
 
     pub fn off(s: String) -> Self
     {
-        return Status {
+        Status {
             state: false,
             message: s,
             clipboard: String::from(""),
-        };
+        }
     }
 }
 
@@ -114,17 +114,17 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
             config.key.len()
         ));
     }
-    if !(config.group.len() > 0) {
-        return Err(format!("Please provide any group name"));
+    if config.group.is_empty() {
+        return Err("Please provide any group name".into());
     }
-    if !(config.hosts.len() > 0) {
-        return Err(format!("Please provide host where to send clipboard"));
+    if config.hosts.is_empty() {
+        return Err("Please provide host where to send clipboard".into());
     }
-    if !(config.send_using_address.len() > 0) {
-        return Err(format!("Please provide socket send address"));
+    if config.send_using_address.is_empty() {
+        return Err("Please provide socket send address".into());
     }
-    if !(config.bind_address.len() > 0) {
-        return Err(format!("Please provide socket bind address"));
+    if config.bind_address.is_empty() {
+        return Err("Please provide socket bind address".into());
     }
 
     let key = Key::clone_from_slice(config.key.as_bytes());
@@ -144,7 +144,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
             .map_err(|e| format!("Invalid relay public key provided: {}", e))?;
         let key: [u8; KEY_SIZE] = decoded
             .try_into()
-            .map_err(|_| format!("Invalid relay public key length"))?;
+            .map_err(|_| "Invalid relay public key length".to_string())?;
         let public_key = PublicKey::from(key);
         Some(Relay {
             host: r.host,
@@ -157,7 +157,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
     let group = Group {
         name: config.group.clone(),
         allowed_hosts: config.hosts,
-        key: key,
+        key,
         visible_ip: config.visible_ip,
         send_using_address,
         clipboard: String::from(DEFAULT_CLIPBOARD),
@@ -178,14 +178,14 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
         None,
     );
 
-    return Ok(full_config);
+    Ok(full_config)
 }
 
 pub async fn create_runner(config_str: String) -> Result<(Runner, String), String>
 {
     let full_config = create_config(config_str)?;
     let runner = Runner::start(full_config).await;
-    return Ok((runner, String::from("Started")));
+    Ok((runner, String::from("Started")))
 }
 
 pub struct Runner
@@ -225,11 +225,11 @@ impl Runner
             clipboard = c;
         }
 
-        return StatusCount {
+        StatusCount {
             sent: self.sent_count,
             received: self.received_count,
             clipboard,
-        };
+        }
     }
 
     #[cfg(target_os = "android")]
@@ -260,13 +260,13 @@ impl Runner
                 };
                 let result = format!("Finished running. {} {}", reiceive_message, send_message);
                 info!("{}", result);
-                return Ok(result);
+                Ok(result)
             }
             Err(err) => {
                 error!("{}", err);
-                return Err(CliError::JoinError(err));
+                Err(CliError::JoinError(err))
             }
-        };
+        }
     }
 
     pub async fn start(full_config: FullConfig) -> Self
@@ -297,7 +297,7 @@ impl Runner
         let (protocol, bind_address) = full_config
             .get_first_bind_address()
             .expect("Protocol bind addresses required");
-        let pool = Arc::new(SocketPool::new());
+        let pool = Arc::new(SocketPool::default());
         let receive = receive_clipboard(
             Arc::clone(&pool),
             clipboard_receive,
@@ -315,12 +315,12 @@ impl Runner
             clipboard_send,
             rx,
             Arc::clone(&running),
-            full_config.clone(),
-            stat_sender.clone(),
+            full_config,
+            stat_sender,
             false,
         );
 
-        return Runner {
+        Runner {
             running,
             receiver: tokio::spawn(receive),
             sender: tokio::spawn(send),
@@ -332,6 +332,6 @@ impl Runner
             received_count: 0,
             sent_count: 0,
             pool,
-        };
+        }
     }
 }

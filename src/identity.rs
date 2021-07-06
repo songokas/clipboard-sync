@@ -23,12 +23,12 @@ impl Identity
     // for ipv6 sockets ipv4 mapped address should be used as ipv4 address
     pub fn from_mapped(item: &SocketAddr) -> Self
     {
-        return Self::from(remove_ipv4_mapping(item));
+        Self::from(remove_ipv4_mapping(item))
     }
 
     pub fn is_global(&self) -> bool
     {
-        return IpAddrExt::is_global(&self.address);
+        IpAddrExt::is_global(&self.address)
     }
 }
 
@@ -36,9 +36,7 @@ impl From<&IpAddr> for Identity
 {
     fn from(item: &IpAddr) -> Self
     {
-        return Self {
-            address: item.clone(),
-        };
+        Self { address: *item }
     }
 }
 
@@ -46,7 +44,7 @@ impl From<IpAddr> for Identity
 {
     fn from(item: IpAddr) -> Self
     {
-        return Self { address: item };
+        Self { address: item }
     }
 }
 
@@ -54,7 +52,7 @@ impl From<&SocketAddr> for Identity
 {
     fn from(item: &SocketAddr) -> Self
     {
-        return remove_ipv4_mapping(item).ip().into();
+        remove_ipv4_mapping(item).ip().into()
     }
 }
 
@@ -62,7 +60,7 @@ impl From<SocketAddr> for Identity
 {
     fn from(item: SocketAddr) -> Self
     {
-        return remove_ipv4_mapping(&item).ip().into();
+        remove_ipv4_mapping(&item).ip().into()
     }
 }
 
@@ -89,14 +87,13 @@ pub async fn retrieve_identity(
     group: &Group,
 ) -> Result<Identity, ConnectionError>
 {
-    match &group.relay {
-        Some(relay) => match to_socket_address(&relay.host) {
+    if let Some(relay) = &group.relay {
+        match to_socket_address(&relay.host) {
             Ok(relay_addr) if &relay_addr == remote_address => {
                 return Ok(Identity::from(remote_address))
             }
             _ => (),
-        },
-        _ => (),
+        };
     };
 
     if let Some(host) = &group.visible_ip {
@@ -114,7 +111,7 @@ pub async fn retrieve_identity(
         ));
     }
 
-    return Ok(Identity::from(local_addr));
+    Ok(Identity::from(local_addr))
 }
 
 pub fn identity_matching_hosts(
@@ -124,13 +121,10 @@ pub fn identity_matching_hosts(
 ) -> bool
 {
     if let Some(ref r) = trust_relay {
-        match to_socket_address(r) {
-            Ok(s) => {
-                if &Identity::from(s.ip()) == identity {
-                    return true;
-                }
+        if let Ok(s) = to_socket_address(r) {
+            if &Identity::from(s.ip()) == identity {
+                return true;
             }
-            _ => (),
         };
     }
     for host in hosts {
@@ -144,7 +138,7 @@ pub fn identity_matching_hosts(
             return true;
         }
     }
-    return false;
+    false
 }
 
 #[cfg(test)]

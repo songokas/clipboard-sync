@@ -87,7 +87,12 @@ android-copy: android
 clean:
 	cargo clean
 
-test:
+clippy:
+	cargo clippy -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	cargo clippy --features quic-quinn -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	cargo clippy --features quic-quiche -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	
+test: clippy
 	cargo test
 	echo "Testing quic quiche"
 	cargo test --features quic-quiche

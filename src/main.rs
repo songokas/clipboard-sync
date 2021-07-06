@@ -31,7 +31,8 @@ use clipboard_sync::socket::ipv6_support;
 use clipboard_sync::time::update_time_diff;
 
 #[tokio::main]
-async fn main() -> Result<(), CliError> {
+async fn main() -> Result<(), CliError>
+{
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
@@ -49,7 +50,7 @@ async fn main() -> Result<(), CliError> {
     let config_path: Option<String> = match matches.value_of("config") {
         Some(p) => Some(p.to_owned()),
         None => {
-            if matches.is_present("autogenerate") || key_data == "" {
+            if matches.is_present("autogenerate") || key_data.is_empty() {
                 match generate_config("clipboard-sync") {
                     Ok(p) => {
                         let path = p.to_string_lossy().to_string();
@@ -79,9 +80,7 @@ async fn main() -> Result<(), CliError> {
 
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
-    let local_address = matches
-        .value_of("bind-address")
-        .unwrap_or_else(|| BIND_ADDRESS);
+    let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
 
     let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
         if supports_ipv6_sockets {
@@ -110,9 +109,7 @@ async fn main() -> Result<(), CliError> {
     let cert_dir = matches.value_of("cert-verify-dir");
 
     #[cfg(feature = "quic")]
-    let load_certs = move || {
-        return load_default_certificates(private_key, public_key, cert_dir);
-    };
+    let load_certs = move || load_default_certificates(private_key, public_key, cert_dir);
 
     let heartbeat = matches
         .value_of("heartbeat")
@@ -150,9 +147,9 @@ async fn main() -> Result<(), CliError> {
                 public_key,
             }),
             None => {
-                return Err(CliError::ArgumentError(format!(
-                    "Please provide a valid base64 encoded relay servers public key",
-                )))
+                return Err(CliError::ArgumentError(
+                    "Please provide a valid base64 encoded relay servers public key".into(),
+                ))
             }
         },
         None => None,
@@ -166,13 +163,13 @@ async fn main() -> Result<(), CliError> {
         )?;
 
         if allowed_host.is_empty() {
-            return Err(CliError::ArgumentError(format!(
-                "Please provide --allowed-host or use basic protocol for multicast support",
-            )));
+            return Err(CliError::ArgumentError(
+                "Please provide --allowed-host or use basic protocol for multicast support".into(),
+            ));
         }
 
         let send_using_address: IndexSet<SocketAddr> = send_address
-            .split(",")
+            .split(',')
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid send-using-address provided {}", v))
@@ -183,7 +180,7 @@ async fn main() -> Result<(), CliError> {
         let key = Key::from_slice(key_data.as_bytes());
 
         let socket_addresses: IndexSet<SocketAddr> = local_address
-            .split(",")
+            .split(',')
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
@@ -194,8 +191,8 @@ async fn main() -> Result<(), CliError> {
         let groups = indexmap! {
             group.to_owned() => Group {
                 name: group.to_owned(),
-                allowed_hosts: allowed_host.split(",").map(String::from).collect(),
-                key: key.clone(),
+                allowed_hosts: allowed_host.split(',').map(String::from).collect(),
+                key: *key,
                 visible_ip: visible_ip.clone(),
                 send_using_address,
                 clipboard: clipboard_type.to_owned(),
@@ -263,11 +260,11 @@ async fn main() -> Result<(), CliError> {
     let launch_sender = send_once || !receive_once;
 
     let mut handles = Vec::new();
-    let pool = Arc::new(SocketPool::new());
+    let pool = Arc::new(SocketPool::default());
 
     #[cfg(feature = "ntp")]
     match &full_config.ntp_server {
-        Some(s) if s.len() > 0 => {
+        Some(s) if !s.is_empty() => {
             handles.push(tokio::spawn(update_time_diff(running.clone(), s.clone())));
         }
         _ => warn!("Ntp server not provided"),
@@ -325,11 +322,11 @@ async fn main() -> Result<(), CliError> {
                     }
                 }
             }
-            return result;
+            result
         }
         Err(err) => {
             error!("{}", err);
-            return Err(CliError::JoinError(err));
+            Err(CliError::JoinError(err))
         }
-    };
+    }
 }

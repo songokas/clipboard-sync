@@ -14,7 +14,7 @@ impl DelayedClipboardContext
 {
     pub fn new() -> Result<DelayedClipboardContext, Box<dyn Error>>
     {
-        return Ok(DelayedClipboardContext { context: None });
+        Ok(DelayedClipboardContext { context: None })
     }
 
     pub fn get_target_contents(
@@ -22,7 +22,7 @@ impl DelayedClipboardContext
         clipboard_type: ClipboardType,
     ) -> Result<Vec<u8>, Box<dyn Error>>
     {
-        return self.start()?.get_target_contents(clipboard_type);
+        self.start()?.get_target_contents(clipboard_type)
     }
 
     pub fn set_target_contents(
@@ -31,7 +31,7 @@ impl DelayedClipboardContext
         contents: &[u8],
     ) -> Result<(), Box<dyn Error>>
     {
-        return self.start()?.set_target_contents(clipboard_type, contents);
+        self.start()?.set_target_contents(clipboard_type, contents)
     }
 
     pub fn set_multiple_targets(
@@ -39,7 +39,7 @@ impl DelayedClipboardContext
         targets: HashMap<ClipboardType, &[u8]>,
     ) -> Result<(), Box<dyn Error>>
     {
-        return self.start()?.set_multiple_targets(targets);
+        self.start()?.set_multiple_targets(targets)
     }
 
     fn start(&mut self) -> Result<&mut ClipboardContext, Box<dyn Error>>
@@ -50,9 +50,9 @@ impl DelayedClipboardContext
                 .map_err(|e| format!("Unable to initialize clipboard. Possibly missing xcb libraries or no x server {}", e))?
             );
         }
-        return Ok(self
+        Ok(self
             .context
             .as_mut()
-            .expect("Delayed clipboard should be initialized"));
+            .expect("Delayed clipboard should be initialized"))
     }
 }

@@ -39,7 +39,7 @@ mod serde_key_str
                 str_data
             )));
         }
-        return Ok(Some(Key::from_slice(&str_data.as_bytes()).clone()));
+        Ok(Some(*Key::from_slice(str_data.as_bytes())))
     }
 }
 
@@ -63,7 +63,7 @@ mod serde_nonce
                 nonce_data.len(),
             )));
         }
-        Ok(XNonce::from_slice(&nonce_data).clone())
+        Ok(*XNonce::from_slice(&nonce_data))
     }
 }
 

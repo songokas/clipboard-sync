@@ -23,10 +23,7 @@ pub async fn relay_packets(
     config: RelayConfig,
 ) -> Result<(String, u64), CliError>
 {
-    let local_socket = match pool
-        .obtain_server_socket(local_address.clone(), &protocol)
-        .await
-    {
+    let local_socket = match pool.obtain_server_socket(local_address, &protocol).await {
         Ok(s) => s,
         Err(e) => {
             running.store(false, Ordering::Relaxed);
@@ -53,13 +50,13 @@ pub async fn relay_packets(
             cprotocol,
             addr_len
                 .map(|l| l.to_string())
-                .unwrap_or("unknown".to_owned()),
+                .unwrap_or_else(|_| "unknown".into()),
             ips_len
                 .map(|l| l.to_string())
-                .unwrap_or("unknown".to_owned()),
+                .unwrap_or_else(|_| "unknown".into()),
             sockets_left
                 .map(|l| l.to_string())
-                .unwrap_or("unknown".to_owned()),
+                .unwrap_or_else(|_| "unknown".into()),
         );
         // stop cleanup when relay_packets return
         Arc::strong_count(&cpool) > 1
@@ -112,5 +109,5 @@ pub async fn relay_packets(
             )))
         }
     };
-    return Ok((format!("{} received", protocol), count));
+    Ok((format!("{} received", protocol), count))
 }

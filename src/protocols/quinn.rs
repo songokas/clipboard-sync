@@ -56,7 +56,7 @@ pub async fn configure_server(certificates: &Certificates) -> Result<ServerConfi
     // cfg_builder.protocols(ALPN_QUIC_HTTP);
 
     cfg_builder.certificate(chain, priv_key)?;
-    return Ok(cfg_builder.build());
+    Ok(cfg_builder.build())
 }
 
 pub async fn make_client_endpoint(
@@ -68,7 +68,7 @@ pub async fn make_client_endpoint(
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.default_client_config(client_cfg);
     let (e, s) = endpoint_builder.bind(bind_addr)?;
-    return Ok((e, s));
+    Ok((e, s))
 }
 
 pub async fn obtain_server_endpoint(
@@ -80,7 +80,7 @@ pub async fn obtain_server_endpoint(
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.listen(server_config);
     let (e, s) = endpoint_builder.bind(bind_addr)?;
-    return Ok((e, s));
+    Ok((e, s))
 }
 
 pub async fn obtain_client_endpoint(
@@ -89,13 +89,13 @@ pub async fn obtain_client_endpoint(
 ) -> Result<(Endpoint, Incoming), ConnectionError>
 {
     let certs = dir_to_dir_structure(
-        &certificates
+        certificates
             .verify_dir
             .as_ref()
             .expect("Please provide certificate verify directory"),
         MAX_FILE_SIZE,
     );
-    return Ok(make_client_endpoint(local_addr, certs).await?);
+    Ok(make_client_endpoint(local_addr, certs).await?)
 }
 
 pub async fn send_data(
@@ -120,7 +120,7 @@ pub async fn send_data(
     connection.close(0u32.into(), b"done");
     endpoint.wait_idle().await;
 
-    return Ok(data.len());
+    Ok(data.len())
 }
 
 pub async fn receive_data(
@@ -144,7 +144,7 @@ pub async fn receive_data(
             ..
         } = inc.await?;
 
-        while let Some(stream) = uni_streams.next().await {
+        if let Some(stream) = uni_streams.next().await {
             let stream = match stream {
                 Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
                     info!("connection closed");
@@ -163,13 +163,13 @@ pub async fn receive_data(
                         received: max_len + 1,
                         max_len,
                     })?;
-            return Ok((req.into(), connection.remote_address()));
+            return Ok((req, connection.remote_address()));
         }
     }
-    return Err(ConnectionError::Timeout(
+    Err(ConnectionError::Timeout(
         "quic receive data".to_owned(),
         now.elapsed(),
-    ));
+    ))
 }
 
 #[cfg(test)]

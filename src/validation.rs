@@ -57,7 +57,7 @@ pub fn validate<'a>(
         )));
     }
 
-    return Ok((message, group));
+    Ok((message, group))
 }
 
 #[allow(dead_code)]
@@ -79,7 +79,7 @@ pub fn validate_public(buffer: &[u8], valid_for: u16) -> Result<PublicMessage, V
         };
         return Err(ValidationError::InvalidTimestamp(diff, valid_for));
     }
-    return Ok(message);
+    Ok(message)
 }
 
 #[allow(dead_code)]
@@ -94,9 +94,9 @@ pub fn get_group_id(
     let result = decrypt_with_secret(message, &key)?;
     match result.as_slice().try_into() {
         Ok(v) => Ok(v),
-        Err(_) => Err(ConnectionError::InvalidBuffer(format!(
-            "Expected group id does not match"
-        ))),
+        Err(_) => Err(ConnectionError::InvalidBuffer(
+            "Expected group id does not match".into(),
+        )),
     }
 }
 

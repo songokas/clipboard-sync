@@ -41,13 +41,13 @@ pub async fn receive_data(
         };
         verifier
             .verify(&Identity::from(peer_addr))
-            .ok_or_else(|| ConnectionError::InvalidSource(peer_addr))?;
+            .ok_or(ConnectionError::InvalidSource(peer_addr))?;
 
         let timeout_with_duration = |d: Duration| -> bool {
-            return d > Duration::from_millis(DATA_TIMEOUT) && timeout_callback(d);
+            d > Duration::from_millis(DATA_TIMEOUT) && timeout_callback(d)
         };
         return match receive_stream(stream.clone(), max_len, timeout_with_duration).await {
-            Ok(d) if d.len() > 0 => {
+            Ok(d) if !d.is_empty() => {
                 pool.add(stream).await;
                 Ok((d, peer_addr))
             }
@@ -61,10 +61,10 @@ pub async fn receive_data(
             }
         };
     }
-    return Err(ConnectionError::Timeout(
+    Err(ConnectionError::Timeout(
         "tcp receive".to_owned(),
         now.elapsed(),
-    ));
+    ))
 }
 
 pub async fn send_data(
@@ -75,10 +75,10 @@ pub async fn send_data(
     timeout_callback: impl Fn(Duration) -> bool,
 ) -> Result<usize, ConnectionError>
 {
-    let mut stream = socket.connect(destination.clone()).await?;
+    let mut stream = socket.connect(*destination).await?;
     let total_sent = send_stream(&stream, encryptor, data, timeout_callback).await?;
     stream.shutdown().await?;
-    return Ok(total_sent);
+    Ok(total_sent)
 }
 
 pub fn obtain_client_socket(local_address: SocketAddr) -> Result<TcpSocket, ConnectionError>
@@ -94,7 +94,7 @@ pub fn obtain_client_socket(local_address: SocketAddr) -> Result<TcpSocket, Conn
     socket
         .bind(local_address)
         .map_err(|e| ConnectionError::BindError(local_address, e))?;
-    return Ok(socket);
+    Ok(socket)
 }
 
 pub fn obtain_server_socket(local_address: SocketAddr) -> Result<TcpListener, ConnectionError>
@@ -113,7 +113,7 @@ pub fn obtain_server_socket(local_address: SocketAddr) -> Result<TcpListener, Co
         .map_err(|e| ConnectionError::BindError(local_address, e))?;
 
     let listener = socket.listen(1024)?;
-    return Ok(listener);
+    Ok(listener)
 }
 
 pub async fn connect_stream(
@@ -123,7 +123,7 @@ pub async fn connect_stream(
 {
     let socket = obtain_client_socket(local_addr)?;
     let stream = socket.connect(destination).await?;
-    return Ok(stream);
+    Ok(stream)
 }
 
 #[cfg(test)]
@@ -145,7 +145,7 @@ mod tcptest
         let local_client: SocketAddr = client_str.parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();
         let client_sock = obtain_client_socket(local_client).unwrap();
-        let stream_pool = Arc::new(StreamPool::new());
+        let stream_pool = Arc::new(StreamPool::default());
         let encryptor = NoRelayEncryptor {};
 
         let data_sent = random(size);
@@ -204,7 +204,7 @@ mod tcptest
         let group = Group::from_addr("test1", &client_str, &client_str);
         let groups = indexmap! {group.name.clone() => group.clone()};
         let enc_r = GroupsEncryptor::new(groups);
-        let stream_pool = Arc::new(StreamPool::new());
+        let stream_pool = Arc::new(StreamPool::default());
 
         let local_server: SocketAddr = client_str.parse().unwrap();
         let server_sock = obtain_server_socket(local_server).unwrap();

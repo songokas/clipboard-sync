@@ -27,7 +27,7 @@ const DEFAULT_MAX_SOCKET_SIZE: u64 = 10;
 const DEFAULT_SOCKET_KEEP_TIME: u16 = 60;
 const DEFAULT_MAX_GROUPS_PER_IP: u16 = 10;
 const DEFAULT_VALID_FOR: u16 = 300;
-static BIND_ADDRESSES: &[&'static str] = &[BIND_ADDRESS, "0.0.0.0:8901", "0.0.0.0:8902"];
+static BIND_ADDRESSES: &[&str] = &[BIND_ADDRESS, "0.0.0.0:8901", "0.0.0.0:8902"];
 
 #[tokio::main]
 async fn main() -> Result<(), CliError>
@@ -87,12 +87,11 @@ async fn main() -> Result<(), CliError>
             let result: Result<[u8; KEY_SIZE], _> = random_data.try_into();
             match result {
                 Ok(key) => Ok(StaticSecret::from(key)),
-                Err(_) => Err(CliError::ArgumentError(format!(
-                    "Unable to generate private key"
-                ))),
+                Err(_) => Err(CliError::ArgumentError(
+                    "Unable to generate private key".into(),
+                )),
             }
         })?;
-    let private_key = StaticSecret::from(private_key);
     let public = PublicKey::from(&private_key);
 
     info!("Server public key {}", base64::encode(public.as_bytes()));
@@ -108,7 +107,7 @@ async fn main() -> Result<(), CliError>
     };
 
     let mut handles = Vec::new();
-    let pool = Arc::new(SocketPool::new());
+    let pool = Arc::new(SocketPool::default());
     let running = Arc::new(AtomicBool::new(true));
 
     // clipboard-relay --protocol tcp --bind-address 0.0.0.0:8901 --protocol basic --bind-address
@@ -141,7 +140,7 @@ async fn main() -> Result<(), CliError>
             ))
         })?;
         let socket_addresses: Vec<SocketAddr> = local_address
-            .split(",")
+            .split(',')
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
@@ -183,11 +182,11 @@ async fn main() -> Result<(), CliError>
                     }
                 }
             }
-            return result;
+            result
         }
         Err(err) => {
             error!("{}", err);
-            return Err(CliError::JoinError(err));
+            Err(CliError::JoinError(err))
         }
-    };
+    }
 }

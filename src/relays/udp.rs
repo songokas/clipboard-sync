@@ -55,7 +55,7 @@ pub async fn relay_data(
             }
         };
 
-        if let Err(e) = destination_pool.add_destination(group_id.clone(), addr.clone()) {
+        if let Err(e) = destination_pool.add_destination(group_id, addr) {
             error!("Add destination error: {}", e);
             continue;
         }
@@ -68,7 +68,7 @@ pub async fn relay_data(
             count.clone(),
         ));
     }
-    return count.load(Ordering::Relaxed);
+    count.load(Ordering::Relaxed)
 }
 
 async fn send_to(

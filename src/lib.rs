@@ -67,13 +67,13 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_startSync(
 
     let status_str = match serde_json::to_string(&message) {
         Ok(s) => s,
-        Err(_) => format!("Unable to return response"),
+        Err(_) => "Unable to return response".into(),
     };
 
     let output = env
         .new_string(status_str)
         .expect("Couldn't create java string!");
-    return output.into_inner();
+    output.into_inner()
 }
 
 #[no_mangle]
@@ -85,21 +85,21 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_stopSync(
     let result = CURRENT_RUNTIME.block_on(stop());
 
     let message = if result {
-        Status::off(format!("Stopped"))
+        Status::off("Stopped".into())
     } else {
-        Status::off(format!("Not running"))
+        Status::off("Not running".into())
     };
 
     let status_str = match serde_json::to_string(&message) {
         Ok(s) => s,
-        Err(_) => format!("Unable to return response"),
+        Err(_) => "Unable to return response".into(),
     };
 
     let output = env
         .new_string(status_str)
         .expect("Couldn't create java string!");
 
-    return output.into_inner();
+    output.into_inner()
 }
 
 #[no_mangle]
@@ -119,12 +119,12 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_status(
             status_count.clipboard,
         )
     } else {
-        Status::off(format!("Not running"))
+        Status::off("Not running".into())
     };
 
     let status_str = match serde_json::to_string(&message) {
         Ok(s) => s,
-        Err(_) => format!("Unable to return response"),
+        Err(_) => "Unable to return response".into(),
     };
 
     let output = env
@@ -187,24 +187,24 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
 
 pub async fn start(config_str: String) -> Result<String, String>
 {
-    if (*(CURRENT_RUNNER.lock().await)).len() > 0 {
+    if !(*(CURRENT_RUNNER.lock().await)).is_empty() {
         stop().await;
     }
 
     match create_runner(config_str).await {
         Ok((runner, message)) => {
             (*(CURRENT_RUNNER.lock().await)).push(runner);
-            return Ok(message);
+            Ok(message)
         }
-        Err(e) => return Err(e),
-    };
+        Err(e) => Err(e),
+    }
 }
 
 pub async fn send(config_str: String, clipboard: String) -> Result<usize, String>
 {
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
-    let pool = SocketPool::new();
+    let pool = SocketPool::default();
     let addr_pool = SocketAddrPool::new();
     return send_clipboard_contents(&pool, &addr_pool, clipboard, &groups[0]).await;
 }
@@ -222,25 +222,21 @@ pub async fn queue(clipboard: String) -> Result<(), String>
 pub async fn status() -> Option<StatusCount>
 {
     let mut guard = CURRENT_RUNNER.lock().await;
-    if (*guard).len() == 0 {
+    if (*guard).is_empty() {
         return None;
     }
-    return Some((*guard)[0].status());
+    Some((*guard)[0].status())
 }
 
 pub async fn stop() -> bool
 {
     let mut guard = CURRENT_RUNNER.lock().await;
 
-    if (*guard).len() > 0 {
+    if !(*guard).is_empty() {
         let runner = (*guard).remove(0);
-        // std::mem::drop(guard);
-        return match runner.stop().await {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+        return runner.stop().await.is_ok();
     }
-    return false;
+    false
 }
 
 #[cfg(test)]

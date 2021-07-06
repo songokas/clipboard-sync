@@ -52,7 +52,7 @@ pub async fn relay_data(
         };
         let srunning = running.clone();
         let timeout_with_duration = move |d: Duration| -> bool {
-            return d > Duration::from_millis(DATA_TIMEOUT) || !srunning.load(Ordering::Relaxed);
+            d > Duration::from_millis(DATA_TIMEOUT) || !srunning.load(Ordering::Relaxed)
         };
         tokio::spawn(relay_stream(
             stream,
@@ -64,7 +64,7 @@ pub async fn relay_data(
             count.clone(),
         ));
     }
-    return count.load(Ordering::Relaxed);
+    count.load(Ordering::Relaxed)
 }
 
 async fn relay_stream(
@@ -102,7 +102,7 @@ async fn relay_stream(
                         stream
                             .peer_addr()
                             .map(|p| p.to_string())
-                            .unwrap_or("missing peer address".into()),
+                            .unwrap_or_else(|_| "missing peer address".into()),
                         read,
                         config.message_size
                     );
@@ -151,10 +151,10 @@ async fn relay_stream(
             }
         };
     }
-    return Err(ConnectionError::Timeout(
+    Err(ConnectionError::Timeout(
         "tcp receive".to_owned(),
         now.elapsed(),
-    ));
+    ))
 }
 
 async fn send_data(
@@ -194,7 +194,7 @@ async fn get_streams(
 ) -> Result<Vec<Arc<TcpStream>>, ConnectionError>
 {
     let group_id = match get_group_id(
-        &buffer,
+        buffer,
         &StaticSecret::from(config.private_key),
         config.valid_for,
     ) {
@@ -204,7 +204,7 @@ async fn get_streams(
             return Err(e);
         }
     };
-    destination_pool.add_destination(group_id.clone(), from_addr.clone())?;
+    destination_pool.add_destination(group_id, from_addr)?;
 
     let streams = stream::iter(destination_pool.get_destinations(&group_id))
         .filter_map(|d| async move {
@@ -216,5 +216,5 @@ async fn get_streams(
         })
         .collect::<Vec<Arc<TcpStream>>>()
         .await;
-    return Ok(streams);
+    Ok(streams)
 }

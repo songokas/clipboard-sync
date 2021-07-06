@@ -75,7 +75,7 @@ impl GroupsEncryptor
 {
     pub fn new(groups: Groups) -> Self
     {
-        return Self { groups };
+        Self { groups }
     }
 }
 
@@ -87,9 +87,9 @@ impl FrameDecryptor for GroupsEncryptor
         identity: &Identity,
     ) -> Result<(Vec<u8>, &Group), ConnectionError>
     {
-        let (message, group) = validate(&data, &self.groups, identity)?;
-        let bytes = decrypt(&message, identity, &group)?;
-        return Ok((bytes, group));
+        let (message, group) = validate(data, &self.groups, identity)?;
+        let bytes = decrypt(&message, identity, group)?;
+        Ok((bytes, group))
     }
 
     fn decrypt_to_frame(
@@ -101,7 +101,7 @@ impl FrameDecryptor for GroupsEncryptor
         let (bytes, group) = self.decrypt(data, identity)?;
         let frame: Frame = bincode::deserialize(&bytes)
             .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
-        return Ok((frame, group));
+        Ok((frame, group))
     }
 }
 
@@ -117,7 +117,7 @@ impl DataEncryptor for GroupsEncryptor
     ) -> Result<Vec<u8>, ConnectionError>
     {
         let bytes = encrypt_group_to_bytes(data, identity, group, message_type, destination)?;
-        return Ok(bytes);
+        Ok(bytes)
     }
 }
 
@@ -153,7 +153,7 @@ impl IdentityEncryptor
 {
     pub fn new(group: Group, identity: Identity) -> Self
     {
-        return Self { group, identity };
+        Self { group, identity }
     }
 }
 
@@ -173,7 +173,7 @@ impl FrameEncryptor for IdentityEncryptor
             message_type,
             destination,
         )?;
-        return Ok(bytes);
+        Ok(bytes)
     }
 }
 
@@ -195,7 +195,7 @@ impl FrameIndexEncryptor for IdentityEncryptor
         destination: &SocketAddr,
     ) -> Result<Vec<u8>, ConnectionError>
     {
-        let frame = data_to_frame(index as u32, &data, max_payload)?;
+        let frame = data_to_frame(index as u32, data, max_payload)?;
         let bytes = encrypt_group_to_bytes(
             &frame,
             &self.identity,
@@ -203,7 +203,7 @@ impl FrameIndexEncryptor for IdentityEncryptor
             &MessageType::Frame,
             destination,
         )?;
-        return Ok(bytes);
+        Ok(bytes)
     }
 }
 
@@ -212,9 +212,9 @@ impl FrameDataDecryptor for IdentityEncryptor
     fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ConnectionError>
     {
         let groups = indexmap! { self.group.name.clone() => self.group.clone() };
-        let (message, group) = validate(&data, &groups, &self.identity)?;
-        let bytes = decrypt(&message, &self.identity, &group)?;
-        return Ok(bytes);
+        let (message, group) = validate(data, &groups, &self.identity)?;
+        let bytes = decrypt(&message, &self.identity, group)?;
+        Ok(bytes)
     }
 }
 
@@ -234,28 +234,30 @@ pub fn data_to_frame(
     };
 
     let frame = Frame {
-        index: index,
+        index,
         total: indexes as u16,
         data: data[from..to].to_vec(),
     };
 
     let bytes = bincode::serialize(&frame)
         .map_err(|err| ConnectionError::InvalidBuffer((*err).to_string()))?;
-    return Ok(bytes);
+    Ok(bytes)
 }
 
 pub fn size_to_indexes(size: usize, max_payload: usize) -> usize
 {
     let reminder = if size % max_payload > 0 { 1 } else { 0 };
-    return (size / max_payload) + reminder;
+    (size / max_payload) + reminder
 }
 
+#[cfg(test)]
 pub struct NoRelayEncryptor {}
 
+#[cfg(test)]
 impl RelayEncryptor for NoRelayEncryptor
 {
     fn relay_header(&self, _: &SocketAddr) -> Result<Option<Vec<u8>>, EncryptionError>
     {
-        return Ok(None);
+        Ok(None)
     }
 }

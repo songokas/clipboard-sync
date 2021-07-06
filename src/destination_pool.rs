@@ -19,13 +19,13 @@ impl DestinationPool
 {
     pub fn new(max_groups: usize, max_sockets: usize, max_per_ip: usize) -> Self
     {
-        return Self {
+        Self {
             addresses: RwLock::new(HashMap::new()),
             ips: RwLock::new(HashMap::new()),
             max_groups,
             max_sockets,
             max_per_ip,
-        };
+        }
     }
 
     pub fn get_destinations(&self, group_id: &GroupId) -> Vec<SocketAddr>
@@ -34,7 +34,7 @@ impl DestinationPool
             Ok(h) => h
                 .get(group_id)
                 .map(|h| h.keys().cloned().collect())
-                .unwrap_or(vec![]),
+                .unwrap_or_default(),
             Err(_) => vec![],
         }
     }
@@ -58,7 +58,7 @@ impl DestinationPool
     {
         let addr_len = self.cleanup_hash(oldest);
         let ips_len = self.cleanup_ips();
-        return (addr_len, ips_len);
+        (addr_len, ips_len)
     }
 
     fn cleanup_hash(&self, oldest: u64) -> Result<usize, LimitError>
@@ -67,7 +67,7 @@ impl DestinationPool
             Ok(mut hash) => {
                 hash.retain(|_, v| {
                     v.retain(|_, t| t.elapsed().as_secs() < oldest);
-                    v.len() > 0
+                    !v.is_empty()
                 });
                 hash.len()
             }
@@ -78,7 +78,7 @@ impl DestinationPool
                 )));
             }
         };
-        return Ok(addr_len);
+        Ok(addr_len)
     }
 
     fn cleanup_ips(&self) -> Result<usize, LimitError>
@@ -88,7 +88,7 @@ impl DestinationPool
                 Ok(addrs) => {
                     ips.retain(|_, v| {
                         v.retain(|group_id| addrs.contains_key(group_id));
-                        v.len() > 0
+                        !v.is_empty()
                     });
                     ips.len()
                 }
@@ -106,7 +106,7 @@ impl DestinationPool
                 )))
             }
         };
-        return Ok(ips_len);
+        Ok(ips_len)
     }
 
     fn add_hash(&self, group_id: GroupId, address: SocketAddr) -> Result<bool, LimitError>
@@ -133,7 +133,7 @@ impl DestinationPool
                     all.insert(group_id, h);
                     Ok(true)
                 } else {
-                    all.entry(group_id.clone()).and_modify(|h| {
+                    all.entry(group_id).and_modify(|h| {
                         if h.len() < self.max_sockets {
                             h.insert(address, Instant::now());
                         }

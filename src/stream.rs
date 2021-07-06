@@ -18,7 +18,8 @@ pub async fn receive_stream(
     stream: Arc<TcpStream>,
     max_len: usize,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<Vec<u8>, ConnectionError> {
+) -> Result<Vec<u8>, ConnectionError>
+{
     let mut buffer = [0; 10000];
     let mut data = Vec::new();
     let now = Instant::now();
@@ -73,10 +74,10 @@ pub async fn receive_stream(
             }
         }
     }
-    return Err(ConnectionError::Timeout(
+    Err(ConnectionError::Timeout(
         "tcp receive stream".to_owned(),
         now.elapsed(),
-    ));
+    ))
 }
 
 pub async fn send_stream(
@@ -84,7 +85,8 @@ pub async fn send_stream(
     encryptor: &impl RelayEncryptor,
     data: Vec<u8>,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     let size: u64 = data.len().try_into().map_err(|e| {
         ConnectionError::InvalidBuffer(format!(
             "Unable to convert data len to indicated size {}",
@@ -114,12 +116,16 @@ pub async fn stream_data(
     stream: &TcpStream,
     data_to_send: Vec<u8>,
     timeout_callback: impl Fn(Duration) -> bool,
-) -> Result<usize, ConnectionError> {
+) -> Result<usize, ConnectionError>
+{
     let now = Instant::now();
     let mut total_written = 0;
 
     while !timeout_callback(now.elapsed()) {
-        if let Err(_) = timeout(Duration::from_millis(100), stream.writable()).await {
+        if timeout(Duration::from_millis(100), stream.writable())
+            .await
+            .is_err()
+        {
             continue;
         }
         match stream.try_write(&data_to_send[total_written..]) {
@@ -139,24 +145,28 @@ pub async fn stream_data(
             }
         }
     }
-    return Err(ConnectionError::Timeout(
+    Err(ConnectionError::Timeout(
         "tcp send stream".to_owned(),
         now.elapsed(),
-    ));
+    ))
 }
 
-pub struct StreamPool {
+pub struct StreamPool
+{
     streams: RwLock<HashMap<SocketAddr, (Arc<TcpStream>, Instant)>>,
 }
 
-impl StreamPool {
-    pub fn new() -> Self {
-        return StreamPool {
+impl StreamPool
+{
+    pub fn default() -> Self
+    {
+        StreamPool {
             streams: RwLock::new(HashMap::new()),
-        };
+        }
     }
 
-    pub async fn get_stream_with_data(&self) -> Option<Arc<TcpStream>> {
+    pub async fn get_stream_with_data(&self) -> Option<Arc<TcpStream>>
+    {
         let streams = self.streams.try_read().ok()?;
         for (_, (stream, _)) in streams.iter() {
             match timeout(Duration::from_millis(1), stream.readable()).await {
@@ -167,14 +177,16 @@ impl StreamPool {
                 Err(_) => continue,
             };
         }
-        return None;
+        None
     }
 
-    pub async fn get_by_destination(&self, addr: &SocketAddr) -> Option<Arc<TcpStream>> {
+    pub async fn get_by_destination(&self, addr: &SocketAddr) -> Option<Arc<TcpStream>>
+    {
         self.streams.read().await.get(addr).map(|(s, _)| s.clone())
     }
 
-    pub async fn add(&self, stream: Arc<TcpStream>) -> Option<(Arc<TcpStream>, Instant)> {
+    pub async fn add(&self, stream: Arc<TcpStream>) -> Option<(Arc<TcpStream>, Instant)>
+    {
         let addr = match stream.peer_addr() {
             Ok(p) => p,
             Err(_) => return None,
@@ -185,11 +197,13 @@ impl StreamPool {
             .insert(addr, (stream, Instant::now()))
     }
 
-    pub async fn remove(&self, addr: &SocketAddr) -> Option<(Arc<TcpStream>, Instant)> {
+    pub async fn remove(&self, addr: &SocketAddr) -> Option<(Arc<TcpStream>, Instant)>
+    {
         self.streams.write().await.remove(addr)
     }
 
-    pub fn cleanup(&self, oldest: u64) -> Result<usize, LimitError> {
+    pub fn cleanup(&self, oldest: u64) -> Result<usize, LimitError>
+    {
         let addr_len = match self.streams.try_write() {
             Ok(mut v) => {
                 v.retain(|_, (_, t)| t.elapsed().as_secs() < oldest);
@@ -202,12 +216,13 @@ impl StreamPool {
                 )));
             }
         };
-        return Ok(addr_len);
+        Ok(addr_len)
     }
 }
 
 #[cfg(test)]
-mod streamtest {
+mod streamtest
+{
     use tokio::net::TcpListener;
 
     use crate::protocols::tcp::connect_stream;
@@ -215,8 +230,9 @@ mod streamtest {
     use super::*;
 
     #[tokio::test]
-    async fn test_stream_add() {
-        let pool = StreamPool::new();
+    async fn test_stream_add()
+    {
+        let pool = StreamPool::default();
 
         let bind = "127.0.0.1:18329".parse::<SocketAddr>().unwrap();
         let listener = TcpListener::bind(bind).await.unwrap();
@@ -244,8 +260,9 @@ mod streamtest {
     }
 
     #[tokio::test]
-    async fn test_stream_get_with_data() {
-        let pool = StreamPool::new();
+    async fn test_stream_get_with_data()
+    {
+        let pool = StreamPool::default();
 
         let bind = "127.0.0.1:18339".parse::<SocketAddr>().unwrap();
         let listener = TcpListener::bind(bind).await.unwrap();

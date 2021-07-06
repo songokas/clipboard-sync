@@ -78,8 +78,8 @@ impl FullConfig
     ) -> Self
     {
         let mut bind_addresses: BindAddresses = IndexMap::new();
-        bind_addresses.insert(protocol.clone(), bind_all);
-        return FullConfig {
+        bind_addresses.insert(protocol, bind_all);
+        Self {
             bind_addresses,
             groups,
             max_receive_buffer,
@@ -87,7 +87,7 @@ impl FullConfig
             receive_once_wait,
             send_clipboard_on_startup,
             ntp_server,
-        };
+        }
     }
 
     pub fn from_config(
@@ -100,7 +100,7 @@ impl FullConfig
         ntp_server: Option<String>,
     ) -> Self
     {
-        return FullConfig {
+        Self {
             bind_addresses,
             groups,
             max_receive_buffer,
@@ -108,7 +108,7 @@ impl FullConfig
             receive_once_wait,
             send_clipboard_on_startup,
             ntp_server,
-        };
+        }
     }
 
     pub fn get_bind_adresses(&self) -> IndexSet<(Protocol, SocketAddr)>
@@ -117,14 +117,14 @@ impl FullConfig
             .iter()
             .flat_map(|(p, v)| {
                 let protocol = p.clone();
-                v.iter().map(move |s| (protocol.clone(), s.clone()))
+                v.iter().map(move |s| (protocol.clone(), *s))
             })
             .collect()
     }
 
     pub fn get_first_bind_address(&self) -> Option<(Protocol, SocketAddr)>
     {
-        return self.get_bind_adresses().into_iter().next();
+        self.get_bind_adresses().into_iter().next()
     }
 }
 
@@ -174,11 +174,11 @@ pub fn load_default_certificates(
         }
     };
 
-    return Ok(Certificates {
+    Ok(Certificates {
         private_key: key_str,
         public_key: crt_str,
         verify_dir: verify_str,
-    });
+    })
 }
 
 pub fn load_groups(
@@ -211,7 +211,12 @@ pub fn load_groups(
         .map_err(|err| {
             error!("Error while parsing: {:?}", err);
         })
-        .map_err(|_| Error::new(ErrorKind::InvalidData, format!("Unable to parse yaml file")))?;
+        .map_err(|_| {
+            Error::new(
+                ErrorKind::InvalidData,
+                "Unable to parse yaml file".to_string(),
+            )
+        })?;
 
     let mut groups = IndexMap::new();
 
@@ -224,7 +229,7 @@ pub fn load_groups(
         if let Ok(c) = load_cli_certs() {
             return Ok(c);
         }
-        return Err(CliError::InvalidKey(format!("Failed to load certificate")));
+        Err(CliError::InvalidKey("Failed to load certificate".into()))
     };
 
     for (key, group) in &user_config.groups {
@@ -233,12 +238,12 @@ pub fn load_groups(
             sd.clone()
         } else if let Some(sd) = &user_config.send_using_address {
             match sd {
-                SocketConfigAddress::Socket(s) => indexset! {s.clone()},
+                SocketConfigAddress::Socket(s) => indexset! {*s},
                 SocketConfigAddress::Multiple(s) => s.clone(),
             }
         } else {
             default_send_using_address
-                .split(",")
+                .split(',')
                 .map(|v| {
                     v.parse::<SocketAddr>().map_err(|_| {
                         CliError::ArgumentError(format!(
@@ -254,7 +259,7 @@ pub fn load_groups(
             sd.clone()
         } else {
             default_allowed_host_address
-                .split(",")
+                .split(',')
                 .map(String::from)
                 .collect()
         };
@@ -276,12 +281,12 @@ pub fn load_groups(
         )?;
 
         let key_data = if let Some(k) = group.key {
-            k.clone()
+            k
         } else {
             if default_key.len() != KEY_SIZE {
-                return Err(CliError::InvalidKey(format!("No key provided")));
+                return Err(CliError::InvalidKey("No key provided".to_string()));
             }
-            Key::from_slice(default_key.as_bytes()).clone()
+            *Key::from_slice(default_key.as_bytes())
         };
 
         let relay = match &group.relay {
@@ -344,7 +349,7 @@ pub fn load_groups(
         send_clipboard_on_startup,
         ntp_server,
     );
-    return Ok(full_config);
+    Ok(full_config)
 }
 
 pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
@@ -372,7 +377,7 @@ pub fn generate_config(dir_name: &str) -> Result<PathBuf, CliError>
         random_alphanumeric(KEY_SIZE)
     );
     write_file(&path, str_contents.as_bytes(), 0o600)?;
-    return Ok(path);
+    Ok(path)
 }
 
 fn create_bind_addresses(
@@ -398,7 +403,7 @@ fn create_bind_addresses(
             };
 
             let addresses = match sock_config_addr {
-                SocketConfigAddress::Socket(s) => indexset! {s.clone()},
+                SocketConfigAddress::Socket(s) => indexset! {*s},
                 SocketConfigAddress::Multiple(s) => s.clone(),
             };
 
@@ -406,7 +411,7 @@ fn create_bind_addresses(
         }
     } else {
         let socket_addresses: IndexSet<SocketAddr> = default_bind_address
-            .split(",")
+            .split(',')
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
@@ -415,7 +420,7 @@ fn create_bind_addresses(
             .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
         hash.insert(bind_default_protocol, socket_addresses);
     }
-    return Ok(hash);
+    Ok(hash)
 }
 
 #[derive(Debug, Clone)]
