@@ -151,7 +151,7 @@ mod tcptest
         let data_sent = random(size);
         let for_sending = data_sent.clone();
 
-        let group = Group::from_addr("test1", &client_str, &client_str);
+        let group = Group::from_addr("test1", client_str, client_str);
         let groups = indexmap! {group.name.clone() => group.clone()};
         let enc_r = GroupsEncryptor::new(groups);
 
@@ -201,7 +201,7 @@ mod tcptest
     async fn test_timeout()
     {
         let client_str = "127.0.0.1:39837";
-        let group = Group::from_addr("test1", &client_str, &client_str);
+        let group = Group::from_addr("test1", client_str, client_str);
         let groups = indexmap! {group.name.clone() => group.clone()};
         let enc_r = GroupsEncryptor::new(groups);
         let stream_pool = Arc::new(StreamPool::default());

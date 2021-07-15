@@ -362,6 +362,6 @@ WantedBy=multi-user.targett
 
 * finalize quic
 * test on iOS
-* clipboard use events instead of reading in interval
+* use events for reading clipboard
 * file copy between platforms
 * improve docs / add more examples
