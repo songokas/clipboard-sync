@@ -761,7 +761,8 @@ mod processtest
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
             let sent =
-                send_clipboard_contents(&pool, &addr_pool, "test1".to_string(), &group).await;
+                send_clipboard_contents(&pool, &addr_pool, b"test1", &group, MessageType::Text)
+                    .await;
             assert_eq!(94, sent.unwrap());
             // let server handle it
             sleep(Duration::from_millis(4000)).await;
