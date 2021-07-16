@@ -25,6 +25,8 @@ use crate::defaults::{
     DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CHANNEL, MAX_FILE_SIZE, MAX_RECEIVE_BUFFER, RECEIVE_ONCE_WAIT,
 };
 use crate::errors::CliError;
+#[cfg(target_os = "android")]
+use crate::message::MessageType;
 use crate::message::{Group, Relay};
 use crate::process::{receive_clipboard, send_clipboard};
 use crate::protocols::{Protocol, SocketPool};
@@ -184,7 +186,7 @@ pub fn create_config(config_str: String) -> Result<FullConfig, String>
 pub async fn create_runner(config_str: String) -> Result<(Runner, String), String>
 {
     let full_config = create_config(config_str)?;
-    let runner = Runner::start(full_config).await;
+    let runner = Runner::start(full_config).await?;
     Ok((runner, String::from("Started")))
 }
 
@@ -195,9 +197,9 @@ pub struct Runner
     running: Arc<AtomicBool>,
     stats: Receiver<(u64, u64)>,
     #[cfg(target_os = "android")]
-    queue_sender: Arc<Sender<String>>,
+    queue_sender: Arc<Sender<(Vec<u8>, MessageType)>>,
     #[cfg(target_os = "android")]
-    queue_receiver: Receiver<String>,
+    queue_receiver: Receiver<(Vec<u8>, MessageType)>,
     received_count: u64,
     sent_count: u64,
     pool: Arc<SocketPool>,
@@ -219,10 +221,13 @@ impl Runner
         #[cfg(not(target_os = "android"))]
         let clipboard = String::from("");
         #[cfg(target_os = "android")]
-        let mut clipboard = String::from("");
+        let mut clipboard = String::new();
         #[cfg(target_os = "android")]
-        while let Ok(c) = self.queue_receiver.try_recv() {
-            clipboard = c;
+        while let Ok((c, message_type)) = self.queue_receiver.try_recv() {
+            //@TODO add receive file support
+            if message_type == MessageType::Text {
+                clipboard = String::from_utf8_lossy(&c).to_string();
+            }
         }
 
         StatusCount {
@@ -233,11 +238,11 @@ impl Runner
     }
 
     #[cfg(target_os = "android")]
-    pub fn queue(&mut self, contents: String) -> Result<(), String>
+    pub fn queue(&mut self, contents: &[u8], message_type: MessageType) -> Result<(), String>
     {
         return self
             .queue_sender
-            .try_send(contents)
+            .try_send((contents.to_vec(), message_type))
             .map_err(|e| format!("Unable to queue contents {}", e));
     }
 
@@ -269,7 +274,7 @@ impl Runner
         }
     }
 
-    pub async fn start(full_config: FullConfig) -> Self
+    pub async fn start(full_config: FullConfig) -> Result<Self, String>
     {
         debug!("Starting runner");
 
@@ -279,24 +284,30 @@ impl Runner
         let (stat_sender, stat_receiver) = flume::bounded(MAX_CHANNEL);
 
         #[cfg(target_os = "android")]
-        let mut clipboard_receive: Clipboard = ChannelClipboardContext::new().unwrap();
+        let mut clipboard_receive: Clipboard =
+            ChannelClipboardContext::new().map_err(|_| "Expecting ChannelClipboardContext")?;
         #[cfg(not(target_os = "android"))]
-        let clipboard_receive: Clipboard = Clipboard::new().unwrap();
+        let clipboard_receive: Clipboard =
+            Clipboard::new().map_err(|_| "Expecting ChannelClipboardContext")?;
 
         #[cfg(target_os = "android")]
-        let clipboard_send: Clipboard = ChannelClipboardContext::new().unwrap();
+        let clipboard_send: Clipboard =
+            ChannelClipboardContext::new().map_err(|_| "Expecting ChannelClipboardContext")?;
         #[cfg(not(target_os = "android"))]
-        let clipboard_send: Clipboard = Clipboard::new().unwrap();
+        let clipboard_send: Clipboard =
+            Clipboard::new().map_err(|_| "Expecting ChannelClipboardContext")?;
 
         #[cfg(target_os = "android")]
         let queue_sender = clipboard_send.get_sender();
         #[cfg(target_os = "android")]
-        let queue_receiver = clipboard_receive.get_receiver().unwrap();
+        let queue_receiver = clipboard_receive
+            .get_receiver()
+            .ok_or("Unable to obtain receiver")?;
 
         // @TODO add support for multiple bind addresses
         let (protocol, bind_address) = full_config
             .get_first_bind_address()
-            .expect("Protocol bind addresses required");
+            .ok_or("Protocol bind addresses required")?;
         let pool = Arc::new(SocketPool::default());
         let receive = receive_clipboard(
             Arc::clone(&pool),
@@ -320,7 +331,7 @@ impl Runner
             false,
         );
 
-        Runner {
+        Ok(Runner {
             running,
             receiver: tokio::spawn(receive),
             sender: tokio::spawn(send),
@@ -332,6 +343,6 @@ impl Runner
             received_count: 0,
             sent_count: 0,
             pool,
-        }
+        })
     }
 }

@@ -64,16 +64,6 @@ impl From<SocketAddr> for Identity
     }
 }
 
-// impl From<&str> for Identity
-// {
-//     fn from(item: &str) -> Self
-//     {
-//         return Identity {
-//             address: item.to_owned(),
-//         };
-//     }
-// }
-
 impl fmt::Display for Identity
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result

@@ -133,12 +133,6 @@ impl IdentityVerifier for GroupsEncryptor
             )
             .then(|| g)
         })
-        // for group in self.groups {
-        //     if identity_matching_hosts(group.allowed_hosts, identity)) {
-        //         return true;
-        //     }
-        // }
-        // return false;
     }
 }
 

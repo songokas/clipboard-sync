@@ -296,12 +296,11 @@ pub async fn send_clipboard(
 pub async fn send_clipboard_contents(
     pool: &SocketPool,
     addr_pool: &SocketAddrPool,
-    contents: String,
+    bytes: &[u8],
     group: &Group,
+    message_type: MessageType,
 ) -> Result<usize, String>
 {
-    let message_type = MessageType::Text;
-    let bytes = contents.as_bytes();
     let data = match compress(bytes) {
         Ok(d) => d,
         Err(err) => {

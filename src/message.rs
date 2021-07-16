@@ -67,7 +67,7 @@ mod serde_nonce
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub enum MessageType
 {
     Text,
