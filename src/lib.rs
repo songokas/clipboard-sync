@@ -2,7 +2,7 @@
 // #![feature(type_alias_impl_trait)]
 
 use jni::objects::{JByteBuffer, JClass, JString};
-use jni::sys::jstring;
+use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 #[cfg(target_os = "android")]
 use log::Level;
@@ -124,6 +124,20 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_status(
     create_string(env, status_str)
 }
 
+#[no_mangle]
+pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_isRunning(
+    _: JNIEnv,
+    _: JClass,
+) -> jboolean
+{
+    let status = CURRENT_RUNTIME.block_on(is_started());
+    if status {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_queue(
@@ -195,9 +209,14 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
     create_string(env, status_str)
 }
 
+pub async fn is_started() -> bool
+{
+    !(*(CURRENT_RUNNER.lock().await)).is_empty()
+}
+
 pub async fn start(config_str: String) -> Result<String, String>
 {
-    if !(*(CURRENT_RUNNER.lock().await)).is_empty() {
+    if is_started().await {
         stop().await;
     }
 

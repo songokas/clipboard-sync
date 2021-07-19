@@ -484,7 +484,7 @@ fn write_to(
     }
     if group.clipboard == CLIPBOARD_NAME {
         match message_type {
-            MessageType::Files => {
+            MessageType::Files | MessageType::File => {
                 let config_path = dirs::config_dir()
                     .map(|p| p.join(PACKAGE_NAME))
                     .map(|p| p.join("data"))
