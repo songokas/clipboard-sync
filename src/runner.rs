@@ -238,11 +238,11 @@ impl Runner
     }
 
     #[cfg(target_os = "android")]
-    pub fn queue(&mut self, contents: &[u8], message_type: MessageType) -> Result<(), String>
+    pub fn queue(&mut self, contents: Vec<u8>, message_type: MessageType) -> Result<(), String>
     {
         return self
             .queue_sender
-            .try_send((contents.to_vec(), message_type))
+            .try_send((contents, message_type))
             .map_err(|e| format!("Unable to queue contents {}", e));
     }
 

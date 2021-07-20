@@ -199,7 +199,6 @@ pub fn bytes_to_dir(
         }
         return Ok(files_created);
     }
-    let path = Path::new(directory).join(from);
     if data.len() > max_file_size {
         warn!(
             "Ignoring file {} because it contains more data {} than expected {}",
@@ -209,6 +208,7 @@ pub fn bytes_to_dir(
         );
         return Ok(vec![]);
     }
+    let path = Path::new(directory).join(from);
     write_file(&path, data, 0o600)?;
     files_created.push(path);
     Ok(files_created)

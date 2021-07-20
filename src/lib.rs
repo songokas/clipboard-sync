@@ -147,21 +147,11 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_queue(
     clipboard_type: JString,
 ) -> jstring
 {
-    let contents = match env.get_direct_buffer_address(input) {
-        Ok(b) => b,
-        Err(_) => return create_string(env, "Could not get buffer address"),
+    let (message_type, bytes) = match get_content_to_send(env, input, clipboard_type) {
+        Ok(r) => r,
+        Err(s) => return s,
     };
-
-    let message_str: String = match env.get_string(clipboard_type) {
-        Ok(b) => b.into(),
-        Err(_) => return create_string(env, "Could not get clipboard type"),
-    };
-    let message_type = match message_str.as_ref() {
-        "file" => MessageType::File,
-        "files" => MessageType::Files,
-        _ => MessageType::Text,
-    };
-    let result = CURRENT_RUNTIME.block_on(queue(contents, message_type));
+    let result = CURRENT_RUNTIME.block_on(queue(bytes, message_type));
     let status_str = match result {
         Ok(_) => format!("Ok"),
         Err(e) => e,
@@ -175,7 +165,7 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
     _: JClass,
     config_json: JString,
     input: JByteBuffer,
-    message_type: JString,
+    clipboard_type: JString,
 ) -> jstring
 {
     #[cfg(target_os = "android")]
@@ -186,22 +176,11 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
         Err(_) => return create_string(env, "Could not get json config"),
     };
 
-    let contents = match env.get_direct_buffer_address(input) {
-        Ok(b) => b,
-        Err(_) => return create_string(env, "Could not get buffer address"),
+    let (message_type, bytes) = match get_content_to_send(env, input, clipboard_type) {
+        Ok(r) => r,
+        Err(s) => return s,
     };
-
-    let message_str: String = match env.get_string(message_type) {
-        Ok(b) => b.into(),
-        Err(_) => return create_string(env, "Could not get message type"),
-    };
-
-    let message_type = match message_str.as_ref() {
-        "file" => MessageType::File,
-        "files" => MessageType::Files,
-        _ => MessageType::Text,
-    };
-    let result = CURRENT_RUNTIME.block_on(send(config_str, contents, message_type));
+    let result = CURRENT_RUNTIME.block_on(send(config_str, &bytes, message_type));
     let status_str = match result {
         Ok(b) => format!("bytes sent {}", b),
         Err(e) => e,
@@ -243,7 +222,7 @@ pub async fn send(
 }
 
 #[cfg(target_os = "android")]
-pub async fn queue(clipboard: &[u8], message_type: MessageType) -> Result<(), String>
+pub async fn queue(clipboard: Vec<u8>, message_type: MessageType) -> Result<(), String>
 {
     let mut guard = CURRENT_RUNNER.lock().await;
     if (*guard).len() == 0 {
@@ -278,6 +257,39 @@ fn create_string(env: JNIEnv, message: impl AsRef<str>) -> jstring
         .new_string(message.as_ref().to_string())
         .expect("Couldn't create java string!");
     output.into_inner()
+}
+
+fn get_content_to_send(
+    env: JNIEnv,
+    input: JByteBuffer,
+    clipboard_type: JString,
+) -> Result<(MessageType, Vec<u8>), jstring>
+{
+    let contents = match env.get_direct_buffer_address(input) {
+        Ok(b) => b,
+        Err(_) => return Err(create_string(env, "Could not get buffer address")),
+    };
+
+    let message_str: String = match env.get_string(clipboard_type) {
+        Ok(b) => b.into(),
+        Err(_) => return Err(create_string(env, "Could not get clipboard type")),
+    };
+    Ok(match message_str.as_ref() {
+        "text" => (MessageType::Text, contents.to_vec()),
+        file_name => {
+            let hash = vec![(file_name.to_string(), contents.to_vec())];
+            let bytes = match bincode::serialize(&hash) {
+                Ok(b) => b,
+                Err(e) => {
+                    return Err(create_string(
+                        env,
+                        format!("Failed to create file {} {}", file_name, e),
+                    ))
+                }
+            };
+            (MessageType::Files, bytes)
+        }
+    })
 }
 
 #[cfg(test)]
