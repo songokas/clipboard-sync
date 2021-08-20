@@ -8,6 +8,7 @@
 ### Added
 
 - clipboard-relay to relay traffic, when direct connection is not possible
+- android send/receive files
 
 ### Fixed
 
