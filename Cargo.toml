@@ -128,7 +128,7 @@ depends = "libc6 (>= 2.28)"
 [package.metadata.rpm]
 package = "clipboard-sync"
 cargo = { buildflags = ["--release"] }
-targets = { clipboard-sync = { path = "/usr/bin/clipboard-sync" } }
+targets = { clipboard-sync = { path = "/usr/bin/clipboard-sync" }, clipboard-relay = { path = "/usr/bin/clipboard-relay" } }
 [package.metadata.rpm.files] 
 "../debian/service" = { path = "/lib/systemd/user/clipboard-sync.service" }
 "../debian/relay-service" = { path = "/lib/systemd/system/clipboard-relay.service" }

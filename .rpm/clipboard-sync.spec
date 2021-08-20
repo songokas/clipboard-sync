@@ -32,4 +32,5 @@ rm -rf %{buildroot}
 %files
 %defattr(-,root,root,-)
 /lib/systemd/user/%{name}.service
+/lib/systemd/system/clipboard-relay.service
 %{_bindir}/*
