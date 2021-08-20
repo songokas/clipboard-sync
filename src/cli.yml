@@ -1,5 +1,5 @@
 name: clipboard-sync
-version: "2.0.1"
+version: "2.1.0"
 author: Tomas Jakstas <tom.jakstas@gmail.com>
 about: secure clipboard sync across your devices
 args:
@@ -16,7 +16,7 @@ args:
     - bind-address:
         short: l
         long: bind-address
-        help: "address to listen on default: [::]:8900 for ipv6,dualstack 0.0.0.0:8900 for ipv4 only systems"
+        help: "address to listen on. default: 0.0.0.0:8900"
         takes_value: true
     - send-using-address:
         short: s
@@ -99,4 +99,12 @@ args:
     - max_file_size:
         long: max-file-size
         help: "max file size in bytes for sending/receiving files default: 23068672"
+        takes_value: true
+    - relay-host:
+        long: relay-host
+        help: "relay server hostname. add it to allowed host in order to use it. example: clipsync.net:8900"
+        takes_value: true
+    - relay-public-key:
+        long: relay-public-key
+        help: "relay servers public key in base64. example: xskF0Ihe1s9gjIjw4VvL86FN8YkA3UHMjBzajRspwns=" 
         takes_value: true

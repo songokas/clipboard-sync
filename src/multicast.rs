@@ -15,11 +15,11 @@ pub struct Multicast
 
 impl Multicast
 {
-    pub fn new() -> Self
+    pub fn default() -> Self
     {
-        return Multicast {
+        Multicast {
             cache: HashMap::new(),
-        };
+        }
     }
 
     pub fn join_group(
@@ -29,14 +29,14 @@ impl Multicast
         remote_ip: &IpAddr,
     ) -> bool
     {
-        if self.cache.contains_key(&remote_ip) {
+        if self.cache.contains_key(remote_ip) {
             return true;
         }
         let op = match remote_ip {
             IpAddr::V4(multicast_ipv4) => {
                 if let IpAddr::V4(ipv4) = interface_addr {
                     sock.set_multicast_loop_v4(false).unwrap_or(());
-                    sock.join_multicast_v4(multicast_ipv4.clone(), ipv4.clone())
+                    sock.join_multicast_v4(*multicast_ipv4, *ipv4)
                 } else {
                     Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -49,16 +49,16 @@ impl Multicast
                 sock.join_multicast_v6(multicast_ipv6, 0)
             }
         };
-        if let Err(_) = op {
+        if op.is_err() {
             warn!(
                 "Unable to join multicast network {} using {}",
                 remote_ip, interface_addr,
             );
-            return false;
+            false
         } else {
             debug!("Joined multicast {}", remote_ip);
-            self.cache.insert(remote_ip.clone(), true);
-            return true;
+            self.cache.insert(*remote_ip, true);
+            true
         }
     }
 

@@ -1,9 +1,8 @@
-#![allow(dead_code)]
 // #![feature(trait_alias)]
 // #![feature(type_alias_impl_trait)]
 
-use jni::objects::{JClass, JString};
-use jni::sys::jstring;
+use jni::objects::{JByteBuffer, JClass, JString};
+use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 #[cfg(target_os = "android")]
 use log::Level;
@@ -14,25 +13,32 @@ use lazy_static::lazy_static;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
-mod clipboards;
-mod config;
-mod defaults;
-mod encryption;
-mod errors;
-mod filesystem;
+pub mod clipboards;
+pub mod config;
+pub mod defaults;
+pub mod destination_pool;
+pub mod encryption;
+pub mod errors;
+pub mod filesystem;
 mod fragmenter;
 mod identity;
-mod message;
+pub mod message;
 mod multicast;
 mod notify;
-mod process;
-mod protocols;
+pub mod process;
+pub mod protocols;
+#[cfg(not(target_os = "android"))]
+pub mod relays;
 mod runner;
-mod socket;
+pub mod socket;
+mod stream;
+#[cfg(test)]
 mod test;
-mod time;
+pub mod time;
+mod validation;
 
-use crate::process::send_clipboard_contents;
+use crate::message::MessageType;
+use crate::process::{send_clipboard_contents, SocketAddrPool};
 use crate::protocols::SocketPool;
 use crate::runner::{create_config, create_runner, Runner, Status, StatusCount};
 
@@ -51,24 +57,21 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_startSync(
     #[cfg(target_os = "android")]
     android_logger::init_once(Config::default().with_min_level(Level::Debug));
 
-    let config: String = env
-        .get_string(input)
-        .expect("Couldn't get java string!")
-        .into();
+    let config_str: String = match env.get_string(input) {
+        Ok(b) => b.into(),
+        Err(_) => return create_string(env, "Could not get json config"),
+    };
 
-    let result = CURRENT_RUNTIME.block_on(start(config));
+    let result = CURRENT_RUNTIME.block_on(start(config_str));
 
     let message = Status::from(result);
 
     let status_str = match serde_json::to_string(&message) {
         Ok(s) => s,
-        Err(_) => format!("Unable to return response"),
+        Err(_) => "Unable to return response".into(),
     };
 
-    let output = env
-        .new_string(status_str)
-        .expect("Couldn't create java string!");
-    return output.into_inner();
+    create_string(env, status_str)
 }
 
 #[no_mangle]
@@ -80,21 +83,17 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_stopSync(
     let result = CURRENT_RUNTIME.block_on(stop());
 
     let message = if result {
-        Status::off(format!("Stopped"))
+        Status::off("Stopped".into())
     } else {
-        Status::off(format!("Not running"))
+        Status::off("Not running".into())
     };
 
     let status_str = match serde_json::to_string(&message) {
         Ok(s) => s,
-        Err(_) => format!("Unable to return response"),
+        Err(_) => "Unable to return response".into(),
     };
 
-    let output = env
-        .new_string(status_str)
-        .expect("Couldn't create java string!");
-
-    return output.into_inner();
+    create_string(env, status_str)
 }
 
 #[no_mangle]
@@ -106,26 +105,48 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_status(
     let status = CURRENT_RUNTIME.block_on(status());
 
     let message = if let Some(status_count) = status {
-        Status::on(
-            format!(
-                "received: {} sent: {}",
-                status_count.received, status_count.sent
-            ),
-            status_count.clipboard,
-        )
+        Status::from(status_count)
     } else {
-        Status::off(format!("Not running"))
+        Status::off("Not running".into())
     };
 
     let status_str = match serde_json::to_string(&message) {
         Ok(s) => s,
-        Err(_) => format!("Unable to return response"),
+        Err(_) => "Unable to return response".into(),
     };
 
-    let output = env
-        .new_string(status_str)
-        .expect("Couldn't create java string!");
-    output.into_inner()
+    create_string(env, status_str)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_receive(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring
+{
+    let message = CURRENT_RUNTIME.block_on(receive());
+
+    match message {
+        Some((bytes, _)) => {
+            let utf8_string = String::from_utf8_lossy(&bytes);
+            create_string(env, utf8_string)
+        }
+        None => create_string(env, ""),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_isRunning(
+    _: JNIEnv,
+    _: JClass,
+) -> jboolean
+{
+    let status = CURRENT_RUNTIME.block_on(is_started());
+    if status {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -133,22 +154,20 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_status(
 pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_queue(
     env: JNIEnv,
     _: JClass,
-    input: JString,
+    input: JByteBuffer,
+    clipboard_type: JString,
 ) -> jstring
 {
-    let contents: String = env
-        .get_string(input)
-        .expect("Couldn't get java string!")
-        .into();
-    let result = CURRENT_RUNTIME.block_on(queue(contents));
+    let (message_type, bytes) = match get_content_to_send(env, input, clipboard_type) {
+        Ok(r) => r,
+        Err(s) => return s,
+    };
+    let result = CURRENT_RUNTIME.block_on(queue(bytes, message_type));
     let status_str = match result {
         Ok(_) => format!("Ok"),
         Err(e) => e,
     };
-    let output = env
-        .new_string(status_str)
-        .expect("Couldn't create java string!");
-    output.into_inner()
+    create_string(env, status_str)
 }
 
 #[no_mangle]
@@ -156,85 +175,141 @@ pub extern "system" fn Java_com_clipboard_sync_ClipboardSync_send(
     env: JNIEnv,
     _: JClass,
     config_json: JString,
-    input: JString,
+    input: JByteBuffer,
+    clipboard_type: JString,
 ) -> jstring
 {
     #[cfg(target_os = "android")]
     android_logger::init_once(Config::default().with_min_level(Level::Debug));
-    let config_str: String = env
-        .get_string(config_json)
-        .expect("Couldn't get java string!")
-        .into();
-    let contents: String = env
-        .get_string(input)
-        .expect("Couldn't get java string!")
-        .into();
-    let result = CURRENT_RUNTIME.block_on(send(config_str, contents));
+
+    let config_str: String = match env.get_string(config_json) {
+        Ok(b) => b.into(),
+        Err(_) => return create_string(env, "Could not get json config"),
+    };
+
+    let (message_type, bytes) = match get_content_to_send(env, input, clipboard_type) {
+        Ok(r) => r,
+        Err(s) => return s,
+    };
+    let result = CURRENT_RUNTIME.block_on(send(config_str, &bytes, message_type));
     let status_str = match result {
         Ok(b) => format!("bytes sent {}", b),
         Err(e) => e,
     };
-    let output = env
-        .new_string(status_str)
-        .expect("Couldn't create java string!");
-    output.into_inner()
+    create_string(env, status_str)
+}
+
+pub async fn is_started() -> bool
+{
+    !(*(CURRENT_RUNNER.lock().await)).is_empty()
 }
 
 pub async fn start(config_str: String) -> Result<String, String>
 {
-    if (*(CURRENT_RUNNER.lock().await)).len() > 0 {
+    if is_started().await {
         stop().await;
     }
 
     match create_runner(config_str).await {
         Ok((runner, message)) => {
             (*(CURRENT_RUNNER.lock().await)).push(runner);
-            return Ok(message);
+            Ok(message)
         }
-        Err(e) => return Err(e),
-    };
+        Err(e) => Err(e),
+    }
 }
 
-pub async fn send(config_str: String, clipboard: String) -> Result<usize, String>
+pub async fn send(
+    config_str: String,
+    clipboard: &[u8],
+    message_type: MessageType,
+) -> Result<usize, String>
 {
     let full_config = create_config(config_str)?;
     let groups = full_config.groups;
-    let pool = SocketPool::new();
-    return send_clipboard_contents(&pool, clipboard, &groups[0]).await;
+    let pool = SocketPool::default();
+    let addr_pool = SocketAddrPool::new();
+    return send_clipboard_contents(&pool, &addr_pool, clipboard, &groups[0], message_type).await;
 }
 
 #[cfg(target_os = "android")]
-pub async fn queue(clipboard: String) -> Result<(), String>
+pub async fn queue(clipboard: Vec<u8>, message_type: MessageType) -> Result<(), String>
 {
     let mut guard = CURRENT_RUNNER.lock().await;
     if (*guard).len() == 0 {
         return Err(format!("Unable to queue. Not running"));
     }
-    return (*guard)[0].queue(clipboard);
+    return (*guard)[0].queue(clipboard, message_type);
 }
 
 pub async fn status() -> Option<StatusCount>
 {
     let mut guard = CURRENT_RUNNER.lock().await;
-    if (*guard).len() == 0 {
+    if (*guard).is_empty() {
         return None;
     }
-    return Some((*guard)[0].status());
+    Some((*guard)[0].status())
+}
+
+pub async fn receive() -> Option<(Vec<u8>, MessageType)>
+{
+    let mut guard = CURRENT_RUNNER.lock().await;
+    if (*guard).is_empty() {
+        return None;
+    }
+    (*guard)[0].receive()
 }
 
 pub async fn stop() -> bool
 {
     let mut guard = CURRENT_RUNNER.lock().await;
 
-    if (*guard).len() > 0 {
+    if !(*guard).is_empty() {
         let runner = (*guard).remove(0);
-        // std::mem::drop(guard);
-        return match runner.stop().await {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+        return runner.stop().await.is_ok();
     }
-    return false;
+    false
+}
+
+fn create_string(env: JNIEnv, message: impl AsRef<str>) -> jstring
+{
+    let output = env
+        .new_string(message.as_ref().to_string())
+        .expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+fn get_content_to_send(
+    env: JNIEnv,
+    input: JByteBuffer,
+    clipboard_type: JString,
+) -> Result<(MessageType, Vec<u8>), jstring>
+{
+    let contents = match env.get_direct_buffer_address(input) {
+        Ok(b) => b,
+        Err(_) => return Err(create_string(env, "Could not get buffer address")),
+    };
+
+    let message_str: String = match env.get_string(clipboard_type) {
+        Ok(b) => b.into(),
+        Err(_) => return Err(create_string(env, "Could not get clipboard type")),
+    };
+    Ok(match message_str.as_ref() {
+        "text" => (MessageType::Text, contents.to_vec()),
+        file_name => {
+            let hash = vec![(file_name.to_string(), contents.to_vec())];
+            let bytes = match bincode::serialize(&hash) {
+                Ok(b) => b,
+                Err(e) => {
+                    return Err(create_string(
+                        env,
+                        format!("Failed to create file {} {}", file_name, e),
+                    ))
+                }
+            };
+            (MessageType::Files, bytes)
+        }
+    })
 }
 
 #[cfg(test)]
@@ -245,7 +320,7 @@ mod runnertest
     #[test]
     fn test_start()
     {
-        let config = r#"{"key":"32323232323232323232323232323232","group":"default","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":["0.0.0.0:15331"],"bind_address":["0.0.0.0:15330"],"heartbeat":0}"#;
+        let config = r#"{"key":"32323232323232323232323232323232","group":"default","protocol":"basic","hosts":["127.0.0.1"],"send_using_address":["0.0.0.0:15331"],"bind_address":["0.0.0.0:15330"],"heartbeat":0,"app_dir":"/tmp"}"#;
         assert_eq!(
             Ok(String::from("Started")),
             CURRENT_RUNTIME.block_on(start(config.to_owned()))
@@ -254,7 +329,6 @@ mod runnertest
             Some(StatusCount {
                 sent: 0,
                 received: 0,
-                clipboard: String::from("")
             }),
             CURRENT_RUNTIME.block_on(status())
         );

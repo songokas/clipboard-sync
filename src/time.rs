@@ -2,23 +2,17 @@ use chrono::Utc;
 use std::convert::TryFrom;
 
 #[cfg(feature = "ntp")]
-use std::sync::atomic::{AtomicI64, Ordering};
-
-#[cfg(feature = "ntp")]
 use crate::errors::{CliError, ConnectionError};
 #[cfg(feature = "ntp")]
 use log::{debug, warn};
 #[cfg(feature = "ntp")]
 use rsntp::AsyncSntpClient;
 #[cfg(feature = "ntp")]
-use std::sync::atomic::AtomicBool;
-#[cfg(feature = "ntp")]
+use std::sync::atomic::AtomicI64;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-#[cfg(feature = "ntp")]
-use std::time::Duration;
-#[cfg(feature = "ntp")]
-use std::time::Instant;
-#[cfg(feature = "ntp")]
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 #[cfg(feature = "ntp")]
@@ -30,7 +24,7 @@ pub fn get_time() -> u64
     {
         let diff = TIME_DIFF.load(Ordering::Relaxed);
         let now = Utc::now().timestamp();
-        return (now + diff) as u64;
+        (now + diff) as u64
     }
     #[cfg(not(feature = "ntp"))]
     return Utc::now().timestamp() as u64;
@@ -52,7 +46,7 @@ pub fn is_timestamp_valid(timestamp: u64, valid_for: u16) -> bool
         Ok(i) => i,
         _ => return false,
     };
-    return valid_for >= diff;
+    valid_for >= diff
 }
 
 #[cfg(feature = "ntp")]
@@ -61,9 +55,6 @@ pub async fn update_time_diff(
     ntp_address: String,
 ) -> Result<(String, u64), CliError>
 {
-    let diff = get_time_diff(&ntp_address).await;
-    TIME_DIFF.fetch_add(diff, Ordering::Relaxed);
-
     let mut now = Instant::now();
     let mut updated = 1;
     while running.load(Ordering::Relaxed) {
@@ -76,7 +67,7 @@ pub async fn update_time_diff(
             updated += 1;
         }
     }
-    return Ok((format!("ntp updated"), updated));
+    Ok(("ntp updated".into(), updated))
 }
 
 #[cfg(feature = "ntp")]
@@ -88,7 +79,11 @@ async fn get_time_diff(ntp_address: &str) -> i64
         return 0;
     };
     let now = Utc::now().timestamp();
-    return if real >= now { real - now } else { now - real };
+    if real >= now {
+        real - now
+    } else {
+        now - real
+    }
 }
 
 #[cfg(feature = "ntp")]
@@ -109,7 +104,29 @@ async fn get_ntp_time(ntp_address: &str) -> Result<i64, ConnectionError>
         seconds,
         Utc::now().timestamp()
     );
-    return Ok(seconds);
+    Ok(seconds)
+}
+
+pub async fn run_every(
+    duration: Duration,
+    condition: Arc<AtomicBool>,
+    callback: impl Fn() -> bool,
+) -> u64
+{
+    let mut now = Instant::now();
+    let mut updated = 0;
+    while condition.load(Ordering::Relaxed) {
+        sleep(Duration::from_millis(500)).await;
+
+        if now.elapsed() > duration {
+            if !callback() {
+                break;
+            }
+            updated += 1;
+            now = Instant::now();
+        }
+    }
+    updated
 }
 
 #[cfg(test)]

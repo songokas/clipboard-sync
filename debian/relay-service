@@ -1,0 +1,19 @@
+[Unit]
+Description=Clipboard relay service
+
+[Service]
+# as root`
+# `adduser --system --home /etc/clipboard-relay --group cliprel`
+# `openssl rand -out /etc/clipboard-relay/key 32 && chown cliprel /etc/clipboard-relay/key && chmod 600 /etc/clipboard-relay/key`
+# with 32 bytes content
+# or
+# `systemctl edit clipboard-relay`
+# and override what you see fit
+ExecStart=/usr/bin/clipboard-relay --private-key /etc/clipboard-relay/key --protocol basic --protocol laminar --protocol tcp
+NoNewPrivileges=true
+User=cliprel
+Group=cliprel
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

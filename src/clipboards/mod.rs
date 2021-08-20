@@ -9,6 +9,8 @@ pub mod delayed_clipboard;
 #[cfg(all(not(feature = "clipboard"), not(target_os = "android")))]
 pub mod empty_clipboard;
 
+use crate::filesystem::encode_path;
+
 #[cfg(target_os = "android")]
 use self::channel_clipboard::ChannelClipboardContext;
 #[cfg(all(feature = "clipboard", not(target_os = "android")))]
@@ -71,7 +73,7 @@ pub fn create_text_targets(contents: &[u8]) -> HashMap<ClipboardType, &[u8]>
         clipboard_list.insert(ClipboardType::PlainUtf8, contents);
         clipboard_list.insert(ClipboardType::SimpleText, contents);
     }
-    return clipboard_list;
+    clipboard_list
 }
 
 pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
@@ -79,7 +81,7 @@ pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
 {
     let file_content = files
         .iter()
-        .map(|p| format!("file://{}", p.to_str().unwrap()))
+        .filter_map(|pb| encode_path(pb.as_path()).map(|s| format!("file://{}", s)))
         .collect::<Vec<String>>()
         .join("\n");
     #[cfg(target_os = "linux")]
@@ -96,5 +98,5 @@ pub fn create_targets_for_cut_files(files: Vec<PathBuf>)
     }
     clipboard_list.insert(ClipboardType::Text, file_content.clone());
 
-    return (clipboard_list, file_content);
+    (clipboard_list, file_content)
 }

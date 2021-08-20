@@ -7,7 +7,9 @@ use std::io;
 use std::io::prelude::*;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::Component;
 use std::path::{Path, PathBuf};
+use urlencoding::{decode, encode, FromUrlEncodingError};
 use walkdir::WalkDir;
 
 use crate::errors::*;
@@ -23,7 +25,7 @@ pub fn read_file<P: AsRef<Path>>(path: P, max_size: usize) -> Result<(Vec<u8>, b
     let all_file = size_read < (max_size + 1);
     let resize_to = if all_file { size_read } else { max_size };
     buffer.resize_with(resize_to, Default::default);
-    return Ok((buffer, all_file));
+    Ok((buffer, all_file))
 }
 
 #[allow(unused_variables)]
@@ -54,7 +56,7 @@ pub fn read_file_to_string<P: AsRef<Path>>(
 ) -> Result<(String, bool), io::Error>
 {
     let (buffer, full) = read_file(path, max_size)?;
-    return Ok((String::from_utf8_lossy(&buffer).to_string(), full));
+    Ok((String::from_utf8_lossy(&buffer).to_string(), full))
 }
 
 pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructure
@@ -93,7 +95,7 @@ pub fn dir_to_dir_structure(directory: &str, max_file_size: usize) -> DirStructu
         };
         hash.push((file_name.to_owned(), data));
     }
-    return hash;
+    hash
 }
 
 pub fn dir_to_bytes(directory: &str, max_file_size: usize) -> Result<Vec<u8>, EncryptionError>
@@ -108,9 +110,14 @@ pub fn dir_to_bytes(directory: &str, max_file_size: usize) -> Result<Vec<u8>, En
     if hash.is_empty() {
         return Ok(vec![]);
     }
-    let add_bytes = bincode::serialize(&hash)
-        .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    return Ok(add_bytes);
+    let add_bytes = bincode::serialize(&hash).map_err(|err| {
+        EncryptionError::SerializeFailed(format!(
+            "Failed to serialize directory {} {}",
+            directory,
+            (*err).to_string()
+        ))
+    })?;
+    Ok(add_bytes)
 }
 
 pub fn files_to_dir_structure(files: Vec<&str>, max_file_size: usize) -> DirStructure
@@ -149,7 +156,7 @@ pub fn files_to_dir_structure(files: Vec<&str>, max_file_size: usize) -> DirStru
         };
         hash.push((file_name, data));
     }
-    return hash;
+    hash
 }
 
 pub fn files_to_bytes(files: Vec<&str>, max_file_size: usize) -> Result<Vec<u8>, EncryptionError>
@@ -160,7 +167,7 @@ pub fn files_to_bytes(files: Vec<&str>, max_file_size: usize) -> Result<Vec<u8>,
     }
     let add_bytes = bincode::serialize(&hash)
         .map_err(|err| EncryptionError::SerializeFailed((*err).to_string()))?;
-    return Ok(add_bytes);
+    Ok(add_bytes)
 }
 
 pub fn bytes_to_dir(
@@ -192,7 +199,6 @@ pub fn bytes_to_dir(
         }
         return Ok(files_created);
     }
-    let path = Path::new(directory).join(from);
     if data.len() > max_file_size {
         warn!(
             "Ignoring file {} because it contains more data {} than expected {}",
@@ -202,9 +208,52 @@ pub fn bytes_to_dir(
         );
         return Ok(vec![]);
     }
+    let path = Path::new(directory).join(from);
     write_file(&path, data, 0o600)?;
     files_created.push(path);
-    return Ok(files_created);
+    Ok(files_created)
+}
+
+pub fn encode_path(path: impl AsRef<Path>) -> Option<String>
+{
+    let enc_path: Result<PathBuf, ()> = path
+        .as_ref()
+        .components()
+        .map(|c| {
+            let cpath = c.as_os_str().to_str().ok_or(())?;
+            let pc = if let Component::RootDir = c {
+                cpath.to_owned()
+            } else {
+                encode(cpath)
+            };
+            Ok(pc)
+        })
+        .collect();
+    enc_path.map(|b| b.to_string_lossy().to_string()).ok()
+}
+
+pub fn decode_path(path: impl AsRef<Path>) -> Result<String, FromUrlEncodingError>
+{
+    let enc_path: Result<PathBuf, FromUrlEncodingError> = path
+        .as_ref()
+        .components()
+        .map(|c| {
+            let cpath = c
+                .as_os_str()
+                .to_str()
+                .ok_or(FromUrlEncodingError::UriCharacterError {
+                    character: 'a',
+                    index: 1,
+                })?;
+            let pc = if let Component::RootDir = c {
+                cpath.to_owned()
+            } else {
+                decode(cpath)?
+            };
+            Ok(pc)
+        })
+        .collect();
+    enc_path.map(|b| b.to_string_lossy().to_string())
 }
 
 #[cfg(test)]
@@ -307,5 +356,49 @@ mod filesystemtest
             true,
             bytes_to_dir("/tmp/all/deep/a", vec![3], "unknown", 100).is_ok()
         );
+    }
+
+    #[test]
+    fn test_encode_path()
+    {
+        let data = [
+            ("hello/amigo/1", "hello/amigo/1"),
+            // prefix is not supported
+            ("file:///hello/amigo/1", "file%3A/hello/amigo/1"),
+            ("/hello/amigo/1", "/hello/amigo/1"),
+            ("///hello/amigo/1", "/hello/amigo/1"),
+            (
+                "/hello with spaces/amigo/1",
+                "/hello%20with%20spaces/amigo/1",
+            ),
+            ("^,&%$%20hello/", "%5E%2C%26%25%24%2520hello"),
+        ];
+
+        for (path, expected) in data {
+            let encoded = encode_path(Path::new(path));
+            assert_eq!(Some(expected.to_string()), encoded);
+        }
+    }
+
+    #[test]
+    fn test_decode_path()
+    {
+        let data = [
+            ("hello/amigo/1", "hello/amigo/1"),
+            ("file:/hello/amigo/1", "file%3A/hello/amigo/1"),
+            ("/hello/amigo/1", "/hello/amigo/1"),
+            ("/hello/amigo/1", "///hello/amigo/1"),
+            (
+                "/hello with spaces/amigo/1",
+                "/hello%20with%20spaces/amigo/1",
+            ),
+            ("^,&%$ hello", "^,&%$%20hello/"),
+            ("^,&%$%20hello", "%5E%2C%26%25%24%2520hello"),
+        ];
+
+        for (expected, path) in data {
+            let decoded = decode_path(&path);
+            assert_eq!(expected.to_string(), decoded.unwrap());
+        }
     }
 }

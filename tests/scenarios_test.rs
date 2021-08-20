@@ -8,7 +8,7 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
-const ANY_KEY: &'static str = "12345678912345678912345678912345";
+const ANY_KEY: &str = "12345678912345678912345678912345";
 
 fn send_receive_once(protocol: &'static str, size: usize)
 {
@@ -103,9 +103,6 @@ fn send_receive_once(protocol: &'static str, size: usize)
 
     let output1 = t1.join().unwrap().unwrap();
     let output2 = t2.join().unwrap().unwrap();
-
-    // println!("{} {:?}", protocol, output1);
-    // println!("{} {:?}", protocol, output2);
 
     let assert1 = Assert::new(output1);
     let assert2 = Assert::new(output2);
@@ -360,7 +357,7 @@ fn test_send_receive_same_port()
                 "basic",
             ],
             "",
-            2000,
+            3000,
         )
     });
 
@@ -391,7 +388,7 @@ fn test_send_receive_same_port()
                 protocol,
             ],
             &contents,
-            2000,
+            3000,
         )
     });
 
@@ -413,5 +410,5 @@ fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result
     }
     cmd.write_stdin(stdin);
     cmd.timeout(Duration::from_millis(timeout));
-    return cmd.output();
+    cmd.output()
 }

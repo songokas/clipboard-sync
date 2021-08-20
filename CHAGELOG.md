@@ -1,6 +1,18 @@
 ## [Unreleased]
 - quic quinn protocol implementation lacks client verification, version negotiation, retry token
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
+- relay host basic protocol handle tcp connections
+
+## [2.1.0] - 2021-06-13
+
+### Added
+
+- clipboard-relay to relay traffic, when direct connection is not possible
+
+### Fixed
+
+- file clipboard encode/decode
+- basic protocol use tcp with multicast for first host
 
 ## [2.0.1] - 2021-06-06
 

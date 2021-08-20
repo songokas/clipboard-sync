@@ -1,14 +1,17 @@
+use blake2::{Blake2b, Digest};
 use chacha20poly1305::{Key, XNonce};
 use indexmap::IndexSet;
 use serde::{de, Deserialize, Serialize};
+use std::convert::TryInto;
 use std::net::SocketAddr;
+use x25519_dalek::PublicKey;
 
 #[cfg(test)]
 use chrono::Utc;
 #[cfg(test)]
 use indexmap::indexset;
 
-use crate::defaults::KEY_SIZE;
+use crate::defaults::{KEY_SIZE, NONCE_SIZE};
 use crate::protocols::Protocol;
 
 mod serde_key_str
@@ -36,7 +39,7 @@ mod serde_key_str
                 str_data
             )));
         }
-        return Ok(Some(Key::from_slice(&str_data.as_bytes()).clone()));
+        Ok(Some(*Key::from_slice(str_data.as_bytes())))
     }
 }
 
@@ -53,11 +56,18 @@ mod serde_nonce
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<XNonce, D::Error>
     {
         let nonce_data: Vec<u8> = Deserialize::deserialize(deserializer)?;
-        Ok(XNonce::from_slice(&nonce_data).clone())
+        if nonce_data.len() != NONCE_SIZE {
+            return Err(de::Error::custom(format!(
+                "Nonce size must be {} bytes. Provided {}",
+                NONCE_SIZE,
+                nonce_data.len(),
+            )));
+        }
+        Ok(*XNonce::from_slice(&nonce_data))
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub enum MessageType
 {
     Text,
@@ -97,11 +107,30 @@ pub struct Message
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct PublicMessage
+{
+    pub public_key: PublicKey,
+    #[serde(with = "serde_nonce")]
+    pub nonce: XNonce,
+    pub data: Vec<u8>,
+    pub time: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AdditionalData
 {
     pub group: String,
     pub identity: String,
     pub message_type: MessageType,
+}
+
+pub type GroupId = [u8; 64];
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Relay
+{
+    pub host: String,
+    pub public_key: PublicKey,
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +145,21 @@ pub struct Group
     pub protocol: Protocol,
     pub heartbeat: u64,
     pub message_valid_for: u16,
+    pub relay: Option<Relay>,
+}
+
+impl Group
+{
+    pub fn hash(&self) -> GroupId
+    {
+        return Blake2b::new()
+            .chain(self.key.as_slice())
+            .chain(self.name.clone())
+            .finalize()
+            .as_slice()
+            .try_into()
+            .expect("group id must match hash output");
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -131,6 +175,7 @@ pub struct ConfigGroup
     #[serde(default)]
     pub heartbeat: u64,
     pub message_valid_for: Option<u16>,
+    pub relay: Option<Relay>,
 }
 
 #[cfg(test)]
@@ -163,6 +208,7 @@ impl Group
             protocol: Protocol::Basic,
             heartbeat: 0,
             message_valid_for: 0,
+            relay: None,
         };
     }
 
@@ -178,6 +224,7 @@ impl Group
             protocol: Protocol::Basic,
             heartbeat: 0,
             message_valid_for: 0,
+            relay: None,
         };
     }
 
@@ -186,5 +233,120 @@ impl Group
         let mut group = Group::from_name(name);
         group.visible_ip = Some(visible_ip.to_owned());
         return group;
+    }
+}
+
+#[cfg(test)]
+mod messagetest
+{
+    use super::*;
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct TestNonce
+    {
+        #[serde(with = "serde_nonce")]
+        pub nonce: XNonce,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct TestKey
+    {
+        #[serde(with = "serde_key_str")]
+        pub key: Option<Key>,
+    }
+
+    #[test]
+    fn test_key_serialize()
+    {
+        let key_data = "12345678123456781234567812345678";
+        let key = Key::from_slice(key_data.as_bytes());
+        let data = TestKey {
+            key: Some(key.clone()),
+        };
+        let result = bincode::serialize(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_key_deserialize()
+    {
+        let key_data = [
+            32, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_ok());
+
+        let key_data = [
+            32, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56, 56, 49, 50, 51, 52,
+            53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_ok());
+
+        let key_data = [
+            1, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+            49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_err());
+
+        let key_data = [
+            1, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_err());
+
+        let key_data = [];
+        let result = bincode::deserialize::<TestKey>(&key_data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_nonce_serialize()
+    {
+        let nonce_data = "123456781234567812345678";
+        let nonce = XNonce::from_slice(nonce_data.as_bytes());
+        let data = TestNonce {
+            nonce: nonce.clone(),
+        };
+        let result = bincode::serialize(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_nonce_deserialize()
+    {
+        let data = [
+            24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_ok());
+
+        let data = [
+            24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+            56, 49, 50, 51, 52, 53, 54, 55, 56, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_ok());
+
+        let data = [
+            0, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
+            49, 50, 51, 52, 53, 54, 55, 56,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_err());
+
+        let data = [
+            24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
+        ];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_err());
+
+        let data = [];
+        let result = bincode::deserialize::<TestNonce>(&data);
+        assert!(result.is_err());
     }
 }

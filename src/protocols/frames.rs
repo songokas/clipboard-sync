@@ -30,9 +30,8 @@ pub async fn receive_data(
     let mut data = [0; MAX_UDP_BUFFER];
     let mut received = 0;
     let mut last_addr: Option<SocketAddr> = None;
-    let timeout_callback_with_time = |d: Duration| -> bool {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout(d);
-    };
+    let timeout_callback_with_time =
+        |d: Duration| -> bool { d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout(d) };
 
     loop {
         let (read, addr) =
@@ -67,9 +66,10 @@ pub async fn receive_data(
 
         let confirm_bytes = encryptor.encrypt(
             &frame.index.to_be_bytes(),
-            &group,
+            group,
             &identity,
             &MessageType::Frame,
+            &addr,
         )?;
 
         socket.send_to(&confirm_bytes, addr).await?;
@@ -102,7 +102,7 @@ pub async fn send_data(
 
     let socket_writer = Arc::clone(&socket);
     let socket_reader = Arc::clone(&socket_writer);
-    let indexes_b = indexes.clone();
+    let indexes_b = indexes;
     // let confirm_timeout = |d: Duration| timeout_callback(d);
     let (channel_sender, channel_receiver) = bounded(indexes * 4);
     let res = try_join!(
@@ -123,7 +123,7 @@ pub async fn send_data(
         ))
     )
     .map_err(ConnectionError::JoinError)?;
-    return Ok(res.1?);
+    Ok(res.1?)
 }
 
 async fn confirm_received(
@@ -135,7 +135,7 @@ async fn confirm_received(
 {
     let mut received: HashMap<u32, bool> = HashMap::new();
     let timeout_callback_with_channel = |d: Duration| -> bool {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected();
+        d > Duration::from_millis(CONNECTION_TIMEOUT) || channel_sender.is_disconnected()
     };
     while received.len() != indexes && !channel_sender.is_disconnected() {
         let mut bytes = [0; 100];
@@ -182,7 +182,7 @@ async fn confirm_received(
             }
         }
     }
-    return Ok(received.len());
+    Ok(received.len())
 }
 
 async fn confirm_sent(
@@ -206,15 +206,14 @@ async fn confirm_sent(
         sleep(Duration::from_millis(10)).await;
     }
     let now = Instant::now();
-    let timeout_with_time = |d: Duration| -> bool {
-        return d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout(d);
-    };
+    let timeout_with_time =
+        |d: Duration| -> bool { d > Duration::from_millis(CONNECTION_TIMEOUT) || timeout(d) };
 
-    while sent_without_confirmation.len() > 0 {
+    while !sent_without_confirmation.is_empty() {
         sleep(Duration::from_millis(100)).await;
-        while i < 5000 && sent_without_confirmation.len() > 0 {
+        while i < 5000 && !sent_without_confirmation.is_empty() {
             if let Ok(index) = channel_receiver.try_recv() {
-                if let None = sent_without_confirmation.remove(&index) {
+                if sent_without_confirmation.remove(&index).is_none() {
                     error!("Error frame index {} does not exist", index);
                 }
             }
@@ -222,14 +221,7 @@ async fn confirm_sent(
         }
 
         for (index, _) in sent_without_confirmation.iter() {
-            sent += send_index(
-                &socket_writer,
-                &encryptor,
-                &data,
-                &destination,
-                index.clone(),
-            )
-            .await?;
+            sent += send_index(&socket_writer, &encryptor, &data, &destination, *index).await?;
         }
         if timeout_with_time(now.elapsed()) {
             return Err(ConnectionError::FailedToConnect(format!(
@@ -240,7 +232,7 @@ async fn confirm_sent(
             )));
         }
     }
-    return Ok(sent);
+    Ok(sent)
 }
 
 async fn send_index(
@@ -251,7 +243,7 @@ async fn send_index(
     index: u32,
 ) -> Result<usize, ConnectionError>
 {
-    let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD)?;
+    let bytes = encryptor.encrypt_with_index(data, index, MAX_UDP_PAYLOAD, destination)?;
 
     // debug!("Sent frame {} with {} bytes", index, bytes.len());
 

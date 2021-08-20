@@ -40,7 +40,7 @@ pub async fn send_data(
     let mut connection_sent = send_handshake(
         &mut conn,
         &socket,
-        destination.addr().clone(),
+        *destination.addr(),
         encryptor,
         timeout_callback,
     )
@@ -59,7 +59,7 @@ pub async fn send_data(
             }
         }
 
-        connection_read += receive(&mut conn, &socket, Some(destination.addr().clone()))?;
+        connection_read += receive(&mut conn, &socket, Some(*destination.addr()))?;
 
         if conn.is_established() {
             while let Ok(sent) = conn.stream_send(QUIC_STREAM as u64, &data[data_sent..], true) {
@@ -71,7 +71,7 @@ pub async fn send_data(
             }
         }
 
-        connection_sent += send(&mut conn, &socket, Some(destination.addr().clone()))?;
+        connection_sent += send(&mut conn, &socket, Some(*destination.addr()))?;
 
         if conn.is_closed() {
             info!(
@@ -104,7 +104,7 @@ pub async fn receive_data(
     let mut connection_sent = 0;
     let mut received = Vec::new();
     let timeout_with_time = |d: Duration| -> bool {
-        return timeout_callback(d);
+        timeout_callback(d)
     };
 
     let (header, addr, mut buffer, mut connection_read) =
@@ -213,7 +213,7 @@ fn receive_stream(
             });
         }
     }
-    return Ok(());
+    Ok(())
 }
 
 async fn send_handshake(
@@ -227,7 +227,7 @@ async fn send_handshake(
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
     let cwrite = conn.send(&mut out)?;
-    let enc_write = encryptor.encrypt(out[..cwrite].to_vec(), &MessageType::Handshake)?;
+    let enc_write = encryptor.encrypt(out[..cwrite].to_vec(), &MessageType::Handshake, &destination)?;
 
     let now = Instant::now();
     while !timeout_callback(now.elapsed()) {
@@ -242,9 +242,9 @@ async fn send_handshake(
         };
         return Ok(connection_sent);
     }
-    return Err(ConnectionError::FailedToConnect(
+    Err(ConnectionError::FailedToConnect(
         "Quic failed to send initial data".to_owned(),
-    ));
+    ))
 }
 
 async fn receive_handshake<'a>(
@@ -262,13 +262,13 @@ async fn receive_handshake<'a>(
 
         Err(e) => {
             error!("Parsing packet header failed: {:?}", e);
-            return Err(ConnectionError::InvalidBuffer(format!(
-                "Failed to read handshake"
-            )));
+            return Err(ConnectionError::InvalidBuffer(
+                "Failed to read handshake".into()
+            ));
         }
     };
 
-    return Ok((header, addr, pkt_buf, connection_read));
+    Ok((header, addr, pkt_buf, connection_read))
 }
 
 fn receive(
@@ -288,9 +288,9 @@ fn receive(
             }
             Err(e) => {
                 error!("Quic error occured while reading socket {}", e);
-                return Err(ConnectionError::InvalidBuffer(format!(
-                    "Failed to read socket"
-                )));
+                return Err(ConnectionError::InvalidBuffer(
+                    "Failed to read socket".into()
+                ));
             }
         };
 
@@ -317,7 +317,7 @@ fn receive(
             }
         };
     }
-    return Ok(connection_read);
+    Ok(connection_read)
 }
 
 fn send(
@@ -361,7 +361,7 @@ fn send(
             }
         };
     }
-    return Ok(connection_sent);
+    Ok(connection_sent)
 }
 
 fn load_config() -> Result<Config, ConnectionError>
@@ -381,7 +381,7 @@ fn load_config() -> Result<Config, ConnectionError>
     config.set_initial_max_streams_uni(100);
     config.set_disable_active_migration(true);
     config.enable_early_data();
-    return Ok(config);
+    Ok(config)
 }
 
 fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionError>
@@ -400,7 +400,7 @@ fn load_client_config(verify_path: Option<String>) -> Result<Config, ConnectionE
                 ))
             })?;
     }
-    return Ok(config);
+    Ok(config)
 }
 
 fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, ConnectionError>
@@ -420,7 +420,7 @@ fn load_server_config(key_path: &str, cert_path: &str) -> Result<Config, Connect
         ConnectionError::InvalidKey(format!("Key not found or not valid {} {}", key_path, e))
     })?;
 
-    return Ok(config);
+    Ok(config)
 }
 
 #[cfg(test)]

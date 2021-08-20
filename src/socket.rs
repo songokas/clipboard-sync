@@ -24,25 +24,25 @@ impl Destination
 {
     pub fn new(host: String, addr: SocketAddr) -> Self
     {
-        return Self { host, addr };
+        Self { host, addr }
     }
 
     pub fn host(&self) -> &str
     {
-        return &self.host;
+        &self.host
     }
 
     pub fn addr(&self) -> &SocketAddr
     {
-        return &self.addr;
+        &self.addr
     }
 }
 
-impl Into<SocketAddr> for Destination
+impl From<Destination> for SocketAddr
 {
-    fn into(self) -> SocketAddr
+    fn from(d: Destination) -> SocketAddr
     {
-        return self.addr().clone();
+        d.addr
     }
 }
 
@@ -50,7 +50,7 @@ impl From<SocketAddr> for Destination
 {
     fn from(item: SocketAddr) -> Self
     {
-        return Self::new(item.ip().to_string(), item.clone());
+        Self::new(item.ip().to_string(), item)
     }
 }
 
@@ -65,7 +65,7 @@ impl std::fmt::Display for Destination
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(1000, 3600) }",
     type = "TimedSizedCache<String, SocketAddr>",
-    convert = r#"{ format!("{}", socket_addr.as_ref()) }"#,
+    convert = r#"{ socket_addr.as_ref().to_string() }"#,
     result = true
 )]
 pub fn to_socket_address(socket_addr: impl AsRef<str>) -> Result<SocketAddr, DnsError>
@@ -77,14 +77,19 @@ pub fn to_socket_address(socket_addr: impl AsRef<str>) -> Result<SocketAddr, Dns
             e
         ))
     };
-    for addr in socket_addr.as_ref().to_socket_addrs().map_err(to_err)? {
+    let addr = socket_addr
+        .as_ref()
+        .to_socket_addrs()
+        .map_err(to_err)?
+        .next();
+    if let Some(addr) = addr {
         debug!("Retrieved socket {} for dns {}", addr, socket_addr.as_ref());
         return Ok(addr);
     }
-    return Err(DnsError::Failed(format!(
+    Err(DnsError::Failed(format!(
         "Unable to retrieve ip for {}",
         socket_addr.as_ref()
-    )));
+    )))
 }
 
 pub async fn receive_from_timeout(
@@ -114,7 +119,7 @@ pub async fn receive_from_timeout(
 #[cached(
     create = "{ TimedSizedCache::with_size_and_lifespan(100, 600) }",
     type = "TimedSizedCache<String, SocketAddr>",
-    convert = r#"{ format!("{}", remote_address.ip().to_string()) }"#,
+    convert = r#"{ remote_address.ip().to_string() }"#,
     result = true
 )]
 pub async fn retrieve_local_address(
@@ -124,7 +129,7 @@ pub async fn retrieve_local_address(
 {
     let socket = obtain_socket(local_addresses, remote_address).await?;
     let sock_addr = socket.local_addr()?;
-    return Ok(sock_addr);
+    Ok(sock_addr)
 }
 
 #[cfg(feature = "public-ip")]
@@ -133,11 +138,11 @@ pub async fn retrieve_public_ip(_socket_addr: SocketAddr) -> Result<IpAddr, DnsE
 {
     let result = public_ip::addr()
         .await
-        .ok_or(DnsError::Failed("Failed to retrieve public ip".to_owned()));
+        .ok_or_else(|| DnsError::Failed("Failed to retrieve public ip".into()));
     if let Ok(ip) = result {
         debug!("Retrieved public ip {}", ip);
     }
-    return result;
+    result
 }
 
 pub fn get_matching_address<'a>(
@@ -152,7 +157,7 @@ pub fn get_matching_address<'a>(
             return Some(local_address);
         }
     }
-    return None;
+    None
 }
 
 pub fn ipv6_support() -> (bool, bool)
@@ -192,7 +197,7 @@ pub async fn obtain_socket(
             local_address, remote_address, e
         ))
     })?;
-    return Ok(sock);
+    Ok(sock)
 }
 
 pub fn remove_ipv4_mapping(addr: &SocketAddr) -> SocketAddr
@@ -200,10 +205,10 @@ pub fn remove_ipv4_mapping(addr: &SocketAddr) -> SocketAddr
     let use_addr: SocketAddr = match addr {
         SocketAddr::V6(a) => Ipv6AddrExt::to_ipv4_mapped(a.ip())
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), a.port()))
-            .unwrap_or(SocketAddr::V6(a.clone())),
-        _ => addr.clone(),
+            .unwrap_or(SocketAddr::V6(*a)),
+        _ => *addr,
     };
-    return use_addr;
+    use_addr
 }
 
 // @TODO remove once stable https://github.com/rust-lang/rust/issues/27709
@@ -267,7 +272,7 @@ impl IpAddrExt for Ipv6Addr
     fn is_global(&self) -> bool
     {
         let first = self.segments()[0];
-        return first >= 0x2001 && first <= 0x3FFF;
+        (0x2001..=0x3FFF).contains(&first)
         // match self.multicast_scope() {
         //     Some(Ipv6MulticastScope::Global) => true,
         //     None => self.is_unicast_global(),

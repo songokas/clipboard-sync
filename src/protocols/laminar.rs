@@ -1,5 +1,6 @@
 use crossbeam_channel::{Receiver, Sender};
 use laminar::{Config, Packet, Socket, SocketEvent};
+use log::debug;
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
@@ -26,20 +27,20 @@ impl LaminarSocket
 {
     pub fn get_sender(&self) -> LaminarSender
     {
-        return LaminarSender {
+        LaminarSender {
             sender: self.sender.clone(),
             config: self.config.clone(),
             socket: Arc::clone(&self.socket),
-        };
+        }
     }
 
     pub fn get_receiver(&self) -> LaminarReceiver
     {
-        return LaminarReceiver {
+        LaminarReceiver {
             receiver: self.receiver.clone(),
             config: self.config.clone(),
             socket: Arc::clone(&self.socket),
-        };
+        }
     }
 }
 
@@ -62,7 +63,7 @@ impl LaminarReceiver
     pub async fn recv(&self) -> Option<SocketEvent>
     {
         self.socket.lock().await.manual_poll(Instant::now());
-        return self.receiver.try_recv().ok();
+        self.receiver.try_recv().ok()
     }
 }
 
@@ -72,7 +73,7 @@ impl LaminarSender
     {
         let result = self.sender.send(packet);
         self.socket.lock().await.manual_poll(Instant::now());
-        return result.is_ok();
+        result.is_ok()
     }
 }
 
@@ -88,12 +89,12 @@ pub fn run_laminar(local_address: &SocketAddr) -> Result<LaminarSocket, Connecti
     //         sleep(sleep_duration).await;
     //     }
     // });
-    return Ok(LaminarSocket {
+    Ok(LaminarSocket {
         sender,
         receiver,
         config,
         socket: Arc::new(Mutex::new(socket)),
-    });
+    })
 }
 
 pub async fn receive_data(
@@ -128,6 +129,11 @@ pub async fn receive_data(
                         });
                     }
 
+                    debug!(
+                        "Received frame index {} out of {}",
+                        frame.index, frame.total
+                    );
+
                     received_frames.entry(frame.index).or_insert(frame.data);
 
                     if frame.total as usize == received_frames.len() {
@@ -139,11 +145,10 @@ pub async fn receive_data(
                     }
                 }
                 SocketEvent::Timeout(_) => {
-                    //for some reason timeout returned even if no data is received
                     if total_size == 0 {
                         return Err(ConnectionError::IoError(Error::new(
                             ErrorKind::TimedOut,
-                            format!("laminar timeout"),
+                            "laminar timeout".to_string(),
                         )));
                     }
                     return Err(ConnectionError::Timeout(
@@ -152,6 +157,12 @@ pub async fn receive_data(
                     ));
                 }
                 SocketEvent::Disconnect(_) => {
+                    if total_size == 0 {
+                        return Err(ConnectionError::IoError(Error::new(
+                            ErrorKind::TimedOut,
+                            "laminar disconnect".to_string(),
+                        )));
+                    }
                     return Err(ConnectionError::FailedToConnect(
                         "Client disconnected".to_owned(),
                     ));
@@ -168,7 +179,7 @@ pub async fn receive_data(
                     ));
                 } else {
                     // @TODO laminar and async
-                    thread::sleep(Duration::from_millis(5));
+                    thread::sleep(Duration::from_millis(1));
                 }
             }
         }
@@ -188,13 +199,16 @@ pub async fn send_data(
     let mut size = 0;
 
     for index in 0..indexes {
-        let bytes = encryptor.encrypt_with_index(&data, index as u32, max_payload)?;
+        let bytes =
+            encryptor.encrypt_with_index(&data, index as u32, max_payload, destination_addr)?;
         size += bytes.len();
 
+        debug!("Send index {} bytes {}", index, bytes.len());
+
         let packet = if reliable {
-            Packet::reliable_ordered(destination_addr.clone(), bytes, None)
+            Packet::reliable_ordered(*destination_addr, bytes, None)
         } else {
-            Packet::unreliable_sequenced(destination_addr.clone(), bytes, None)
+            Packet::unreliable_sequenced(*destination_addr, bytes, None)
         };
         if !socket.send(packet).await {
             return Err(ConnectionError::FailedToConnect(format!(
@@ -204,20 +218,22 @@ pub async fn send_data(
         }
     }
 
-    return Ok(size);
+    Ok(size)
 }
 
 pub fn obtain_socket(local_address: &SocketAddr) -> Result<(Socket, Config), ConnectionError>
 {
-    let mut config = Config::default();
-    config.fragment_reassembly_buffer_size = 1024;
+    let config = Config {
+        fragment_reassembly_buffer_size: 1024,
+        ..Default::default()
+    };
     let sock = Socket::bind_with_config(local_address, config.clone()).map_err(|e| {
         ConnectionError::FailedToConnect(format!(
             "Unable to bind local address {} {}",
             local_address, e
         ))
     })?;
-    return Ok((sock, config));
+    Ok((sock, config))
 }
 
 #[cfg(test)]

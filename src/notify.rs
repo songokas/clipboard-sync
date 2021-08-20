@@ -9,13 +9,13 @@ pub fn create_watch_paths<T>(
     paths_to_watch: &HashMap<PathBuf, T>,
 ) -> Result<(RecommendedWatcher, Receiver<DebouncedEvent>), Error>
 {
-    if !(paths_to_watch.len() > 0) {
+    if paths_to_watch.is_empty() {
         return Err(Error::PathNotFound);
     }
     let (fs_sender, fs_receiver) = channel();
     let mut watcher: RecommendedWatcher = Watcher::new(fs_sender, Duration::from_secs(1))?;
     watch_paths(&mut watcher, paths_to_watch);
-    return Ok((watcher, fs_receiver));
+    Ok((watcher, fs_receiver))
 }
 
 pub fn watch_changed_paths<'a, T>(
@@ -38,7 +38,7 @@ pub fn watch_changed_paths<'a, T>(
             }
             // if expected directory is created lets watch it
             Ok(DebouncedEvent::Create(path)) => {
-                if let Some(_) = paths_to_watch.get(&path) {
+                if paths_to_watch.get(&path).is_some() {
                     match watcher.watch(&path, RecursiveMode::NonRecursive) {
                         Ok(_) => {
                             debug!("watching for filesystem changes {}", path.to_string_lossy());
@@ -91,12 +91,12 @@ pub fn watch_changed_paths<'a, T>(
             _ => break,
         };
     }
-    return changed_paths;
+    changed_paths
 }
 
 fn watch_paths<T>(watcher: &mut RecommendedWatcher, paths_to_watch: &HashMap<PathBuf, T>)
 {
-    for (path, _) in paths_to_watch {
+    for path in paths_to_watch.keys() {
         match watcher.watch(path, RecursiveMode::NonRecursive) {
             Ok(_) => debug!("watching for filesystem changes {}", path.to_string_lossy()),
             Err(e) => {

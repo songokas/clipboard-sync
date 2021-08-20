@@ -1,0 +1,53 @@
+name: clipboard-relay
+version: "0.0.1"
+author: Tomas Jakstas <tom.jakstas@gmail.com>
+about: relay clipboard data
+args:
+    - verbosity:
+        short: v
+        long: verbosity
+        help: sets the level of logging verbosity. default info
+        takes_value: true
+    - bind-address:
+        short: b
+        long: bind-address
+        help: "address to listen on. multiple options accepted. default: 0.0.0.0:8900"
+        takes_value: true
+        multiple: true
+    - protocol:
+        short: p
+        long: protocol
+        help: "use protocol - basic, laminar, tcp. multiple options accepted. default: basic"
+        takes_value: true
+        multiple: true
+    - message-size:
+        short: s
+        long: message-size
+        help: "how many bytes to consider as message default: 150"
+        takes_value: true
+    - private-key:
+        short: k
+        long: private-key
+        help: "private key 32 chars long default: automatically generated"
+        takes_value: true
+
+    - max-groups:
+        long: max-groups
+        help: "how many groups can this server handle. default: 1000"
+        takes_value: true
+    - max-sockets:
+        long: max-sockets
+        help: "how many sockets per group are allowed. default: 10"
+        takes_value: true
+    - keep-sockets-for:
+        long: keep-sockets-for
+        help: "how many seconds sockets are kept for. default: 60"
+        takes_value: true
+    - valid-for:
+        long: valid-for
+        help: "how many seconds message is considered valid. default: 300"
+        takes_value: true
+    - max-per-ip:
+        long: max-per-ip
+        help: "how many groups are allowed per ip. default: 10"
+        takes_value: true

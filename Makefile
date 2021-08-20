@@ -1,7 +1,7 @@
 
 ANDROID_APP ?= $(HOME)/AndroidStudioProjects/clipboard-sync-android/
 HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip ntp"
-ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip"
+ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip" --lib
 DEB_OPTIONS = --no-build
 ARCHS=i686-unknown-linux-gnu x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ANDROID_ARCHS=x86_64-linux-android i686-linux-android arm-linux-androideabi aarch64-linux-android 
@@ -10,7 +10,7 @@ GROUP_ID ?= $(shell id -g)
 LIB_NAME = libclipboard_sync.so
 CERT_PATH ?= $(HOME)/.ssh/app-sign-cert.pem
 KEY_PATH ?= $(HOME)/.ssh/app-sign-key.pem
-VERSION = 2.0.1
+VERSION = 2.1.0
 
 define docker_build
 	docker run \
@@ -25,15 +25,16 @@ endef
 
 all: docker build deb rpm pkg windows android
 
-build:
+build-binaries:
 	$(call docker_build, clipboard-sync/x86_64, cargo build --target x86_64-unknown-linux-gnu $(HEADLESS_OPTIONS))
 	@strip target/x86_64-unknown-linux-gnu/release/clipboard-sync
+	@strip target/x86_64-unknown-linux-gnu/release/clipboard-relay
 	@mv target/x86_64-unknown-linux-gnu/release/clipboard-sync target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless
 
+build: build-binaries
 	$(call docker_build, clipboard-sync/x86_64, cargo build --target x86_64-unknown-linux-gnu --release)
 	$(call docker_build, clipboard-sync/x86_64, cargo build --target i686-unknown-linux-gnu --release)
 	$(call docker_build, clipboard-sync/arm, cargo build --target aarch64-unknown-linux-gnu --release)
-	# $(call docker_build, clipboard-sync/arm, cargo build --target arm-unknown-linux-gnueabihf $(HEADLESS_OPTIONS))
 	$(call docker_build, clipboard-sync/arm, cargo build --target armv7-unknown-linux-gnueabihf $(HEADLESS_OPTIONS))
 
 strip:
@@ -47,10 +48,7 @@ deb: build
 	@$(call docker_build, clipboard-sync/x86_64, cargo deb --target x86_64-unknown-linux-gnu $(DEB_OPTIONS))
 	@$(call docker_build, clipboard-sync/x86_64, cargo deb --target i686-unknown-linux-gnu $(DEB_OPTIONS))
 	@$(call docker_build, clipboard-sync/arm, cargo deb --target aarch64-unknown-linux-gnu $(DEB_OPTIONS) --variant aarch64)
-	# @$(call docker_build, clipboard-sync/arm, cargo deb --target arm-unknown-linux-gnueabihf $(DEB_OPTIONS) --variant headless)
-	# @dpkg-sig -s builder target/arm-unknown-linux-gnueabihf/debian/clipboard-sync-headless_$(VERSION)_armhf.deb
 	@$(call docker_build, clipboard-sync/arm, cargo deb --target armv7-unknown-linux-gnueabihf $(DEB_OPTIONS) --variant headless)
-
 
 rpm: build
 	@$(call docker_build, clipboard-sync/x86_64, cargo rpm build --target x86_64-unknown-linux-gnu)
@@ -89,7 +87,12 @@ android-copy: android
 clean:
 	cargo clean
 
-test:
+clippy:
+	cargo clippy -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	cargo clippy --features quic-quinn -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	cargo clippy --features quic-quiche -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	
+test: clippy
 	cargo test
 	echo "Testing quic quiche"
 	cargo test --features quic-quiche

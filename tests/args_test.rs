@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::time::Duration;
 
-const ANY_KEY: &'static str = "12345678912345678912345678912345";
+const ANY_KEY: &str = "12345678912345678912345678912345";
 
 #[test]
 fn test_send_once()
@@ -113,7 +113,7 @@ fn check_failure_arg(args: Vec<&'static str>, expect: &str) -> Command
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains(expect));
-    return cmd;
+    cmd
 }
 
 fn check_success(args: Vec<&'static str>, expect: &str)

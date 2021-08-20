@@ -63,7 +63,7 @@ pub enum ConnectionError
     InvalidBuffer(String),
     #[error("{0}")]
     InvalidProtocol(String),
-    #[error("Failed to validate data {0}")]
+    #[error("Failed to validate data: {0}")]
     ReceiveError(#[from] ValidationError),
     #[error("Failed to encrypt {0}")]
     Encryption(#[from] EncryptionError),
@@ -91,6 +91,9 @@ pub enum ConnectionError
     #[cfg(feature = "quinn")]
     #[error("Failed to connect {0}")]
     QuicConnect(#[from] quinn::ConnectError),
+
+    #[error(transparent)]
+    LimitError(#[from] LimitError),
 }
 
 #[derive(Debug, Error)]
@@ -151,4 +154,15 @@ pub enum EndpointError
     CertificateError(#[from] quinn::crypto::rustls::TLSError),
     #[error("{0}")]
     InvalidKey(String),
+}
+
+#[derive(Debug, Error)]
+pub enum LimitError
+{
+    #[error("{0}")]
+    Lock(String),
+    #[error("Max group limit reached {}", .0)]
+    Groups(usize),
+    #[error("Max ip limit reached {}", .0)]
+    Ips(usize),
 }

@@ -1,4 +1,5 @@
 use flume::{Receiver, Sender};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -19,17 +20,21 @@ use crate::encryption::*;
 use crate::errors::*;
 use crate::filesystem::*;
 use crate::fragmenter::{GroupsEncryptor, IdentityEncryptor};
-use crate::identity::{retrieve_identity, validate, Identity};
+use crate::identity::{retrieve_identity, Identity};
 use crate::message::*;
 use crate::multicast::Multicast;
 use crate::notify::{create_watch_paths, watch_changed_paths};
 use crate::protocols::{receive_data, send_data, Protocol, SocketPool};
 use crate::socket::*;
+use crate::validation::validate;
+
+pub type SocketAddrPool = HashMap<IpAddr, u16>;
+pub type MessageReceived = (String, String, SocketAddr);
 
 pub async fn receive_clipboard(
     pool: Arc<SocketPool>,
     mut clipboard: Clipboard,
-    channel: Sender<(String, String)>,
+    channel: Sender<MessageReceived>,
     local_address: SocketAddr,
     running: Arc<AtomicBool>,
     config: FullConfig,
@@ -38,17 +43,14 @@ pub async fn receive_clipboard(
     receive_once: bool,
 ) -> Result<(String, u64), CliError>
 {
-    let local_socket = match pool
-        .obtain_server_socket(local_address.clone(), &protocol)
-        .await
-    {
+    let local_socket = match pool.obtain_server_socket(local_address, &protocol).await {
         Ok(s) => s,
         Err(e) => {
             running.store(false, Ordering::Relaxed);
             return Err(CliError::from(e));
         }
     };
-    let mut multicast = Multicast::new();
+    let mut multicast = Multicast::default();
     let mut count = 0;
     let groups = config.groups;
     let encryptor = GroupsEncryptor::new(groups.clone());
@@ -66,7 +68,7 @@ pub async fn receive_clipboard(
 
     while running.load(Ordering::Relaxed) {
         let (buf, addr) = match receive_data(
-            Arc::clone(&local_socket),
+            local_socket.clone(),
             &encryptor,
             &protocol,
             config.max_receive_buffer,
@@ -74,6 +76,7 @@ pub async fn receive_clipboard(
         )
         .await
         {
+            Ok((d, _)) if d.is_empty() => continue,
             Ok(v) => v,
             Err(ConnectionError::InvalidKey(e)) | Err(ConnectionError::InvalidProtocol(e)) => {
                 error!("Unable to continue. {}", e);
@@ -103,14 +106,12 @@ pub async fn receive_clipboard(
             &Identity::from_mapped(&addr),
             &groups,
             config.max_file_size,
+            config.app_dir.as_deref(),
         );
 
         match result {
             Ok((hash, group_name)) => {
-                if hash.is_empty() {
-                    continue;
-                }
-                if let Err(msg) = channel.try_send((group_name, hash)) {
+                if let Err(msg) = channel.try_send((group_name, hash, addr)) {
                     warn!("Unable to update current hash {}", msg);
                 }
             }
@@ -120,7 +121,7 @@ pub async fn receive_clipboard(
                 last_error = Some(CliError::ClipboardError(err));
             }
         };
-        if let Err(_) = status_channel.try_send((0, count)) {
+        if status_channel.try_send((0, count)).is_err() {
             // debug!("Unable to send status count {}", e);
         }
 
@@ -134,13 +135,13 @@ pub async fn receive_clipboard(
             break;
         }
     }
-    return Ok((format!("{} received", protocol), count));
+    Ok((format!("{} received", protocol), count))
 }
 
 pub async fn send_clipboard(
     pool: Arc<SocketPool>,
     mut clipboard: Clipboard,
-    channel: Receiver<(String, String)>,
+    channel: Receiver<MessageReceived>,
     running: Arc<AtomicBool>,
     config: FullConfig,
     status_channel: Sender<(u64, u64)>,
@@ -151,30 +152,39 @@ pub async fn send_clipboard(
     let mut heartbeat_cache: HashMap<String, Instant> = HashMap::new();
     let mut count = 0;
     let groups = config.groups;
+    let mut socket_addr_pool = SocketAddrPool::new();
 
     info!("Listen for clipboard changes");
 
-    let timeout = |_: Duration| !running.load(Ordering::Relaxed);
     let mut last_error = None;
 
     let mut paths_to_watch: HashMap<PathBuf, Vec<&str>> = HashMap::new();
 
-    for (_, group) in &groups {
+    for (_, group) in groups
+        .iter()
+        .filter(|(_, g)| g.clipboard != DEFAULT_CLIPBOARD)
+    {
         let key = PathBuf::from(&group.clipboard);
         paths_to_watch
             .entry(key)
             .and_modify(|v| v.push(group.name.as_ref()))
-            .or_insert(vec![group.name.as_ref()]);
+            .or_insert_with(|| vec![group.name.as_ref()]);
     }
     let mut watcher = create_watch_paths(&paths_to_watch);
 
-    let hash_update = |hash_cache: &mut HashMap<String, String>| {
-        while let Ok((group_name, rhash)) = channel.try_recv() {
+    let timeout = {
+        let run_state = running.clone();
+        move |_: Duration| !run_state.load(Ordering::Relaxed)
+    };
+
+    let hash_update = |hash_cache: &mut HashMap<String, String>, pool: &mut SocketAddrPool| {
+        while let Ok((group_name, rhash, remote_socket)) = channel.try_recv() {
             let current_hash = match hash_cache.get(&group_name) {
                 Some(val) => val.clone(),
                 None => "".to_owned(),
             };
-            if &current_hash != &rhash {
+            pool.insert(remote_socket.ip(), remote_socket.port());
+            if !rhash.is_empty() && current_hash != rhash {
                 hash_cache.insert(group_name.clone(), rhash.clone());
                 debug!(
                     "Client updated current hash {} to {} for group {}",
@@ -193,31 +203,40 @@ pub async fn send_clipboard(
             }
         }
 
-        hash_update(&mut hash_cache);
+        hash_update(&mut hash_cache, &mut socket_addr_pool);
 
         for (_, group) in &groups {
+            if group.heartbeat > 0 {
+                send_heartbeat(
+                    &pool,
+                    &socket_addr_pool,
+                    group,
+                    &mut heartbeat_cache,
+                    timeout.clone(),
+                )
+                .await;
+            }
+
             let (hash, message_type, bytes) = match clipboard_group_to_bytes(
                 &mut clipboard,
                 group,
                 hash_cache.get(&group.name),
                 config.max_file_size,
             ) {
-                Some((hash, message_type, bytes)) if bytes.len() > 0 => (hash, message_type, bytes),
+                Some((hash, message_type, bytes)) if !bytes.is_empty() => {
+                    (hash, message_type, bytes)
+                }
                 _ => {
-                    if group.heartbeat > 0 {
-                        send_heartbeat(&pool, &group, &mut heartbeat_cache, timeout).await;
-                    }
-
                     continue;
                 }
             };
-            hash_update(&mut hash_cache);
+            hash_update(&mut hash_cache, &mut socket_addr_pool);
 
             let entry_value = match hash_cache.get(&group.name) {
                 Some(val) => val.to_owned(),
                 None => {
                     if config.send_clipboard_on_startup {
-                        String::from("")
+                        String::new()
                     } else {
                         hash_cache.insert(group.name.clone(), hash.clone());
                         hash.clone()
@@ -225,7 +244,7 @@ pub async fn send_clipboard(
                 }
             };
 
-            if &entry_value == &hash {
+            if entry_value == hash {
                 continue;
             }
 
@@ -241,7 +260,16 @@ pub async fn send_clipboard(
                 }
             };
 
-            match send_clipboard_to_group(&pool, &data, &message_type, &group, timeout).await {
+            match send_clipboard_to_group(
+                &pool,
+                &socket_addr_pool,
+                &data,
+                &message_type,
+                group,
+                timeout.clone(),
+            )
+            .await
+            {
                 Ok(sent) if sent > 0 => {
                     debug!("Sent bytes {}", sent);
                     count += 1;
@@ -253,7 +281,7 @@ pub async fn send_clipboard(
                 }
             };
 
-            if let Err(_) = status_channel.try_send((count, 0)) {
+            if status_channel.try_send((count, 0)).is_err() {
                 // debug!("Unable to send status count {}", e);
             }
         }
@@ -267,18 +295,18 @@ pub async fn send_clipboard(
 
         sleep(Duration::from_millis(500)).await;
     }
-    return Ok((format!("sent"), count));
+    Ok(("sent".to_string(), count))
 }
 
 pub async fn send_clipboard_contents(
     pool: &SocketPool,
-    contents: String,
+    addr_pool: &SocketAddrPool,
+    bytes: &[u8],
     group: &Group,
+    message_type: MessageType,
 ) -> Result<usize, String>
 {
-    let message_type = MessageType::Text;
-    let bytes = contents.as_bytes();
-    let data = match compress(&bytes) {
+    let data = match compress(bytes) {
         Ok(d) => d,
         Err(err) => {
             return Err(format!(
@@ -287,37 +315,46 @@ pub async fn send_clipboard_contents(
             ));
         }
     };
-    let timeout = |d: Duration| d > Duration::from_millis(DATA_TIMEOUT);
+    let timeout = |d: Duration| d > Duration::from_millis(DATA_TIMEOUT + DATA_TIMEOUT);
 
-    let sent = match send_clipboard_to_group(pool, &data, &message_type, &group, timeout).await {
+    match send_clipboard_to_group(pool, addr_pool, &data, &message_type, group, timeout).await {
         Ok(sent) => {
             debug!("Sent bytes {}", sent);
-            sent
+            Ok(sent)
         }
         Err(err) => {
             error!("{}", err);
-            return Err(format!("{}", err));
+            Err(err.to_string())
         }
-    };
-    return Ok(sent);
+    }
 }
 
 async fn send_heartbeat(
     pool: &SocketPool,
+    addr_pool: &SocketAddrPool,
     group: &Group,
     heartbeat_cache: &mut HashMap<String, Instant>,
-    timeout: impl Fn(Duration) -> bool,
+    timeout: impl Fn(Duration) -> bool + Send + Sync + Clone + 'static,
 )
 {
-    heartbeat_cache
-        .entry(group.name.clone())
-        .or_insert(Instant::now());
-
-    let last = heartbeat_cache[&group.name];
-    if last.elapsed().as_secs() >= group.heartbeat {
+    let (send, last) = if let Some(last) = heartbeat_cache.get(&group.name) {
+        (last.elapsed().as_secs() >= group.heartbeat, *last)
+    } else {
+        (true, Instant::now())
+    };
+    if send {
         let data = last.elapsed().as_secs().to_be_bytes();
         heartbeat_cache.insert(group.name.clone(), Instant::now());
-        match send_clipboard_to_group(pool, &data, &MessageType::Heartbeat, &group, timeout).await {
+        match send_clipboard_to_group(
+            pool,
+            addr_pool,
+            &data,
+            &MessageType::Heartbeat,
+            group,
+            timeout,
+        )
+        .await
+        {
             Ok(sent) => debug!("Sent heartbeat bytes {}", sent),
             Err(err) => error!("Error heartbeat: {}", err),
         };
@@ -332,10 +369,10 @@ fn clipboard_group_to_bytes(
 ) -> Option<(String, MessageType, Vec<u8>)>
 {
     if group.clipboard == CLIPBOARD_NAME {
-        return clipboard_to_bytes(clipboard, existing_hash, max_file_size);
+        clipboard_to_bytes(clipboard, existing_hash, max_file_size)
     } else if Path::new(&group.clipboard).exists() {
         if let Some(h) = existing_hash {
-            if h.len() > 0 {
+            if !h.is_empty() {
                 return None;
             }
         }
@@ -346,18 +383,19 @@ fn clipboard_group_to_bytes(
             };
         }
         match read_file(&group.clipboard, max_file_size) {
-            Ok((bytes, full)) if full => return Some((hash(&bytes), MessageType::File, bytes)),
+            Ok((bytes, full)) if full => Some((hash(&bytes), MessageType::File, bytes)),
             Ok(_) => {
                 warn!(
                     "Unable to read file {} file is larger than {}",
                     &group.clipboard, max_file_size
                 );
-                return None;
+                None
             }
-            Err(_) => return None,
-        };
+            Err(_) => None,
+        }
+    } else {
+        None
     }
-    return None;
 }
 
 fn clipboard_to_bytes(
@@ -368,7 +406,7 @@ fn clipboard_to_bytes(
 {
     let files = clipboard.get_target_contents(ClipboardType::Files);
     match files {
-        Ok(data) if data.len() > 0 => {
+        Ok(data) if !data.is_empty() => {
             let hash = hash(&data);
             if let Some(h) = existing_hash {
                 if h == &hash {
@@ -377,31 +415,40 @@ fn clipboard_to_bytes(
             }
             let clipboard_contents = String::from_utf8(data).ok()?;
             // debug!("Send file clipboard {}", clipboard_contents);
-            let files: Vec<&str> = clipboard_contents.lines().collect();
-            return Some((
+            let files: Vec<String> = clipboard_contents
+                .lines()
+                .filter_map(|p| {
+                    let no_prefix = p.strip_prefix("file://").unwrap_or(p);
+                    let add_prefix = if p != no_prefix {
+                        |s| format!("file://{}", s)
+                    } else {
+                        |s| s
+                    };
+                    decode_path(no_prefix).ok().map(add_prefix)
+                })
+                .collect();
+            Some((
                 hash,
                 MessageType::Files,
-                files_to_bytes(files, max_file_size).ok()?,
-            ));
+                files_to_bytes(files.iter().map(AsRef::as_ref).collect(), max_file_size).ok()?,
+            ))
         }
-        _ => {
-            match clipboard.get_target_contents(ClipboardType::Text) {
-                Ok(contents) => {
-                    let hash = hash(&contents);
-                    if let Some(h) = existing_hash {
-                        if h == &hash {
-                            return None;
-                        }
+        _ => match clipboard.get_target_contents(ClipboardType::Text) {
+            Ok(contents) => {
+                let hash = hash(&contents);
+                if let Some(h) = existing_hash {
+                    if h == &hash {
+                        return None;
                     }
-                    return Some((hash, MessageType::Text, contents));
                 }
-                _ => {
-                    warn!("Failed to retrieve contents");
-                    return None;
-                }
-            };
-        }
-    };
+                Some((hash, MessageType::Text, contents))
+            }
+            _ => {
+                warn!("Failed to retrieve contents");
+                None
+            }
+        },
+    }
 }
 
 fn handle_receive(
@@ -410,22 +457,24 @@ fn handle_receive(
     identity: &Identity,
     groups: &Groups,
     max_file_size: usize,
+    app_dir: Option<&str>,
 ) -> Result<(String, String), ClipboardError>
 {
     let (message, group) = validate(buffer, groups, identity)?;
-    let bytes = decrypt(&message, identity, &group)?;
+    let bytes = decrypt(&message, identity, group)?;
     let data = match message.message_type {
         MessageType::Heartbeat => bytes,
         _ => uncompress(bytes)?,
     };
-    return write_to(
+    write_to(
         clipboard,
-        &group,
+        group,
         data,
         &message.message_type,
         identity,
         max_file_size,
-    );
+        app_dir,
+    )
 }
 
 fn write_to(
@@ -435,6 +484,7 @@ fn write_to(
     message_type: &MessageType,
     identity: &Identity,
     max_file_size: usize,
+    app_dir: Option<&str>,
 ) -> Result<(String, String), ClipboardError>
 {
     if message_type == &MessageType::Heartbeat {
@@ -442,9 +492,11 @@ fn write_to(
     }
     if group.clipboard == CLIPBOARD_NAME {
         match message_type {
-            MessageType::Files => {
-                let config_path = dirs::config_dir()
-                    .map(|p| p.join(PACKAGE_NAME))
+            MessageType::Files | MessageType::File => {
+                let config_dir = app_dir
+                    .map(PathBuf::from)
+                    .or_else(|| dirs::config_dir().map(|p| p.join(PACKAGE_NAME)));
+                let config_path = config_dir
                     .map(|p| p.join("data"))
                     .map(|p| p.join(identity.to_string()))
                     .map(|path| path.to_string_lossy().to_string())
@@ -472,60 +524,80 @@ fn write_to(
                 return Ok((hash, group.name.clone()));
             }
         };
-    } else if group.clipboard.ends_with("/") || Path::new(&group.clipboard).is_dir() {
+    } else if group.clipboard.ends_with('/') || Path::new(&group.clipboard).is_dir() {
         let hash = hash(&data);
         bytes_to_dir(&group.clipboard, data, &identity.to_string(), max_file_size)?;
         return Ok((hash, group.name.clone()));
     }
     let hash = hash(&data);
     write_file(&group.clipboard, data, 0o600)?;
-    return Ok((hash, group.name.clone()));
+    Ok((hash, group.name.clone()))
 }
 
 async fn send_clipboard_to_group(
     pool: &SocketPool,
+    addr_pool: &SocketAddrPool,
     buffer: &[u8],
     message_type: &MessageType,
     group: &Group,
-    //@TODO use _timeout_callback
-    _timeout_callback: impl Fn(Duration) -> bool,
+    callback: impl Fn(Duration) -> bool + Send + Sync + Clone + 'static,
 ) -> Result<usize, ClipboardError>
 {
     let mut sent = 0;
-    let callback = |d: Duration| d > Duration::from_millis(2000);
-
-    for remote_host in &group.allowed_hosts {
-        let addr = match to_socket_address(remote_host) {
-            Ok(a) => a,
+    for remote_host_str in &group.allowed_hosts {
+        let use_latest = remote_host_str.ends_with(":latest");
+        let remote_host = if use_latest {
+            remote_host_str.replace(":latest", "")
+        } else {
+            remote_host_str.to_owned()
+        };
+        let addr = match to_socket_address(&remote_host) {
+            Ok(a) => {
+                if use_latest {
+                    let port: u16 = addr_pool.get(&a.ip()).copied().unwrap_or_else(|| a.port());
+                    SocketAddr::new(a.ip(), port)
+                } else {
+                    a
+                }
+            }
             Err(e) => {
-                warn!("{:?}", e);
+                warn!("{}", e);
                 continue;
             }
         };
 
         if addr.port() == 0 {
-            debug!("Not sending to host {}", remote_host);
+            debug!("Not sending to host {}", &remote_host);
             continue;
         }
+
         let remote_ip = addr.ip();
         let identity = retrieve_identity(&addr, group).await?;
+
         let local_socket = pool
-            .obtain_client_socket(&group.send_using_address, &addr, &group.protocol)
+            .obtain_client_socket(
+                &group.send_using_address,
+                &addr,
+                &group.protocol,
+                group.heartbeat > 0_u64,
+            )
             .await?;
 
-        let bytes = encrypt_to_bytes(&buffer, &identity, group, message_type)?;
+        let bytes = encrypt_serialize_to_bytes(buffer, &identity, group, message_type)?;
 
         debug!(
-            "Sending to {}:{} using {}",
+            "Sending to {}:{} using {} length {}",
             remote_ip,
             addr.port(),
-            identity
+            identity,
+            bytes.len(),
         );
 
         let encryptor = IdentityEncryptor::new(group.clone(), identity);
+
         let host = remote_host
             .strip_suffix(&format!(":{}", addr.port()))
-            .unwrap_or(remote_host);
+            .unwrap_or(&remote_host);
 
         sent += send_data(
             local_socket,
@@ -533,11 +605,11 @@ async fn send_clipboard_to_group(
             &group.protocol,
             Destination::new(host.to_owned(), addr),
             bytes,
-            callback,
+            callback.clone(),
         )
         .await?;
     }
-    return Ok(sent);
+    Ok(sent)
 }
 
 #[cfg(test)]
@@ -553,10 +625,12 @@ mod processtest
     #[test]
     fn test_handle_clipboard_change()
     {
-        let pool = SocketPool::new();
+        let pool = SocketPool::default();
+        let addr_pool = SocketAddrPool::new();
         let timeout = |d: Duration| d > Duration::from_millis(2000);
         let result = wait!(send_clipboard_to_group(
             &pool,
+            &addr_pool,
             b"test",
             &MessageType::Text,
             &Group::from_name("me"),
@@ -566,6 +640,7 @@ mod processtest
 
         let result = wait!(send_clipboard_to_group(
             &pool,
+            &addr_pool,
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:0", "127.0.0.1:8093"),
@@ -575,6 +650,7 @@ mod processtest
 
         let result = wait!(send_clipboard_to_group(
             &pool,
+            &addr_pool,
             b"test",
             &MessageType::Text,
             &Group::from_addr("me", "127.0.0.1:8801", "127.0.0.1:0"),
@@ -604,10 +680,11 @@ mod processtest
             20,
             true,
             None,
+            None,
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
-        let pool = Arc::new(SocketPool::new());
+        let pool = Arc::new(SocketPool::default());
 
         let r = tokio::spawn(receive_clipboard(
             pool.clone(),
@@ -636,8 +713,9 @@ mod processtest
                 &group,
                 "test1".as_bytes().to_vec(),
                 &MessageType::Text,
-                &"empty".into(),
+                &"0.0.0.0".parse::<IpAddr>().unwrap().into(),
                 100,
+                None,
             )
             .unwrap();
             sleep(Duration::from_millis(1100)).await;
@@ -673,10 +751,12 @@ mod processtest
             20,
             false,
             None,
+            None,
         );
         let protocol = Protocol::Basic;
         let srunning = Arc::clone(&running);
-        let pool = Arc::new(SocketPool::new());
+        let pool = Arc::new(SocketPool::default());
+        let addr_pool = SocketAddrPool::new();
 
         let r = tokio::spawn(receive_clipboard(
             pool.clone(),
@@ -690,7 +770,9 @@ mod processtest
             false,
         ));
         let s: JoinHandle<Result<(), String>> = tokio::spawn(async move {
-            let sent = send_clipboard_contents(&pool, "test1".to_string(), &group).await;
+            let sent =
+                send_clipboard_contents(&pool, &addr_pool, b"test1", &group, MessageType::Text)
+                    .await;
             assert_eq!(94, sent.unwrap());
             // let server handle it
             sleep(Duration::from_millis(4000)).await;

@@ -56,6 +56,35 @@ groups:
     heartbeat: 20
     allowed_hosts:
       - "2.2.2.2:8900"
+  client1_to_relay:
+    key: "32323232323232323232323232323232"
+    send_using_address: "0.0.0.0:8900"
+    heartbeat: 20
+    allowed_hosts:
+      - "relay.net:8900"
+  client2_to_relay:
+    key: "32323232323232323232323232323232"
+    send_using_address: "0.0.0.0:8900"
+    heartbeat: 20
+    allowed_hosts:
+      - "relay.net:8900"
+  static_relay:
+    key: "32323232323232323232323232323232"
+    send_using_address: "0.0.0.0:8900"
+    heartbeat: 20
+    allowed_hosts:
+      - "client1_ip:8900:latest" # latest - client source port from the latest received message
+      - "client2_ip:8900:latest"
+  dynamic_relay:
+    key: "32323232323232323232323232323232"
+    send_using_address: "0.0.0.0:8900"
+    heartbeat: 20
+    allowed_hosts:
+      - "relay.net:8900"
+    relay:
+      host: "relay.net:8900" # relay clipboards through this server
+      public_key: "some key"
+
   local_network_file: 
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file

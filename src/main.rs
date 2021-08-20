@@ -1,5 +1,4 @@
 // #![feature(ip)]
-#![allow(dead_code)]
 // #![feature(trait_alias)]
 // #![feature(type_alias_impl_trait)]
 
@@ -11,46 +10,28 @@ use std::sync::Arc;
 
 use clap::{load_yaml, App};
 use env_logger::Env;
-// use std::collections::HashSet;
 use indexmap::{indexmap, IndexSet};
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
-// use std::io::Write;
+use x25519_dalek::PublicKey;
 
-mod clipboards;
-mod config;
-mod defaults;
-mod encryption;
-mod errors;
-mod filesystem;
-mod fragmenter;
-mod identity;
-mod message;
-mod multicast;
-mod notify;
-mod process;
-mod protocols;
-mod socket;
-mod test;
-mod time;
-
-use crate::clipboards::Clipboard;
+use clipboard_sync::clipboards::Clipboard;
 #[cfg(feature = "quic")]
-use crate::config::load_default_certificates;
-use crate::config::{generate_config, load_groups, FullConfig};
-use crate::defaults::*;
-use crate::errors::CliError;
-use crate::filesystem::read_file_to_string;
-use crate::message::Group;
-use crate::process::{receive_clipboard, send_clipboard};
-use crate::protocols::{Protocol, SocketPool};
-use crate::socket::ipv6_support;
+use clipboard_sync::config::load_default_certificates;
+use clipboard_sync::config::{generate_config, load_groups, FullConfig};
+use clipboard_sync::defaults::*;
+use clipboard_sync::errors::CliError;
+use clipboard_sync::filesystem::read_file_to_string;
+use clipboard_sync::message::{Group, Relay};
+use clipboard_sync::process::{receive_clipboard, send_clipboard};
+use clipboard_sync::protocols::{Protocol, SocketPool};
+use clipboard_sync::socket::ipv6_support;
 #[cfg(feature = "ntp")]
-use crate::time::update_time_diff;
+use clipboard_sync::time::update_time_diff;
 
 #[tokio::main]
-async fn main() -> Result<(), CliError>
-{
+async fn main() -> Result<(), CliError> {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let verbosity = matches.value_of("verbosity").unwrap_or("info");
@@ -68,7 +49,7 @@ async fn main() -> Result<(), CliError>
     let config_path: Option<String> = match matches.value_of("config") {
         Some(p) => Some(p.to_owned()),
         None => {
-            if matches.is_present("autogenerate") || key_data == "" {
+            if matches.is_present("autogenerate") || key_data.is_empty() {
                 match generate_config("clipboard-sync") {
                     Ok(p) => {
                         let path = p.to_string_lossy().to_string();
@@ -98,9 +79,7 @@ async fn main() -> Result<(), CliError>
 
     let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
 
-    let local_address = matches
-        .value_of("bind-address")
-        .unwrap_or_else(|| BIND_ADDRESS);
+    let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
 
     let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
         if supports_ipv6_sockets {
@@ -129,9 +108,7 @@ async fn main() -> Result<(), CliError>
     let cert_dir = matches.value_of("cert-verify-dir");
 
     #[cfg(feature = "quic")]
-    let load_certs = move || {
-        return load_default_certificates(private_key, public_key, cert_dir);
-    };
+    let load_certs = move || load_default_certificates(private_key, public_key, cert_dir);
 
     let heartbeat = matches
         .value_of("heartbeat")
@@ -153,6 +130,30 @@ async fn main() -> Result<(), CliError>
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(MAX_FILE_SIZE);
 
+    let relay_host = matches.value_of("relay-host");
+    let relay_public_key = matches.value_of("relay-public-key").and_then(|s| {
+        let key: Option<[u8; KEY_SIZE]> = match base64::decode(s) {
+            Ok(d) => d.try_into().ok(),
+            Err(_) => None,
+        };
+        key.map(PublicKey::from)
+    });
+
+    let relay_config = match relay_host {
+        Some(host) => match relay_public_key {
+            Some(public_key) => Some(Relay {
+                host: host.to_owned(),
+                public_key,
+            }),
+            None => {
+                return Err(CliError::ArgumentError(
+                    "Please provide a valid base64 encoded relay servers public key".into(),
+                ))
+            }
+        },
+        None => None,
+    };
+
     let create_groups_from_cli = || -> Result<FullConfig, CliError> {
         let cli_protocol = Protocol::from(
             matches.value_of("protocol"),
@@ -161,13 +162,13 @@ async fn main() -> Result<(), CliError>
         )?;
 
         if allowed_host.is_empty() {
-            return Err(CliError::ArgumentError(format!(
-                "Please provide --allowed-host or use basic protocol for multicast support",
-            )));
+            return Err(CliError::ArgumentError(
+                "Please provide --allowed-host or use basic protocol for multicast support".into(),
+            ));
         }
 
         let send_using_address: IndexSet<SocketAddr> = send_address
-            .split(",")
+            .split(',')
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid send-using-address provided {}", v))
@@ -178,7 +179,7 @@ async fn main() -> Result<(), CliError>
         let key = Key::from_slice(key_data.as_bytes());
 
         let socket_addresses: IndexSet<SocketAddr> = local_address
-            .split(",")
+            .split(',')
             .map(|v| {
                 v.parse::<SocketAddr>().map_err(|_| {
                     CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
@@ -189,14 +190,15 @@ async fn main() -> Result<(), CliError>
         let groups = indexmap! {
             group.to_owned() => Group {
                 name: group.to_owned(),
-                allowed_hosts: allowed_host.split(",").map(String::from).collect(),
-                key: key.clone(),
+                allowed_hosts: allowed_host.split(',').map(String::from).collect(),
+                key: *key,
                 visible_ip: visible_ip.clone(),
                 send_using_address,
                 clipboard: clipboard_type.to_owned(),
                 protocol: cli_protocol.clone(),
                 heartbeat,
                 message_valid_for,
+                relay: relay_config.clone(),
             },
         };
 
@@ -212,6 +214,7 @@ async fn main() -> Result<(), CliError>
                 .unwrap_or(RECEIVE_ONCE_WAIT),
             !matches.is_present("ignore-initial-clipboard"),
             Some(ntp_server.to_owned()),
+            None,
         );
         Ok(full_config)
     };
@@ -237,6 +240,8 @@ async fn main() -> Result<(), CliError>
             max_receive_buffer,
             max_file_size,
             clipboard_type,
+            relay_config.clone(),
+            heartbeat,
         );
     };
 
@@ -255,11 +260,11 @@ async fn main() -> Result<(), CliError>
     let launch_sender = send_once || !receive_once;
 
     let mut handles = Vec::new();
-    let pool = Arc::new(SocketPool::new());
+    let pool = Arc::new(SocketPool::default());
 
     #[cfg(feature = "ntp")]
     match &full_config.ntp_server {
-        Some(s) if s.len() > 0 => {
+        Some(s) if !s.is_empty() => {
             handles.push(tokio::spawn(update_time_diff(running.clone(), s.clone())));
         }
         _ => warn!("Ntp server not provided"),
@@ -317,11 +322,11 @@ async fn main() -> Result<(), CliError>
                     }
                 }
             }
-            return result;
+            result
         }
         Err(err) => {
             error!("{}", err);
-            return Err(CliError::JoinError(err));
+            Err(CliError::JoinError(err))
         }
-    };
+    }
 }
