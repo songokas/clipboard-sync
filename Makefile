@@ -62,7 +62,7 @@ pkg:
 pkg-in-vagrant:
 	vagrant up arch
 	vagrant rsync arch
-	vagrant ssh arch --command "sudo pacman --noconfirm -S glibc rust cargo"
+	vagrant ssh arch --command "sudo pacman --noconfirm -S glibc rust cargo binutils base-devel"
 	vagrant ssh arch --command "cd /vagrant && make pkg"
 	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
 
