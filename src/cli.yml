@@ -92,11 +92,11 @@ args:
         long: ntp-server
         help: "ntp server to use if validating messages with timestamp. default: 0.pool.ntp.org:123"
         takes_value: true
-    - max_receive_buffer:
+    - max-receive-buffer:
         long: max-receive-buffer
         help: "max data that can be received per connection default: 52428800"
         takes_value: true
-    - max_file_size:
+    - max-file-size:
         long: max-file-size
         help: "max file size in bytes for sending/receiving files default: 23068672"
         takes_value: true
