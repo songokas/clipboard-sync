@@ -1,4 +1,5 @@
 use flume::{Receiver, Sender};
+use std::io::Cursor;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -67,7 +68,7 @@ pub async fn receive_clipboard(
     let mut last_error = None;
 
     while running.load(Ordering::Relaxed) {
-        let (buf, addr) = match receive_data(
+        let (raw_data, addr) = match receive_data(
             local_socket.clone(),
             &encryptor,
             &protocol,
@@ -94,15 +95,13 @@ pub async fn receive_clipboard(
 
         count += 1;
 
-        let len = buf.len();
-
-        debug!("Packet received from {} length {}", addr, len);
+        debug!("Packet received from {} length {}", addr, raw_data.len());
 
         // in ipv6 sockets ipv4 mapped address should be use as ipv4 address
 
         let result = handle_receive(
             &mut clipboard,
-            &buf[..len],
+            raw_data,
             &Identity::from_mapped(&addr),
             &groups,
             config.max_file_size,
@@ -259,6 +258,7 @@ pub async fn send_clipboard(
                     continue;
                 }
             };
+            drop(bytes);
 
             match send_clipboard_to_group(
                 &pool,
@@ -453,18 +453,18 @@ fn clipboard_to_bytes(
 
 fn handle_receive(
     clipboard: &mut Clipboard,
-    buffer: &[u8],
+    raw_data: Vec<u8>,
     identity: &Identity,
     groups: &Groups,
     max_file_size: usize,
     app_dir: Option<&str>,
 ) -> Result<(String, String), ClipboardError>
 {
-    let (message, group) = validate(buffer, groups, identity)?;
-    let bytes = decrypt(&message, identity, group)?;
+    let (mut message, group) = validate(Cursor::new(raw_data), groups, identity)?;
+    let bytes = decrypt(&mut message, identity, group)?;
     let data = match message.message_type {
         MessageType::Heartbeat => bytes,
-        _ => uncompress(bytes)?,
+        _ => uncompress(Cursor::new(bytes))?,
     };
     write_to(
         clipboard,

@@ -191,7 +191,7 @@ pub fn relay_header(
 }
 
 pub fn decrypt(
-    message: &Message,
+    message: &mut Message,
     identity: &Identity,
     group: &Group,
 ) -> Result<Vec<u8>, EncryptionError>
@@ -212,7 +212,7 @@ pub fn decrypt(
     };
 
     let cipher = XChaCha20Poly1305::new(&group.key);
-    cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
+    let result = cipher.decrypt(&message.nonce, enc_msg).map_err(|err| {
         EncryptionError::DecryptionFailed(format!(
             "Failed to decrypt incorrect message for group {} type {} from {} {}",
             message.group,
@@ -220,7 +220,9 @@ pub fn decrypt(
             identity,
             err.to_string()
         ))
-    })
+    });
+    message.data = Vec::new();
+    result
 }
 
 pub fn hash(bytes: &[u8]) -> String
@@ -238,9 +240,9 @@ pub fn compress(data: &[u8]) -> io::Result<Vec<u8>>
     e.finish()
 }
 
-pub fn uncompress(data: Vec<u8>) -> io::Result<Vec<u8>>
+pub fn uncompress(data: impl Read) -> io::Result<Vec<u8>>
 {
-    let mut d = ZlibDecoder::new(&data[..]);
+    let mut d = ZlibDecoder::new(data);
     let mut buffer = Vec::new();
     d.read_to_end(&mut buffer)?;
     Ok(buffer)
@@ -282,7 +284,7 @@ mod encryptiontest
 {
     use super::*;
     use crate::defaults::DEFAULT_MESSAGE_SIZE;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::{io::Cursor, net::{IpAddr, Ipv4Addr}};
 
     #[test]
     fn test_encryption()
@@ -325,7 +327,7 @@ mod encryptiontest
                 group1.name.to_owned(),
                 MessageType::Text,
             );
-            let data = decrypt(&msg.unwrap(), &identity2.into(), group2);
+            let data = decrypt(&mut msg.unwrap(), &identity2.into(), group2);
             if expected {
                 assert_eq!(bytes, data.unwrap());
             } else {
@@ -399,7 +401,7 @@ mod encryptiontest
     fn test_uncompress()
     {
         for (bytes_to_uncompress, expected) in compress_data_provider() {
-            let data = uncompress(bytes_to_uncompress).unwrap();
+            let data = uncompress(Cursor::new(bytes_to_uncompress)).unwrap();
             assert_eq!(expected, String::from_utf8_lossy(&data).to_string());
         }
     }

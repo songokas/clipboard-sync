@@ -3,6 +3,13 @@
 - quic quiche protocol implementation lacks client verification, version negotiation, retry token
 - relay host basic protocol handle tcp connections
 
+## [2.1.1] - 2021-09-19
+
+### Fixed
+
+- cli arguments max-file-size max-buffer-size names
+- minor memory consumption reduction on send/received
+
 ## [2.1.0] - 2021-06-13
 
 ### Added

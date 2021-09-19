@@ -55,7 +55,7 @@ pub async fn receive_data(
 
         let identity = Identity::from_mapped(&addr);
 
-        let (frame, group) = encryptor.decrypt_to_frame(&data, &identity)?;
+        let (frame, group) = encryptor.decrypt_to_frame(data.to_vec(), &identity)?;
 
         debug!(
             "Read {} bytes from {}, index {} total {}",
@@ -143,7 +143,7 @@ async fn confirm_received(
             match receive_from_timeout(&socket_reader, &mut bytes, timeout_callback_with_channel)
                 .await
             {
-                Ok(_) => encryptor.decrypt(&bytes),
+                Ok(_) => encryptor.decrypt(bytes.to_vec()),
                 _ => {
                     continue;
                 }

@@ -101,6 +101,7 @@ pub struct Message
     #[serde(with = "serde_nonce")]
     pub nonce: XNonce,
     pub group: String,
+    //@TODO move to the end
     pub data: Vec<u8>,
     pub message_type: MessageType,
     pub time: u64,

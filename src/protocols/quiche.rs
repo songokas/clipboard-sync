@@ -256,7 +256,7 @@ async fn receive_handshake<'a>(
     let mut buffer = [0; MAX_UDP_BUFFER];
     let (connection_read, addr) = receive_from_timeout(socket, &mut buffer, timeout).await?;
     let (mut pkt_buf, _) =
-        encryptor.decrypt(&buffer[..connection_read], &Identity::from_mapped(&addr))?;
+        encryptor.decrypt(buffer[..connection_read].to_vec(), &Identity::from_mapped(&addr))?;
     let header = match Header::from_slice(&mut pkt_buf, quiche::MAX_CONN_ID_LEN) {
         Ok(v) => v,
 

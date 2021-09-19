@@ -9,7 +9,7 @@ use std::io::prelude::*;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Component;
 use std::path::{Path, PathBuf};
-use urlencoding::{decode, encode, FromUrlEncodingError};
+use urlencoding::{decode, encode};
 use walkdir::WalkDir;
 
 use crate::errors::*;
@@ -224,7 +224,7 @@ pub fn encode_path(path: impl AsRef<Path>) -> Option<String>
             let pc = if let Component::RootDir = c {
                 cpath.to_owned()
             } else {
-                encode(cpath)
+                encode(cpath).to_string()
             };
             Ok(pc)
         })
@@ -232,23 +232,22 @@ pub fn encode_path(path: impl AsRef<Path>) -> Option<String>
     enc_path.map(|b| b.to_string_lossy().to_string()).ok()
 }
 
-pub fn decode_path(path: impl AsRef<Path>) -> Result<String, FromUrlEncodingError>
+pub fn decode_path(path: impl AsRef<Path>) -> Result<String, String>
 {
-    let enc_path: Result<PathBuf, FromUrlEncodingError> = path
+    let enc_path: Result<PathBuf, String> = path
         .as_ref()
         .components()
         .map(|c| {
-            let cpath = c
-                .as_os_str()
-                .to_str()
-                .ok_or(FromUrlEncodingError::UriCharacterError {
-                    character: 'a',
-                    index: 1,
-                })?;
+            let cpath = c.as_os_str().to_str().ok_or_else(|| {
+                format!(
+                    "Invalid path {}",
+                    path.as_ref().to_string_lossy().to_string()
+                )
+            })?;
             let pc = if let Component::RootDir = c {
                 cpath.to_owned()
             } else {
-                decode(cpath)?
+                decode(cpath).map_err(|e| e.to_string())?.to_string()
             };
             Ok(pc)
         })

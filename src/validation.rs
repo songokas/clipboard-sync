@@ -1,4 +1,6 @@
+use bincode::Options;
 use std::convert::TryInto;
+use std::io::Read;
 use x25519_dalek::StaticSecret;
 
 use crate::config::Groups;
@@ -11,18 +13,20 @@ use crate::message::{Group, Message, PublicMessage};
 use crate::time::{get_time, is_timestamp_valid};
 
 pub fn validate<'a>(
-    buffer: &[u8],
+    raw_data: impl Read,
     groups: &'a Groups,
     identity: &Identity,
 ) -> Result<(Message, &'a Group), ValidationError>
 {
-    let message: Message = bincode::deserialize(buffer).map_err(|err| {
+    let options = bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes();
+    let message: Message = options.deserialize_from(raw_data).map_err(|err| {
         ValidationError::DeserializeFailed(format!(
             "Validation invalid data provided: {}",
             (*err).to_string()
         ))
     })?;
-
     let group = match groups.iter().find(|(_, group)| group.name == message.group) {
         Some((_, group)) => group,
         _ => {
@@ -107,7 +111,7 @@ mod validationtest
 
     use super::*;
     use crate::{encryption::random, message::Group};
-    use std::net::IpAddr;
+    use std::{io::Cursor, net::IpAddr};
 
     #[test]
     fn test_validate()
@@ -164,7 +168,7 @@ mod validationtest
         ];
 
         for (name, bytes, id, expected) in sequences {
-            let result = validate(&bytes, &groups, &Identity::from(id));
+            let result = validate(Cursor::new(bytes), &groups, &Identity::from(id));
             assert_eq!(result.is_ok(), expected, "{}", name);
         }
     }

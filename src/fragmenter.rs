@@ -1,5 +1,6 @@
 use indexmap::indexmap;
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::net::SocketAddr;
 
 use crate::config::Groups;
@@ -21,19 +22,19 @@ pub trait FrameDecryptor
 {
     fn decrypt_to_frame(
         &self,
-        data: &[u8],
+        data: Vec<u8>,
         identity: &Identity,
     ) -> Result<(Frame, &Group), ConnectionError>;
     fn decrypt(
         &self,
-        data: &[u8],
+        data: Vec<u8>,
         identity: &Identity,
     ) -> Result<(Vec<u8>, &Group), ConnectionError>;
 }
 
 pub trait FrameDataDecryptor
 {
-    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ConnectionError>;
+    fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, ConnectionError>;
 }
 
 pub trait FrameEncryptor
@@ -83,18 +84,18 @@ impl FrameDecryptor for GroupsEncryptor
 {
     fn decrypt(
         &self,
-        data: &[u8],
+        data: Vec<u8>,
         identity: &Identity,
     ) -> Result<(Vec<u8>, &Group), ConnectionError>
     {
-        let (message, group) = validate(data, &self.groups, identity)?;
-        let bytes = decrypt(&message, identity, group)?;
+        let (mut message, group) = validate(Cursor::new(data), &self.groups, identity)?;
+        let bytes = decrypt(&mut message, identity, group)?;
         Ok((bytes, group))
     }
 
     fn decrypt_to_frame(
         &self,
-        data: &[u8],
+        data: Vec<u8>,
         identity: &Identity,
     ) -> Result<(Frame, &Group), ConnectionError>
     {
@@ -203,11 +204,11 @@ impl FrameIndexEncryptor for IdentityEncryptor
 
 impl FrameDataDecryptor for IdentityEncryptor
 {
-    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ConnectionError>
+    fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, ConnectionError>
     {
         let groups = indexmap! { self.group.name.clone() => self.group.clone() };
-        let (message, group) = validate(data, &groups, &self.identity)?;
-        let bytes = decrypt(&message, &self.identity, group)?;
+        let (mut message, group) = validate(Cursor::new(data), &groups, &self.identity)?;
+        let bytes = decrypt(&mut message, &self.identity, group)?;
         Ok(bytes)
     }
 }
