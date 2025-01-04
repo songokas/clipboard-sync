@@ -1,6 +1,6 @@
 FROM archlinux
 
-RUN pacman --noconfirm -Syu && pacman --noconfirm -S fakeroot debugedit binutils cargo rust git python3 gnupg
+RUN pacman --noconfirm -Syu && pacman --noconfirm -S fakeroot debugedit binutils cargo rust git python3 gnupg coreutils
 
 ARG USER_ID=1000
 ARG GROUP_ID=1000

@@ -11,6 +11,7 @@ url="https://github.com/songokas/clipboard-sync"
 source=("$pkgname-$pkgver::git+https://github.com/songokas/clipboard-sync#tag=$pkgver")
 license=('MIT')
 sha256sums=('SKIP')
+options=(!lto)
 
 build() {
     cd "$pkgname-$pkgver"

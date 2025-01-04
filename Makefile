@@ -17,6 +17,7 @@ define docker_build
 		--rm \
 		--env CARGO_HOME=$(PWD)/target/cache \
 		--user $(USER_ID):$(GROUP_ID) \
+		--env-file arch/makepkg.env \
 		--volume $(PWD):$(PWD) \
 		-v ${HOME}/.gnupg/:/home/builder/.gnupg/:ro \
         -v /run/user/$(id -u)/:/run/user/$(id -u)/:ro \
@@ -53,7 +54,7 @@ rpm: build
 pkg:
 	@mkdir -p target/pkgbuild
 	@cp arch/PKGBUILD target/pkgbuild
-	@$(call docker_build, arch/makepkg, bash -c "cd target/pkgbuild && makepkg -s --force --sign")
+	@$(call docker_build, arch/makepkg, bash -c "source arch/makepkg.env && cd target/pkgbuild && makepkg -s --force --sign")
 
 windows:
 	cross build --target x86_64-pc-windows-gnu --release
@@ -109,9 +110,11 @@ copy:
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-amd64-binary
 	cp target/i686-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-i686-binary
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless dist/clipboard-sync-amd64-headless-binary
-	@cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
+	cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
 	cp target/x86_64-pc-windows-gnu/release/clipboard-sync.exe dist/
 	cp target/x86_64-pc-windows-gnu/release/clipboard-relay.exe dist/
+	cp target/pkgbuild/clipboard-sync-$(VERSION)-1-x86_64.pkg.tar.zst dist/
+	cp target/pkgbuild/clipboard-sync-$(VERSION)-1-x86_64.pkg.tar.zst.sig dist/
 
 hash:
 	./sign.sh
@@ -122,6 +125,6 @@ hash:
 # build android apk
 # create tag
 # make release
-release: distdir dist deb rpm windows sign copy hash
+release: distdir dist deb rpm windows pkg sign copy hash
 	
 .PHONY: hash copy clean android windows docker deb rpm pkg all release sign sign-windows distdir sign-rpm
