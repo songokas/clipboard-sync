@@ -396,8 +396,7 @@ pub async fn send(
     message_type: MessageType,
     timeout: Duration,
 ) -> Result<usize, String> {
-    let (full_config, user_certificates, danger_server_no_verify) =
-        create_config(config_str)?;
+    let (full_config, user_certificates, danger_server_no_verify) = create_config(config_str)?;
     send_data(
         full_config,
         user_certificates,
@@ -496,7 +495,7 @@ fn get_files_to_send(env: &mut JNIEnv, map: JMap) -> Result<Bytes, jstring> {
         };
         let file_name: String = match env.get_string(key.as_ref().into()) {
             Ok(b) => b.into(),
-            Err(_) => return Err(create_string(env, "Could not get clipboard type")),
+            Err(_) => return Err(create_string(env, "Could not get file name")),
         };
         files.push((file_name, bytes));
     }

@@ -300,7 +300,6 @@ pub struct SendGroup {
     pub relay: Option<Relay>,
 }
 
-
 impl SendGroup {
     pub fn hash(&self) -> GroupId {
         let mut hasher = Blake2b::new();

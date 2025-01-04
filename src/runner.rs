@@ -252,14 +252,8 @@ pub fn create_config(
 }
 
 pub async fn create_runner(config_str: String) -> Result<Runner, String> {
-    let (full_config, user_certificates, danger_server_no_verify) =
-        create_config(config_str)?;
-    let runner = Runner::start(
-        full_config,
-        user_certificates,
-        danger_server_no_verify,
-    )
-    .await?;
+    let (full_config, user_certificates, danger_server_no_verify) = create_config(config_str)?;
+    let runner = Runner::start(full_config, user_certificates, danger_server_no_verify).await?;
     Ok(runner)
 }
 
