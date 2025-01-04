@@ -1,0 +1,32 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nListening on local_addr=0.0.0.0:33322 protocol=basic\nStarting writer protocol=basic\nStarting clipboard to protocol forwarder protocol_types=[Basic] groups=[\"default\"]\nCreate filesystem reader {\"/tmp/test_file_changes\": {\"default\"}}\nWatching for filesystem changes path=/tmp/test_file_changes\nStarting filesystem reader\nPath modified /tmp/test_file_changes\nMessage sent data_size=38 network_size=106 message_type=files\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--clipboard"
+    - /tmp/test_file_changes
+    - "--ignore-initial-clipboard"
+    - "--verbosity"
+    - debug=simple
+    - "--bind-address"
+    - "0.0.0.0:33322"
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/tmp/test_file_changes": {"default"}}
+Listening on local_addr=0.0.0.0:33322 protocol=basic
+Message sent data_size=38 network_size=106 message_type=files
+Ntp server not provided
+Path modified /tmp/test_file_changes
+Starting clipboard to protocol forwarder protocol_types=[Basic] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=basic
+Watching for filesystem changes path=/tmp/test_file_changes

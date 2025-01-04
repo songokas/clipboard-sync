@@ -1,0 +1,22 @@
+---
+source: tests/args_test.rs
+description: "Loading from tests/config.sample.yaml config\nListening on local_addr=127.0.0.1:8911 protocol=tcp multicast_addr=None\nListening on local_addr=127.0.0.1:8910 protocol=basic\nListening on local_addr=127.0.0.1:8912 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nFailed to watch filesystem changes for /tmp/clipboard/dir/ No such file or directory (os error 2) about [\"/tmp/clipboard/dir/\"]\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--config"
+    - tests/config.sample.yaml
+    - "--verbosity"
+    - info=simple
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Failed to watch filesystem changes for /tmp/clipboard/dir/ No such file or directory (os error 2) about ["/tmp/clipboard/dir/"]
+Listening on local_addr=127.0.0.1:8910 protocol=basic
+Listening on local_addr=127.0.0.1:8911 protocol=tcp multicast_addr=None
+Listening on local_addr=127.0.0.1:8912 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost
+Loading from tests/config.sample.yaml config

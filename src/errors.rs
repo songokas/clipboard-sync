@@ -1,12 +1,11 @@
-// use err_derive::Error;
 use std::io;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use thiserror::Error;
 use tokio::time::Duration;
 
 #[derive(Debug, Error)]
-pub enum EncryptionError
-{
+pub enum EncryptionError {
     #[error("{0}")]
     InvalidMessage(String),
     #[error("{0}")]
@@ -15,43 +14,54 @@ pub enum EncryptionError
     DecryptionFailed(String),
     #[error("{0}")]
     SerializeFailed(String),
+    #[error("{0}")]
+    ValidationError(#[from] ValidationError),
 }
 
 #[derive(Debug, Error)]
-pub enum ValidationError
-{
+pub enum FilesystemError {
+    #[error("Directory does not exist {0}")]
+    NoDirectory(PathBuf),
+    #[error("Failed to serialize path {0}")]
+    SerializeFailed(String),
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum ValidationError {
     #[error("{0}")]
     IncorrectGroup(String),
     #[error("{0}")]
     DeserializeFailed(String),
-    #[error("Failed to validate timestamp. Valid for {} received {}", .1, .0)]
-    InvalidTimestamp(u64, u16),
+    #[error("Failed to validate timestamp. Valid for {}s received {}s", .max_expected.as_secs_f32(), .difference)]
+    InvalidTimestamp {
+        difference: u64,
+        max_expected: Duration,
+    },
 }
 
 #[derive(Debug, Error, Clone)]
-pub enum DnsError
-{
+pub enum DnsError {
     #[error("{0}")]
     Failed(String),
 }
 
 #[derive(Debug, Error)]
-pub enum ConnectionError
-{
+pub enum ConnectionError {
     #[error("Timeout of {} ms occurred while waiting for {0}", .1.as_millis())]
-    Timeout(String, Duration),
-    #[error("Connection limit reached: {max_len} received {received}")]
-    LimitReached
-    {
-        received: usize, max_len: usize
-    },
+    Timeout(&'static str, Duration),
+    #[error("Connection limit reached expected {max_len} received {received}")]
+    LimitReached { received: usize, max_len: usize },
+    #[error("Connection expected data, but none was received")]
+    NoData,
     #[error(transparent)]
     IoError(#[from] io::Error),
 
     #[error("Packet received from invalid source ip address {}", .0.ip())]
     InvalidSource(SocketAddr),
     #[error("Packet received from unknown source ip address")]
-    NoSourceIp(),
+    NoSourceIp,
 
     #[error("Failed to bind {0}. {1}")]
     BindError(std::net::SocketAddr, io::Error),
@@ -61,44 +71,57 @@ pub enum ConnectionError
     FailedToConnect(String),
     #[error("{0}")]
     InvalidBuffer(String),
-    #[error("{0}")]
-    InvalidProtocol(String),
     #[error("Failed to validate data: {0}")]
     ReceiveError(#[from] ValidationError),
-    #[error("Failed to encrypt {0}")]
+    #[error("{0}")]
     Encryption(#[from] EncryptionError),
 
-    #[error("Invalid key provided. {0}")]
-    InvalidKey(String),
     #[error("Failed to join tasks")]
     JoinError(#[from] tokio::task::JoinError),
     #[error("Dns error {0}")]
     DnsError(#[from] DnsError),
 
-    #[cfg(feature = "quiche")]
-    #[error("Quic error occurred {0}")]
-    Http3(#[from] quiche::Error),
-
-    #[cfg(feature = "quinn")]
-    #[error(transparent)]
-    EndpointError(#[from] EndpointError),
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "quic")]
     #[error(transparent)]
     QuicConnection(#[from] quinn::ConnectionError),
-    #[cfg(feature = "quinn")]
+
+    #[cfg(feature = "quic")]
     #[error(transparent)]
     QuicWriteError(#[from] quinn::WriteError),
-    #[cfg(feature = "quinn")]
+
+    #[cfg(feature = "quic")]
     #[error("Failed to connect {0}")]
     QuicConnect(#[from] quinn::ConnectError),
 
+    #[error("Failed to close connection")]
+    FailedToClose,
+
     #[error(transparent)]
-    LimitError(#[from] LimitError),
+    LimitError(#[from] RelayLimitError),
+
+    #[cfg(feature = "tls")]
+    #[error(transparent)]
+    CertificateError(#[from] rustls::pki_types::pem::Error),
+    #[error("Failed to connect {0}")]
+    NotConnected(SocketAddr),
+    #[error("Configuration error: {0}")]
+    BadConfiguration(String),
+}
+
+impl ConnectionError {
+    pub fn is_closed(&self) -> bool {
+        #[cfg(feature = "quic")]
+        return matches!(
+            self,
+            Self::QuicConnection(quinn::ConnectionError::ApplicationClosed(_)) | Self::NoData
+        );
+        #[cfg(not(feature = "quic"))]
+        matches!(self, Self::NoData)
+    }
 }
 
 #[derive(Debug, Error)]
-pub enum CliError
-{
+pub enum CliError {
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error("{0}")]
@@ -109,56 +132,26 @@ pub enum CliError
     ConnectionError(#[from] ConnectionError),
     #[error(transparent)]
     ClipboardError(#[from] ClipboardError),
-
-    #[cfg(feature = "quinn")]
-    #[error(transparent)]
-    KeyError(#[from] quinn::ParseError),
     #[error("Failed to join tasks")]
     JoinError(#[from] tokio::task::JoinError),
-    #[error("Invalid key provided")]
-    InvalidKey(String),
-    #[error(transparent)]
-    FsNotify(#[from] notify::Error),
+    #[error("Unable to send messages. Channel closed")]
+    ChannelClosed,
 }
 
 #[derive(Debug, Error)]
-pub enum ClipboardError
-{
-    #[error("{0}")]
-    IoError(#[from] io::Error),
-    #[error("{0}")]
-    ConnectionError(#[from] ConnectionError),
-    #[error("{0}")]
-    EncryptionError(#[from] EncryptionError),
-    #[error("{0}")]
-    ValidationError(#[from] ValidationError),
-    #[error("{0}")]
-    Invalid(String),
-    #[error("{0}")]
-    Provider(String),
-    #[error("{0}")]
-    Access(String),
-}
-
-#[cfg(feature = "quinn")]
-#[derive(Debug, Error)]
-pub enum EndpointError
-{
-    #[error(transparent)]
-    IoError(#[from] io::Error),
-    #[error(transparent)]
-    ParseError(#[from] quinn::ParseError),
-    #[error(transparent)]
-    ConnectError(#[from] quinn::EndpointError),
-    #[error(transparent)]
-    CertificateError(#[from] quinn::crypto::rustls::TLSError),
-    #[error("{0}")]
-    InvalidKey(String),
+pub enum ClipboardError {
+    #[error("Invalid utf-8 string provided {0}")]
+    InvalidUtf8(String),
+    #[error("Unable to access clipboard: {0}")]
+    AccessError(String),
+    #[error("Unable to set clipboard: {0}")]
+    SetError(String),
+    #[error("Filesystem: {0}")]
+    Filesystem(#[from] FilesystemError),
 }
 
 #[derive(Debug, Error)]
-pub enum LimitError
-{
+pub enum RelayLimitError {
     #[error("{0}")]
     Lock(String),
     #[error("Max group limit reached {}", .0)]

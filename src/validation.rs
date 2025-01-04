@@ -1,32 +1,25 @@
-use bincode::Options;
+use core::time::Duration;
+use log::debug;
 use std::convert::TryInto;
-use std::io::Read;
 use x25519_dalek::StaticSecret;
 
-use crate::config::Groups;
+use crate::config::SendGroups;
 use crate::encryption::decrypt_with_secret;
 use crate::errors::{ConnectionError, ValidationError};
 use crate::identity::identity_matching_hosts;
 use crate::identity::Identity;
 use crate::message::GroupId;
-use crate::message::{Group, Message, PublicMessage};
-use crate::time::{get_time, is_timestamp_valid};
+use crate::message::{Message, RelayMessage, SendGroup};
+use crate::time::{get_time, validate_timestamp};
 
-pub fn validate<'a>(
-    raw_data: impl Read,
-    groups: &'a Groups,
-    identity: &Identity,
-) -> Result<(Message, &'a Group), ValidationError>
-{
-    let options = bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .allow_trailing_bytes();
-    let message: Message = options.deserialize_from(raw_data).map_err(|err| {
-        ValidationError::DeserializeFailed(format!(
-            "Validation invalid data provided: {}",
-            (*err).to_string()
-        ))
-    })?;
+pub fn validate(
+    raw_data: Vec<u8>,
+    groups: &SendGroups,
+    identity: Identity,
+) -> Result<(Message, &SendGroup), ValidationError> {
+    debug!("Validate data identity={identity}");
+    let message = Message::try_from(raw_data)
+        .map_err(|_| ValidationError::DeserializeFailed("Invalid message provided".to_string()))?;
     let group = match groups.iter().find(|(_, group)| group.name == message.group) {
         Some((_, group)) => group,
         _ => {
@@ -37,21 +30,12 @@ pub fn validate<'a>(
         }
     };
 
-    if !is_timestamp_valid(message.time, group.message_valid_for) {
-        let now = get_time();
-        let diff = if now >= message.time {
-            now - message.time
-        } else {
-            message.time - now
-        };
-        return Err(ValidationError::InvalidTimestamp(
-            diff,
-            group.message_valid_for,
-        ));
+    if let Some(d) = group.message_valid_for {
+        validate_timestamp(get_time(), message.time, d)?;
     }
 
     if !identity_matching_hosts(
-        group.allowed_hosts.iter(),
+        group.allowed_hosts.iter().map(|(k, _)| k),
         identity,
         &group.relay.as_ref().map(|r| r.host.clone()),
     ) {
@@ -65,38 +49,15 @@ pub fn validate<'a>(
 }
 
 #[allow(dead_code)]
-pub fn validate_public(buffer: &[u8], valid_for: u16) -> Result<PublicMessage, ValidationError>
-{
-    let message: PublicMessage = bincode::deserialize(buffer).map_err(|err| {
-        ValidationError::DeserializeFailed(format!(
-            "Validation invalid data provided: {}",
-            (*err).to_string()
-        ))
-    })?;
-
-    if !is_timestamp_valid(message.time, valid_for) {
-        let now = get_time();
-        let diff = if now >= message.time {
-            now - message.time
-        } else {
-            message.time - now
-        };
-        return Err(ValidationError::InvalidTimestamp(diff, valid_for));
-    }
-    Ok(message)
-}
-
-#[allow(dead_code)]
 pub fn get_group_id(
     data: &[u8],
     secret: &StaticSecret,
-    valid_for: u16,
-) -> Result<GroupId, ConnectionError>
-{
-    let message = validate_public(data, valid_for)?;
+    valid_for: Duration,
+) -> Result<GroupId, ConnectionError> {
+    let mut message = validate_relay_message(data, valid_for)?;
     let key = secret.diffie_hellman(&message.public_key);
-    let result = decrypt_with_secret(message, &key)?;
-    match result.as_slice().try_into() {
+    decrypt_with_secret(&mut message, &key)?;
+    match message.data.try_into() {
         Ok(v) => Ok(v),
         Err(_) => Err(ConnectionError::InvalidBuffer(
             "Expected group id does not match".into(),
@@ -104,52 +65,60 @@ pub fn get_group_id(
     }
 }
 
+#[allow(dead_code)]
+fn validate_relay_message(
+    buffer: &[u8],
+    valid_for: Duration,
+) -> Result<RelayMessage, ValidationError> {
+    let message: RelayMessage = RelayMessage::try_from(buffer).map_err(|_| {
+        ValidationError::DeserializeFailed("Validation invalid data provided".to_string())
+    })?;
+    validate_timestamp(get_time(), message.time, valid_for)?;
+    Ok(message)
+}
+
 #[cfg(test)]
-mod validationtest
-{
+mod tests {
+    use bytes::Bytes;
+    use chacha20poly1305::XNonce;
     use indexmap::indexmap;
+    use x25519_dalek::PublicKey;
 
     use super::*;
-    use crate::{encryption::random, message::Group};
-    use std::{io::Cursor, net::IpAddr};
+    use crate::{
+        defaults::DEFAULT_RELAY_MESSAGE_SIZE,
+        encryption::{encrypt_with_secret, random},
+    };
+    use std::net::IpAddr;
 
     #[test]
-    fn test_validate()
-    {
+    fn test_validate() {
         let groups = indexmap! {
-            "test1".to_owned() => Group::from_addr("test1", "127.0.0.1:8900", "127.0.0.1:8900"),
-            "test2".to_owned() => Group::from_name("test2"),
+            "test1".to_owned() => SendGroup::from_addr("test1", "127.0.0.1:8900"),
+            "test2".to_owned() => SendGroup::from_name("test2"),
         };
         let sequences: Vec<(&'static str, Vec<u8>, IpAddr, bool)> = vec![
             (
                 "group name and ip match",
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
+                Message::from_group("test1").into(),
                 "127.0.0.1".parse::<IpAddr>().unwrap(),
                 true,
             ),
             (
                 "group name doest not match",
-                bincode::serialize(&Message::from_group("none"))
-                    .unwrap()
-                    .to_vec(),
+                Message::from_group("none").into(),
                 "127.0.0.1".parse::<IpAddr>().unwrap(),
                 false,
             ),
             (
                 "ip doest not match",
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
+                Message::from_group("test1").into(),
                 "127.0.0.2".parse::<IpAddr>().unwrap(),
                 false,
             ),
             (
                 "empty ip",
-                bincode::serialize(&Message::from_group("test1"))
-                    .unwrap()
-                    .to_vec(),
+                Message::from_group("test1").into(),
                 "0.0.0.0".parse::<IpAddr>().unwrap(),
                 false,
             ),
@@ -168,33 +137,48 @@ mod validationtest
         ];
 
         for (name, bytes, id, expected) in sequences {
-            let result = validate(Cursor::new(bytes), &groups, &Identity::from(id));
-            assert_eq!(result.is_ok(), expected, "{}", name);
+            let result = validate(bytes, &groups, id.into());
+            assert_eq!(result.is_ok(), expected, "{} {result:?}", name);
         }
     }
 
     #[test]
-    fn test_validate_public()
-    {
-        //@TODO success case
-        let data = random(160);
-        let valid_for = 60;
-        let group_ip = validate_public(&data, valid_for);
-        assert!(group_ip.is_err());
+    fn test_validate_relay_message() {
+        let data = random(64);
+        let message = RelayMessage {
+            public_key: PublicKey::from([
+                1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4,
+                5, 6, 7, 8,
+            ]),
+            nonce: *XNonce::from_slice(b"123456789101123456789101"),
+            time: get_time(),
+            data: data.clone(),
+        };
+        let message_data: Bytes = message.into();
+        let valid_for = Duration::from_secs(60);
+        let new_message = validate_relay_message(&message_data, valid_for).unwrap();
+        assert_eq!(data, new_message.data);
     }
 
     #[test]
-    fn test_get_group_id()
-    {
-        //@TODO success case
-        let data = random(160);
+    fn test_get_group_id() {
         let key = [
             1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5,
             6, 7, 8,
         ];
+        let public_key = PublicKey::from([
+            1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5,
+            6, 7, 8,
+        ]);
         let secret = StaticSecret::from(key);
-        let valid_for = 60;
-        let group_ip = get_group_id(&data, &secret, valid_for);
-        assert!(group_ip.is_err());
+        let data = random(64);
+        let encryption_key = secret.diffie_hellman(&public_key);
+        let message = encrypt_with_secret(data.clone(), &encryption_key, public_key).unwrap();
+        let message_data: Bytes = message.into();
+        assert_eq!(message_data.len(), DEFAULT_RELAY_MESSAGE_SIZE);
+        let secret = StaticSecret::from(key);
+        let valid_for = Duration::from_secs(60);
+        let group_id = get_group_id(&message_data, &secret, valid_for).unwrap();
+        assert_eq!(&data, &group_id);
     }
 }

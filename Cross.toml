@@ -1,6 +1,8 @@
-# [target.aarch64-unknown-linux-gnu]
-# image = "clipboard-sync/aarch:latest"
-# [target.i686-unknown-linux-gnu]
-# image = "clipboard-sync/linux:latest"
-# [target.x86_64-unknown-linux-gnu]
-# image = "clipboard-sync/linux:latest"
+[target.x86_64-linux-android]
+image = "ghcr.io/cross-rs/x86_64-linux-android:edge"
+[target.i686-linux-android]
+image = "ghcr.io/cross-rs/i686-linux-android:edge"
+[target.arm-linux-androideabi]
+image = "ghcr.io/cross-rs/arm-linux-androideabi:edge"
+[target.aarch64-linux-android]
+image = "ghcr.io/cross-rs/aarch64-linux-android:edge"

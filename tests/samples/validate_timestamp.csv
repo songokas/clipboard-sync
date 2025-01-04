@@ -1,0 +1,6 @@
+now,timestamp,max_valid_secs,is_ok
+1000,996,3,false
+1000,1003,3,true
+1000,1004,3,false
+1000,1003,0,false
+1000,0,0,false

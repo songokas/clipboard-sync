@@ -1,0 +1,35 @@
+---
+source: tests/relay_test.rs
+description: "Server public key Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=\nListen on 127.0.0.1:8922 protocol tcp\nNew connection local_addr=127.0.0.1:8922 remote_addr=127.0.0.1:8923\nNew stream to relay from_addr=127.0.0.1:8923\nRelay finished total bytes sent,received 212 to 0 destinations\nNew data available for stream remote_addr=127.0.0.1:8923\nNew stream to relay from_addr=127.0.0.1:8923\nRelay finished total bytes sent,received 214 to 0 destinations\nNew connection local_addr=127.0.0.1:8922 remote_addr=127.0.0.1:8924\nNew stream to relay from_addr=127.0.0.1:8924\nRelay finished total bytes sent,received 212 to 1 destinations\nNew data available for stream remote_addr=127.0.0.1:8924\nNew stream to relay from_addr=127.0.0.1:8924\nRelay finished total bytes sent,received 214 to 1 destinations\n"
+info:
+  program: clipboard-relay
+  args:
+    - "--private-key"
+    - "33232323233323233333333333333333"
+    - "--bind-address"
+    - "127.0.0.1:8922"
+    - "--protocol"
+    - tcp
+    - "--verbosity"
+    - debug=simple
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Listen on 127.0.0.1:8922 protocol tcp
+New connection local_addr=127.0.0.1:8922 remote_addr=127.0.0.1:8923
+New connection local_addr=127.0.0.1:8922 remote_addr=127.0.0.1:8924
+New data available for stream remote_addr=127.0.0.1:8923
+New data available for stream remote_addr=127.0.0.1:8924
+New stream to relay from_addr=127.0.0.1:8923
+New stream to relay from_addr=127.0.0.1:8923
+New stream to relay from_addr=127.0.0.1:8924
+New stream to relay from_addr=127.0.0.1:8924
+Relay finished total bytes sent,received 212 to 0 destinations
+Relay finished total bytes sent,received 212 to 1 destinations
+Relay finished total bytes sent,received 214 to 0 destinations
+Relay finished total bytes sent,received 214 to 1 destinations
+Server public key Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=

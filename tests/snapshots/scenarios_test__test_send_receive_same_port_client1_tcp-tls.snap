@@ -1,0 +1,62 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nLoading certificates from configuration directory\nListening on local_addr=127.0.0.1:12910 protocol=tcp-tls multicast_addr=None certificate_serial=10:2c:ee:a5:08:90:c0:2d:97:1c:f1:d1:25:14:38:57:a1:60:ea:a1 certificate_dns=testclient\nLoading certificates from configuration directory\nStarting clipboard to protocol forwarder protocol_types=[TcpTls] groups=[\"default\"]\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nSend clipboard on startup path=/dev/stdin\nStarting writer protocol=tcp-tls\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nConnect local_addr=127.0.0.1:12910 remote_addr=127.0.0.1:12911 server_name=localhost\nNo cached session for DnsName(\"localhost\")\nNot resuming any session\nUsing ciphersuite TLS13_AES_256_GCM_SHA384\nNot resuming\nTLS1.3 encrypted extensions: [ServerNameAck]\nALPN protocol is None\nGot CertificateRequest CertificateRequestPayloadTls13 { context: , extensions: [SignatureAlgorithms([ECDSA_NISTP384_SHA384, ECDSA_NISTP256_SHA256, ED25519, RSA_PSS_SHA512, RSA_PSS_SHA384, RSA_PSS_SHA256, RSA_PKCS1_SHA512, RSA_PKCS1_SHA384, RSA_PKCS1_SHA256]), AuthorityNames([DistinguishedName(3022310b30090603550406130247423113301106035504030c0a74657374636c69656e74), DistinguishedName(3045310b30090603550406130241553113301106035504080c0a536f6d652d53746174653121301f060355040a0c18496e7465726e6574205769646769747320507479204c7464)])] }\nAttempting client auth\nTcp send stream stream_size=61 remote_addr=127.0.0.1:12911\nWaiting for stream from remote_addr=127.0.0.1:12911\nMessage sent data_size=17 network_size=69 message_type=file\nTcp receive stream local_addr=127.0.0.1:12910 remote_addr=127.0.0.1:12911\nReceived stream expected_size=2044\nValidate data identity=127.0.0.1\nMessage received data_size=2000 group=default message_type=file\nWaiting for stream from remote_addr=127.0.0.1:12911\nTcp receive stream local_addr=127.0.0.1:12910 remote_addr=127.0.0.1:12911\nIgnore writing to stdin\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:12910"
+    - "--send-using-address"
+    - "127.0.0.1:12910"
+    - "--allowed-host"
+    - "127.0.0.1:12911=localhost"
+    - "--protocol"
+    - tcp-tls
+    - "--clipboard"
+    - /dev/stdin
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-client
+    - "--private-key"
+    - tests/certs/testclient.key
+    - "--certificate-chain"
+    - tests/certs/testclient.crt
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+ALPN protocol is None
+Attempting client auth
+Connect local_addr=127.0.0.1:12910 remote_addr=127.0.0.1:12911 server_name=localhost
+Create filesystem reader {"/dev/stdin": {"default"}}
+Got CertificateRequest CertificateRequestPayloadTls13 { context: , extensions: [SignatureAlgorithms([ECDSA_NISTP384_SHA384, ECDSA_NISTP256_SHA256, ED25519, RSA_PSS_SHA512, RSA_PSS_SHA384, RSA_PSS_SHA256, RSA_PKCS1_SHA512, RSA_PKCS1_SHA384, RSA_PKCS1_SHA256]), AuthorityNames([DistinguishedName(3022310b30090603550406130247423113301106035504030c0a74657374636c69656e74), DistinguishedName(3045310b30090603550406130241553113301106035504080c0a536f6d652d53746174653121301f060355040a0c18496e7465726e6574205769646769747320507479204c7464)])] }
+Ignore writing to stdin
+Listening on local_addr=127.0.0.1:12910 protocol=tcp-tls multicast_addr=None certificate_serial=10:2c:ee:a5:08:90:c0:2d:97:1c:f1:d1:25:14:38:57:a1:60:ea:a1 certificate_dns=testclient
+Loading certificates from configuration directory
+Loading certificates from configuration directory
+Message received data_size=2000 group=default message_type=file
+Message sent data_size=17 network_size=69 message_type=file
+No cached session for DnsName("localhost")
+Not resuming
+Not resuming any session
+Ntp server not provided
+Received stream expected_size=2044
+Send clipboard on startup path=/dev/stdin
+Starting clipboard to protocol forwarder protocol_types=[TcpTls] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=tcp-tls
+Tcp receive stream local_addr=127.0.0.1:12910 remote_addr=127.0.0.1:12911
+Tcp receive stream local_addr=127.0.0.1:12910 remote_addr=127.0.0.1:12911
+Tcp send stream stream_size=61 remote_addr=127.0.0.1:12911
+Using ciphersuite TLS13_AES_256_GCM_SHA384
+Validate data identity=127.0.0.1
+Waiting for stream from remote_addr=127.0.0.1:12911
+Waiting for stream from remote_addr=127.0.0.1:12911
+Watching for filesystem changes path=/dev/stdin

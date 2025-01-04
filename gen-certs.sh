@@ -1,6 +1,6 @@
 #!/bin/bash
 set -ex
-# # run: ./gen-certs.sh localhost localhost 127.0.0.1
+# # run: EXPECTED_DIR=tests/certs ./gen-certs.sh localhost 127.0.0.1
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 HOST=${1:-"localhost"}
@@ -17,7 +17,7 @@ mkdir -p "$EXPECTED_DIR"
 cd "$EXPECTED_DIR"
 
 if [[ ! -f rootca.key ]]; then
-    openssl req -new -newkey rsa:4096 -batch -x509 -nodes -days 1000 -keyout rootca.key -out rootca.crt
+    openssl req -new -newkey rsa:4096 -batch -x509 -nodes -days 10000 -keyout rootca.key -out rootca.crt
 fi
 
 CONFIG="
@@ -59,5 +59,3 @@ c_rehash "cert-verify"
 
 rm -f $HOST.csr
 rm -f rootca.srl
-
-

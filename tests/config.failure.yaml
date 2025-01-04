@@ -5,5 +5,5 @@ groups:
     clipboard: clipboard
   local_network: 
     key: "323232323232323232323232323232"
-    protocol: frames
+    protocol: basic
   

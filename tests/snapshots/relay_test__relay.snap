@@ -1,0 +1,32 @@
+---
+source: tests/relay_test.rs
+info:
+  program: clipboard-relay
+  args:
+    - "--private-key"
+    - "33232323233323233333333333333333"
+    - "--bind-address"
+    - "127.0.0.1:8922"
+    - "--protocol"
+    - basic
+    - "--verbosity"
+    - debug
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+[2024-12-17T06:35:57Z INFO  clipboard_relay] Server public key Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=
+[2024-12-17T06:35:57Z INFO  clipboard_sync::relays] Listen on 127.0.0.1:8922 protocol basic
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Received data_size=259 remote_addr=127.0.0.1:8923
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Received data_size=259 remote_addr=127.0.0.1:8924
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Received data_size=261 remote_addr=127.0.0.1:8923
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Received data_size=261 remote_addr=127.0.0.1:8924
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Relay finished total bytes sent,received 101 to 0 destinations
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Relay finished total bytes sent,received 101 to 1 destinations
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Relay finished total bytes sent,received 99 to 0 destinations
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Relay finished total bytes sent,received 99 to 1 destinations
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Relay from=127.0.0.1:8924 to=127.0.0.1:8923 data_size=101 network_size=101
+[2024-12-17T06:35:58Z DEBUG clipboard_sync::relays::udp] Relay from=127.0.0.1:8924 to=127.0.0.1:8923 data_size=99 network_size=99

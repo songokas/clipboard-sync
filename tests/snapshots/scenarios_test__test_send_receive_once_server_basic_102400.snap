@@ -1,0 +1,49 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting clipboard writer\nWaiting to receive clipboard once\nListening on local_addr=127.0.0.1:12903 protocol=basic\nListening on local_addr=[::1]:12903 protocol=basic\nTcp connect receive stream local_addr=127.0.0.1:12903 remote_addr=127.0.0.1:12904\nTcp receive stream local_addr=127.0.0.1:12903 remote_addr=127.0.0.1:12904\nReceived stream expected_size=102460\nValidate data identity=127.0.0.1\nMessage received data_size=102400 group=default message_type=file\nReceived bytes 102400 in clipboard\nReader cancelled\nReader cancelled\nFinished basic reader processed messages 0\nFinished basic reader processed messages 1\nFinished protocol to clipboard forwarder processed messages 1\nFinished clipboard writer processed messages 1\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:12903,[::1]:12903"
+    - "--receive-once"
+    - "--allowed-host"
+    - "127.0.0.1:0,[::1]:0"
+    - "--receive-once-wait"
+    - "1"
+    - "--protocol"
+    - basic
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-server
+    - "--private-key"
+    - tests/certs/localhost.key
+    - "--certificate-chain"
+    - tests/certs/localhost.crt
+snapshot_kind: text
+---
+success: true
+exit_code: 0
+----- stdout -----
+
+----- stderr -----
+Finished basic reader processed messages 0
+Finished basic reader processed messages 1
+Finished clipboard writer processed messages 1
+Finished protocol to clipboard forwarder processed messages 1
+Listening on local_addr=127.0.0.1:12903 protocol=basic
+Listening on local_addr=[::1]:12903 protocol=basic
+Message received data_size=102400 group=default message_type=file
+Ntp server not provided
+Reader cancelled
+Reader cancelled
+Received bytes 102400 in clipboard
+Received stream expected_size=102460
+Starting clipboard writer
+Tcp connect receive stream local_addr=127.0.0.1:12903 remote_addr=127.0.0.1:12904
+Tcp receive stream local_addr=127.0.0.1:12903 remote_addr=127.0.0.1:12904
+Validate data identity=127.0.0.1
+Waiting to receive clipboard once

@@ -1,0 +1,6 @@
+protocol data_size
+basic    10
+basic    102400
+tcp      102400
+quic     102400
+tcp-tls   102400

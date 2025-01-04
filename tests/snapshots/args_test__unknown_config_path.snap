@@ -1,0 +1,18 @@
+---
+source: tests/args_test.rs
+info:
+  program: clipboard-sync
+  args:
+    - "--config"
+    - _1_unknow_path
+    - "--verbosity"
+    - info=simple
+snapshot_kind: text
+---
+success: false
+exit_code: 1
+----- stdout -----
+
+----- stderr -----
+Loading from _1_unknow_path config
+Error: ArgumentError("Unable to open yaml file path=_1_unknow_path No such file or directory (os error 2)")

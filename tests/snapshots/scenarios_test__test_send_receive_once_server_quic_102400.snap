@@ -1,0 +1,56 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting clipboard writer\nLoading certificates from configuration directory\nWaiting to receive clipboard once\nLoading certificates from configuration directory\nListening on local_addr=127.0.0.1:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nListening on local_addr=[::1]:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nNew connection remote_addr=127.0.0.1:12904\ndecided upon suite TLS13_AES_256_GCM_SHA384\ndrive; id=0\ndrive; id=0\ndrive; id=0\nNew stream available remote_addr=127.0.0.1:12904\nReceive stream remote_addr=127.0.0.1:12904\nStream accepted\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\nStream finished reading\nValidate data identity=127.0.0.1\nMessage received data_size=102400 group=default message_type=file\nReceive stream remote_addr=127.0.0.1:12904\ndrive; id=0\ndrive; id=0\nReceiver connection closed: closed by peer: 0\nReceived bytes 102400 in clipboard\nQuic reader cancelled\nQuic reader cancelled\ndrive; id=0\nFinished quic reader processed messages 0\nFinished quic reader processed messages 1\nFinished protocol to clipboard forwarder processed messages 1\nFinished clipboard writer processed messages 1\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:12903,[::1]:12903"
+    - "--receive-once"
+    - "--allowed-host"
+    - "127.0.0.1:0,[::1]:0"
+    - "--receive-once-wait"
+    - "1"
+    - "--protocol"
+    - quic
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-server
+    - "--private-key"
+    - tests/certs/localhost.key
+    - "--certificate-chain"
+    - tests/certs/localhost.crt
+snapshot_kind: text
+---
+success: true
+exit_code: 0
+----- stdout -----
+
+----- stderr -----
+Finished clipboard writer processed messages 1
+Finished protocol to clipboard forwarder processed messages 1
+Finished quic reader processed messages 0
+Finished quic reader processed messages 1
+Listening on local_addr=127.0.0.1:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost
+Listening on local_addr=[::1]:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost
+Loading certificates from configuration directory
+Loading certificates from configuration directory
+Message received data_size=102400 group=default message_type=file
+New connection remote_addr=127.0.0.1:12904
+New stream available remote_addr=127.0.0.1:12904
+Ntp server not provided
+Quic reader cancelled
+Quic reader cancelled
+Receive stream remote_addr=127.0.0.1:12904
+Receive stream remote_addr=127.0.0.1:12904
+Received bytes 102400 in clipboard
+Receiver connection closed: closed by peer: 0
+Starting clipboard writer
+Stream accepted
+Stream finished reading
+Validate data identity=127.0.0.1
+Waiting to receive clipboard once
+decided upon suite TLS13_AES_256_GCM_SHA384

@@ -1,0 +1,5 @@
+protocol data_size
+basic    10
+basic    60024
+tcp      10
+tcp      1024000

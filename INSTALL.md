@@ -1,18 +1,19 @@
 ## Howto build
 
-all instaliations packages end up in target/ directory
+all packages end up in target/ directory
 
 global deps:
 
-* rust
-* cargo
-* cross
-* docker
+- rust
+- cargo
+- cross
+- docker
 
 ### debian based
 
 deps:
-* dpkg-sig
+
+- dpkg-sig
 
 ```
 cargo install cargo-deb
@@ -23,9 +24,8 @@ make deb
 
 deps:
 
-* rpm
-* ~/.rpmmacros
-
+- rpm
+- ~/.rpmmacros
 
 ```
 #~/.rpmmacros
@@ -45,7 +45,7 @@ make rpm
 
 deps:
 
-* makepkg
+- makepkg
 
 ```
 cargo install cargo-pkgbuild
@@ -58,10 +58,10 @@ https://volks73.github.io/cargo-wix/cargo_wix/index.html
 
 deps:
 
-* windows
-* visual studio 2019
-* open visual studio install: c++ build tools, windows sdk, cli tools
-* open x64 cmd for visual studio
+- windows
+- visual studio 2019
+- open visual studio install: c++ build tools, windows sdk, cli tools
+- open x64 cmd for visual studio
 
 ```
 cargo install cargo-wix

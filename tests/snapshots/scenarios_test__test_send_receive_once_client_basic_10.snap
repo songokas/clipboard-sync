@@ -1,0 +1,46 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting writer protocol=basic\nWaiting to send clipboard once\nStarting clipboard to protocol forwarder protocol_types=[Basic] groups=[\"default\"]\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nSend clipboard on startup path=/dev/stdin\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nMessage sent data_size=10 network_size=78 message_type=file\nSent bytes 10\nFile reader cancelled\nFinished file reader processed messages 1\nFinished clipboard to protocol forwarder processed messages 1\nFinished basic writer processed messages 1\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--send-using-address"
+    - "127.0.0.1:12904,[::1]:12904"
+    - "--send-once"
+    - "--clipboard"
+    - /dev/stdin
+    - "--allowed-host"
+    - "127.0.0.1:12903=localhost"
+    - "--protocol"
+    - basic
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-client
+    - "--private-key"
+    - tests/certs/testclient.key
+    - "--certificate-chain"
+    - tests/certs/testclient.crt
+snapshot_kind: text
+---
+success: true
+exit_code: 0
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/dev/stdin": {"default"}}
+File reader cancelled
+Finished basic writer processed messages 1
+Finished clipboard to protocol forwarder processed messages 1
+Finished file reader processed messages 1
+Message sent data_size=10 network_size=78 message_type=file
+Ntp server not provided
+Send clipboard on startup path=/dev/stdin
+Sent bytes 10
+Starting clipboard to protocol forwarder protocol_types=[Basic] groups=["default"]
+Starting filesystem reader
+Starting writer protocol=basic
+Waiting to send clipboard once
+Watching for filesystem changes path=/dev/stdin

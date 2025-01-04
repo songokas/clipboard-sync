@@ -2,24 +2,23 @@
 
 synchronize your clipboard across multiple devices
 
-encrypted udp
-
 simply copy in one device and paste in another device
 
-file copying is supported as well (linux only)
+file copying is supported as well (linux,windows,android only)
 
 ## Install
 
 ### Deb
 
 ```
-wget https://github.com/songokas/clipboard-sync/releases/download/2.1.1/clipboard-sync_2.1.1_amd64.deb && sudo apt install ./clipboard-sync_2.1.1_amd64.deb
+wget https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync_3.0.0_amd64.deb && sudo apt install ./clipboard-sync_3.0.0_amd64.deb
 ```
+
 ### RRM
 
 ```
-sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.1.1/.rpm/RPM-GPG-KEY-tomasj \
-  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/2.1.1/clipboard-sync-2.1.1-1.x86_64.rpm
+sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/3.0.0/.rpm/RPM-GPG-KEY-tomasj \
+  && sudo yum install https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync-3.0.0-1.x86_64.rpm
 ```
 
 ### Arch
@@ -27,22 +26,22 @@ sudo rpm --import https://raw.githubusercontent.com/songokas/clipboard-sync/2.1.
 ```
 sudo pacman-key --keyserver keyserver.ubuntu.com --recv-keys 175129AEEC57B0EB \
   && sudo pacman-key --lsign-key 175129AEEC57B0EB \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.1.1/clipboard-sync-2.1.1-1-x86_64.pkg.tar.zst.sig \
-  && wget -q https://github.com/songokas/clipboard-sync/releases/download/2.1.1/clipboard-sync-2.1.1-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U clipboard-sync-2.1.1-1-x86_64.pkg.tar.zst
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync-3.0.0-1-x86_64.pkg.tar.zst.sig \
+  && wget -q https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync-3.0.0-1-x86_64.pkg.tar.zst \
+  && sudo pacman -U clipboard-sync-3.0.0-1-x86_64.pkg.tar.zst
 ```
 
 ### Android
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/2.1.1/clipboard-sync-android_2.1.1.apk)
+[download](https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync-android_3.0.0.apk)
 
 ### Windows
 
-[download](https://github.com/songokas/clipboard-sync/releases/download/2.1.1/clipboard-sync-2.1.1-x86_64.msi)
+[download](https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync-3.0.0-x86_64.msi)
 
 ### Others
 
-[other versions](https://github.com/songokas/clipboard-sync/releases/tag/2.1.1)
+[other versions](https://github.com/songokas/clipboard-sync/releases/tag/3.0.0)
 
 ### Install from source
 
@@ -53,13 +52,13 @@ sudo apt install libxcb1-dev libxcb-shape0-dev libxcb-render0-dev libxcb-xfixes0
 ```
 
 ```
-cargo install --root=~/bin/ --git=https://github.com/songokas/clipboard-sync
+cargo install --git=https://github.com/songokas/clipboard-sync
 ```
 
-no xserver, no dependencies above, no clipboard support
+no xserver, no dependencies above, only file support
 
 ```
-cargo install --root=~/bin/ --no-default-features --features no-x --git=https://github.com/songokas/clipboard-sync
+cargo install --no-default-features --git=https://github.com/songokas/clipboard-sync
 ```
 
 ## Howto run
@@ -102,7 +101,25 @@ receive and quit
 clipboard-sync --receive-once
 ```
 
-check for more options 
+exchange certificates with basic protocol (key must be defined)
+
+```
+# client1
+clipboard-sync --send-public-key
+# client2
+clipboard-sync --receive-public-key
+```
+
+exchange certificates with quic protocol
+
+```
+# client1
+clipboard-sync --protocol quic --send-public-key --danger-server-no-verify
+# client2
+clipboard-sync --protocol quic --receive-public-key --danger-client-no-verify
+```
+
+check for more options
 
 ```
 clipboard-sync --help
@@ -120,15 +137,14 @@ run as a user service
 systemctl status --user clipboard-sync
 ```
 
-
-## Example scenarios
+## Examples
 
 ### sync clipboard across your devices on a local network
 
 on every device run
 
 ```
-clipboard-sync --key 11111111111111111111111111111111 --allowed-host 224.0.0.89:8900 
+clipboard-sync --key 11111111111111111111111111111111 --allowed-host 224.0.2.89:8900
 ```
 
 ### sync clipboard across your devices on a local network with specific host only
@@ -140,11 +156,12 @@ clipboard-sync --key 11111111111111111111111111111111 --allowed-host 192.168.0.2
 ```
 
 client 2 192.168.0.200
+
 ```
 clipboard-sync --key 11111111111111111111111111111111 --allowed-host 192.168.0.100:8900
 ```
 
-### sync clipboard across your devices on the external network. only certain nat types are supported. or forward ports on your router
+### sync clipboard across your devices on the external network (only certain nat types are supported or forward ports on your router
 
 client 1 public ip client1-device-ip
 
@@ -158,8 +175,7 @@ client 2 public ip client2-device-ip
 clipboard-sync --key 11111111111111111111111111111111 --allowed-host client1-device-ip:8900 --send-using-address 0.0.0.0:8900 --heartbeat 20
 ```
 
-
-### sync clipboard across your devices on the external network. at least one device must be on a supported nat or with ports forwarded
+### sync clipboard across your devices on the external network (at least one device must be on a supported nat or with ports forwarded)
 
 client 1 public ip client1-device-ip with forwarded 8900 port
 
@@ -180,7 +196,7 @@ on a device that will be a relay server
 server public ip clipsync.net with forwarded 8900 port
 
 ```
-clipboard-relay --private-key 11111111111111111111111111111111 --protocol basic --bind-address 0.0.0.0:8900 --protocol laminar --bind-address 0.0.0.0:8901
+clipboard-relay --private-key 11111111111111111111111111111111 --protocol basic --bind-address 0.0.0.0:8900 --protocol tcp --bind-address 0.0.0.0:8901
 ```
 
 on every device run
@@ -220,19 +236,18 @@ echo "clipboard contents" | clipboard-sync --key 1111111111111111111111111111111
 ```yaml
 bind_addresses:
   # protocol: local socket address
-  basic: 
+  basic:
     - "0.0.0.0:8900"
     - "[::]:8900"
-  frames: "0.0.0.0:8901"
-  laminar: "0.0.0.0:8902"
-  tcp: "0.0.0.0:8903" 
-  #quic: "0.0.0.0:8904"
+  tcp: "0.0.0.0:8903"
+  tcp-tls: "0.0.0.0:8904"
+  quic: "0.0.0.0:8904"
 
 # optional unless using quic
 certificates:
   private_key: tests/cert.key
-  public_key: tests/cert.crt
-  verify_dir: tests/cert-verify
+  certificate_chain: tests/cert.crt
+  remote_certificates: tests/cert-verify
 
 # send_using_address and visible_ip are per group as well
 send_using_address: "0.0.0.0:8901"
@@ -248,7 +263,7 @@ max_file_size: 1048576
 # whether to send initial clipboard when application starts
 send_clipboard_on_startup: false
 
-# if receiving once how many seconds to wait
+# if receiving once how many seconds to wait before quitting
 receive_once_wait: 20
 
 groups:
@@ -258,7 +273,7 @@ groups:
       - "192.168.0.153:8900"
       - "192.168.0.54:20034"
     clipboard: clipboard # can be clipboard, /path/to/file , /path/to/directory/
-  local_network:  # allowed_hosts default to local network multicast
+  local_network: # allowed_hosts default to local network multicast
     key: "32323232323232323232323232323232"
   nat_traversal_client1:
     key: "32323232323232323232323232323232"
@@ -305,19 +320,19 @@ groups:
       host: "relay.net:8900" # relay clipboards through this server
       public_key: "some key"
 
-  local_network_file: 
+  local_network_file:
     key: "32323232323232323232323232323232"
     clipboard: /tmp/cliboard # sync file
   local_network_dir:
     key: "32323232323232323232323232323232"
-    clipboard: /tmp/cliboard/dir/ # sync dir
+    clipboard: /tmp/clipboard/dir/ # sync dir
   receive_only_dir:
     key: "32323232323232323232323232323232"
-    clipboard: /tmp/cliboard/dir/ # files will be created as /tmp/cliboard/dir/192.168.0.111
+    clipboard: /tmp/clipboard/dir/ # files will be created as /tmp/clipboard/dir/192.168.0.111
     allowed_hosts:
       - "192.168.0.111:0" # port 0 - receive only
       - "192.168.0.112:0"
-    protocol: frames
+    protocol: basic
 ```
 
 use only what you need. its usually enough to have a simple configuration such as:
@@ -330,6 +345,7 @@ groups:
 ```
 
 and run
+
 ```
 clipboard-sync
 ```
@@ -360,8 +376,4 @@ WantedBy=multi-user.targett
 
 ## TODO
 
-* finalize quic
-* test on iOS
-* use events for reading clipboard
-* file copy between platforms
-* improve docs / add more examples
+- test on iOS

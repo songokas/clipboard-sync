@@ -1,0 +1,109 @@
+{
+    "exact data": {
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ]
+    },
+    "more than indicated": {
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        2
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ]
+    },
+    "less than indicated": {
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "expected": []
+    },
+    "2 exact messages": {
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        1,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1
+      ],
+      "expected": [
+        [
+          1,
+          2
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    "only indicator": {
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "expected": []
+    },
+    "less than indicator": {
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "expected": []
+    }
+  }

@@ -1,0 +1,53 @@
+---
+source: tests/relay_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nListening on local_addr=127.0.0.1:8923 protocol=basic\nStarting writer protocol=basic\nStarting clipboard to protocol forwarder protocol_types=[Basic] groups=[\"default\"]\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nSend clipboard on startup path=/dev/stdin\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nRelay header added data_size=144\nRelay header added data_size=144\nMessage sent data_size=8 network_size=220 message_type=heartbeat\nHeartbeat prepared local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922\nMessage sent data_size=60024 network_size=60236 message_type=file\nValidate data identity=127.0.0.1\nMessage received data_size=8 group=default message_type=heartbeat\nIgnore writing to stdin\nValidate data identity=127.0.0.1\nMessage received data_size=60024 group=default message_type=file\nIgnore writing to stdin\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:8923"
+    - "--send-using-address"
+    - "127.0.0.1:8923"
+    - "--allowed-host"
+    - "127.0.0.1:8922"
+    - "--protocol"
+    - basic
+    - "--relay-host"
+    - "127.0.0.1:8922"
+    - "--relay-public-key"
+    - Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=
+    - "--verbosity"
+    - debug=simple
+    - "--clipboard"
+    - /dev/stdin
+    - "--heartbeat"
+    - "20"
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/dev/stdin": {"default"}}
+Heartbeat prepared local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922
+Ignore writing to stdin
+Ignore writing to stdin
+Listening on local_addr=127.0.0.1:8923 protocol=basic
+Message received data_size=60024 group=default message_type=file
+Message received data_size=8 group=default message_type=heartbeat
+Message sent data_size=60024 network_size=60236 message_type=file
+Message sent data_size=8 network_size=220 message_type=heartbeat
+Ntp server not provided
+Relay header added data_size=144
+Relay header added data_size=144
+Send clipboard on startup path=/dev/stdin
+Starting clipboard to protocol forwarder protocol_types=[Basic] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=basic
+Validate data identity=127.0.0.1
+Validate data identity=127.0.0.1
+Watching for filesystem changes path=/dev/stdin

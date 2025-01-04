@@ -1,129 +1,114 @@
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 
+use indexmap::indexset;
+
 use crate::errors::ConnectionError;
-use crate::message::Group;
-#[cfg(feature = "public-ip")]
+use crate::message::{GroupName, SendGroup};
 use crate::socket::retrieve_public_ip;
-use crate::socket::{remove_ipv4_mapping, retrieve_local_address, to_socket_address, IpAddrExt};
+use crate::socket::{remove_ipv4_mapping, resolve_local_ip, to_socket_address, IpAddrExt};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Identity
-{
-    address: IpAddr,
+#[cfg_attr(test, derive(serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub struct Identity(IpAddr);
+
+pub trait IdentityVerifier {
+    fn verify(&self, identity: Identity) -> Option<&GroupName>;
 }
 
-pub trait IdentityVerifier
-{
-    fn verify(&self, identity: &Identity) -> Option<&Group>;
-}
-
-impl Identity
-{
-    // for ipv6 sockets ipv4 mapped address should be used as ipv4 address
-    pub fn from_mapped(item: &SocketAddr) -> Self
-    {
-        Self::from(remove_ipv4_mapping(item))
+impl Identity {
+    pub fn is_global(&self) -> bool {
+        IpAddrExt::is_global(&self.0)
     }
 
-    pub fn is_global(&self) -> bool
-    {
-        IpAddrExt::is_global(&self.address)
+    pub fn as_socket_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.0, 0)
     }
 }
 
-impl From<&IpAddr> for Identity
-{
-    fn from(item: &IpAddr) -> Self
-    {
-        Self { address: *item }
+impl From<&IpAddr> for Identity {
+    fn from(item: &IpAddr) -> Self {
+        Self(*item)
     }
 }
 
-impl From<IpAddr> for Identity
-{
-    fn from(item: IpAddr) -> Self
-    {
-        Self { address: item }
+impl From<IpAddr> for Identity {
+    fn from(item: IpAddr) -> Self {
+        Self(item)
     }
 }
 
-impl From<&SocketAddr> for Identity
-{
-    fn from(item: &SocketAddr) -> Self
-    {
+impl From<&SocketAddr> for Identity {
+    fn from(item: &SocketAddr) -> Self {
         remove_ipv4_mapping(item).ip().into()
     }
 }
 
-impl From<SocketAddr> for Identity
-{
-    fn from(item: SocketAddr) -> Self
-    {
+impl From<SocketAddr> for Identity {
+    fn from(item: SocketAddr) -> Self {
         remove_ipv4_mapping(&item).ip().into()
     }
 }
 
-impl fmt::Display for Identity
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
-    {
-        write!(f, "{}", self.address.to_string())
+impl fmt::Display for Identity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
 pub async fn retrieve_identity(
-    remote_address: &SocketAddr,
-    group: &Group,
-) -> Result<Identity, ConnectionError>
-{
+    local_addr: SocketAddr,
+    remote_addr: SocketAddr,
+    group: &SendGroup,
+) -> Result<Identity, ConnectionError> {
+    let local = indexset! { local_addr };
     if let Some(relay) = &group.relay {
-        match to_socket_address(&relay.host) {
-            Ok(relay_addr) if &relay_addr == remote_address => {
-                return Ok(Identity::from(remote_address))
+        match to_socket_address(&local, &relay.host) {
+            Ok((_, relay_addr)) if relay_addr == remote_addr => {
+                return Ok(Identity::from(remote_addr))
             }
             _ => (),
         };
     };
 
     if let Some(host) = &group.visible_ip {
-        return Ok(to_socket_address(format!("{}:0", host)).map(Identity::from)?);
+        return Ok(
+            to_socket_address(&local, format!("{}:0", host)).map(|(_, r)| Identity::from(r))?
+        );
     }
 
-    let local_addr = retrieve_local_address(&group.send_using_address, remote_address).await?;
-
-    if IpAddrExt::is_global(&remote_address.ip()) {
-        #[cfg(feature = "public-ip")]
+    if IpAddrExt::is_global(&remote_addr.ip()) {
         return Ok(retrieve_public_ip(local_addr).await.map(Identity::from)?);
-        #[cfg(not(feature = "public-ip"))]
-        return Err(ConnectionError::FailedToConnect(
-            "No public ip provided".to_owned(),
-        ));
     }
 
-    Ok(Identity::from(local_addr))
+    if local_addr.ip().is_unspecified() {
+        if let Some(ip) = resolve_local_ip(local_addr.ip(), remote_addr) {
+            return Ok(ip.into());
+        }
+    }
+    Ok(local_addr.into())
 }
 
 pub fn identity_matching_hosts(
     hosts: impl IntoIterator<Item = impl AsRef<str>>,
-    identity: &Identity,
+    identity: Identity,
     trust_relay: &Option<String>,
-) -> bool
-{
+) -> bool {
+    let local = indexset! { identity.as_socket_addr() };
     if let Some(ref r) = trust_relay {
-        if let Ok(s) = to_socket_address(r) {
-            if &Identity::from(s.ip()) == identity {
+        if let Ok((_, r)) = to_socket_address(&local, r) {
+            if Identity::from(r.ip()) == identity {
                 return true;
             }
         };
     }
     for host in hosts {
-        let external_ip = match to_socket_address(host) {
-            Ok(s) => s.ip(),
+        let external_ip = match to_socket_address(&local, host) {
+            Ok((_, r)) => r.ip(),
             _ => continue,
         };
         if (external_ip.is_multicast() && !identity.is_global())
-            || &Identity::from(external_ip) == identity
+            || Identity::from(external_ip) == identity
         {
             return true;
         }
@@ -132,67 +117,20 @@ pub fn identity_matching_hosts(
 }
 
 #[cfg(test)]
-mod identitytest
-{
+mod tests {
+    use test_data_file::test_data_file;
+
     use super::*;
-    use crate::assert_error_type;
-    use crate::message::Group;
-    use crate::wait;
 
-    fn identity_provider() -> Vec<(&'static str, SocketAddr, Group)>
-    {
-        return vec![
-            (
-                "127.0.0.1",
-                "127.0.0.1:0".parse().unwrap(),
-                Group::from_addr("test1", "127.0.0.1:9811", "127.0.0.1"),
-            ),
-            (
-                "8.8.8.8",
-                "1.1.1.1:0".parse().unwrap(),
-                Group::from_visible("test4", "8.8.8.8"),
-            ),
-            (
-                "192.168.0.1",
-                "192.168.0.18:0".parse().unwrap(),
-                Group::from_visible("test4", "192.168.0.1"),
-            ),
-        ];
-    }
-    #[test]
-    fn test_retrieve_identity()
-    {
-        for (expected, remote_addr, group) in identity_provider() {
-            let res = wait!(retrieve_identity(&remote_addr, &group));
-            assert_eq!(
-                Identity::from(expected.parse::<IpAddr>().unwrap()),
-                res.unwrap()
-            );
-        }
-    }
-
-    #[test]
-    fn test_retrieve_identity_errors()
-    {
-        let r1 = (
-            "1.1.1.1:0".parse().unwrap(),
-            Group::from_visible("test1", "8.8.8.8.3"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, &r1.1));
-        assert_error_type!(res, ConnectionError::DnsError(_));
-
-        let r1 = (
-            "1.1.1.1:0".parse().unwrap(),
-            Group::from_visible("test2", "abc"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, &r1.1));
-        assert_error_type!(res, ConnectionError::DnsError(_));
-
-        let r1 = (
-            "224.0.0.1:0".parse().unwrap(),
-            Group::from_addr("test3", "192.168.254.254:0", "192.168.0.1"),
-        );
-        let res = wait!(retrieve_identity(&r1.0, &r1.1));
-        assert_error_type!(res, ConnectionError::FailedToConnect(_));
+    #[test_data_file(path = "tests/samples/identity.json")]
+    #[tokio::test]
+    async fn test_retrieve_identity(
+        expected: IpAddr,
+        local_addr: SocketAddr,
+        remote_addr: SocketAddr,
+        group: SendGroup,
+    ) {
+        let res = retrieve_identity(local_addr, remote_addr, &group).await;
+        assert_eq!(Identity::from(expected), res.unwrap());
     }
 }

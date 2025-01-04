@@ -1,0 +1,45 @@
+---
+source: tests/scenarios_test.rs
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:12903,[::1]:12903"
+    - "--receive-once"
+    - "--allowed-host"
+    - "127.0.0.1:0,[::1]:0"
+    - "--receive-once-wait"
+    - "1"
+    - "--protocol"
+    - basic
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-server
+    - "--private-key"
+    - tests/certs/localhost.key
+    - "--certificate-chain"
+    - tests/certs/localhost.crt
+snapshot_kind: text
+---
+success: true
+exit_code: 0
+----- stdout -----
+
+----- stderr -----
+Finished basic reader processed messages 0
+Finished basic reader processed messages 1
+Finished clipboard writer processed messages 0
+Finished protocol to clipboard forwarder processed messages 1
+Listening on local_addr=127.0.0.1:12903 protocol=basic
+Listening on local_addr=[::1]:12903 protocol=basic
+Message received data_size=10 group=default message_type=file
+Ntp server not provided
+Reader cancelled
+Reader cancelled
+Received bytes 10
+Starting clipboard writer
+Validate data identity=127.0.0.1
+Waiting to receive clipboard once

@@ -1,0 +1,57 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nWaiting to send clipboard once\nStarting writer protocol=quic\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nStarting clipboard to protocol forwarder protocol_types=[Quic] groups=[\"default\"]\nSend clipboard on startup path=/dev/stdin\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nLoading certificates from configuration directory\nConnect local_addr=127.0.0.1:12904 remote_addr=127.0.0.1:12903 server_name=localhost\nNo cached session for DnsName(\"localhost\")\nNot resuming any session\ndrive; id=0\ndrive; id=0\ndrive; id=0\nUsing ciphersuite TLS13_AES_256_GCM_SHA384\nNot resuming\nTLS1.3 encrypted extensions: [ServerNameAck, TransportParameters([1, 4, 128, 0, 117, 48, 3, 2, 69, 192, 4, 8, 255, 255, 255, 255, 255, 255, 255, 255, 5, 4, 128, 19, 18, 208, 6, 4, 128, 19, 18, 208, 7, 4, 128, 19, 18, 208, 8, 2, 64, 100, 9, 2, 64, 100, 14, 1, 5, 64, 182, 0, 2, 16, 59, 244, 167, 173, 247, 45, 224, 113, 91, 170, 163, 102, 122, 30, 193, 71, 32, 4, 128, 0, 255, 255, 0, 20, 29, 70, 165, 177, 212, 110, 38, 110, 20, 7, 118, 208, 67, 59, 2, 112, 148, 45, 17, 180, 15, 8, 83, 84, 123, 163, 164, 57, 118, 82, 16, 8, 204, 219, 235, 245, 205, 155, 36, 118, 106, 178, 0, 192, 0, 0, 0, 255, 4, 222, 27, 2, 67, 232])]\nALPN protocol is None\nGot CertificateRequest CertificateRequestPayloadTls13 { context: , extensions: [SignatureAlgorithms([ECDSA_NISTP384_SHA384, ECDSA_NISTP256_SHA256, ED25519, RSA_PSS_SHA512, RSA_PSS_SHA384, RSA_PSS_SHA256, RSA_PKCS1_SHA512, RSA_PKCS1_SHA384, RSA_PKCS1_SHA256]), AuthorityNames([DistinguishedName(3022310b30090603550406130247423113301106035504030c0a74657374636c69656e74), DistinguishedName(3045310b30090603550406130241553113301106035504080c0a536f6d652d53746174653121301f060355040a0c18496e7465726e6574205769646769747320507479204c7464)])] }\nAttempting client auth\nSend stream data_size=102444\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\nMessage sent data_size=102400 network_size=102444 message_type=file\nSent bytes 102400\nFile reader cancelled\nFinished file reader processed messages 1\nNo more messages for writer\nFinished clipboard to protocol forwarder processed messages 1\ndrive; id=0\nFinished quic writer count processed messages 1\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--send-using-address"
+    - "127.0.0.1:12904,[::1]:12904"
+    - "--send-once"
+    - "--clipboard"
+    - /dev/stdin
+    - "--allowed-host"
+    - "127.0.0.1:12903=localhost"
+    - "--protocol"
+    - quic
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-client
+    - "--private-key"
+    - tests/certs/testclient.key
+    - "--certificate-chain"
+    - tests/certs/testclient.crt
+snapshot_kind: text
+---
+success: true
+exit_code: 0
+----- stdout -----
+
+----- stderr -----
+ALPN protocol is None
+Attempting client auth
+Connect local_addr=127.0.0.1:12904 remote_addr=127.0.0.1:12903 server_name=localhost
+Create filesystem reader {"/dev/stdin": {"default"}}
+File reader cancelled
+Finished clipboard to protocol forwarder processed messages 1
+Finished file reader processed messages 1
+Finished quic writer count processed messages 1
+Got CertificateRequest CertificateRequestPayloadTls13 { context: , extensions: [SignatureAlgorithms([ECDSA_NISTP384_SHA384, ECDSA_NISTP256_SHA256, ED25519, RSA_PSS_SHA512, RSA_PSS_SHA384, RSA_PSS_SHA256, RSA_PKCS1_SHA512, RSA_PKCS1_SHA384, RSA_PKCS1_SHA256]), AuthorityNames([DistinguishedName(3022310b30090603550406130247423113301106035504030c0a74657374636c69656e74), DistinguishedName(3045310b30090603550406130241553113301106035504080c0a536f6d652d53746174653121301f060355040a0c18496e7465726e6574205769646769747320507479204c7464)])] }
+Loading certificates from configuration directory
+Message sent data_size=102400 network_size=102444 message_type=file
+No cached session for DnsName("localhost")
+No more messages for writer
+Not resuming
+Not resuming any session
+Ntp server not provided
+Send clipboard on startup path=/dev/stdin
+Send stream data_size=102444
+Sent bytes 102400
+Starting clipboard to protocol forwarder protocol_types=[Quic] groups=["default"]
+Starting filesystem reader
+Starting writer protocol=quic
+Using ciphersuite TLS13_AES_256_GCM_SHA384
+Waiting to send clipboard once
+Watching for filesystem changes path=/dev/stdin

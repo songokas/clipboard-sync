@@ -1,3 +1,5 @@
+xclip -selection clipboard -o -t TARGETS
+
 caja copy:
 
 TIMESTAMP
@@ -25,7 +27,6 @@ TEXT
 STRING
 text/plain;charset=utf-8
 text/plain
-
 
 caja contents of x-special/mate-copied-files:
 

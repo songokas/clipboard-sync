@@ -1,216 +1,81 @@
-use assert_cmd::assert::Assert;
-use assert_cmd::Command;
-use predicates::prelude::*;
+use clipboard_sync::protocol::Protocol;
+use insta_cmd::assert_cmd_snapshot;
 use rand::{distributions::Alphanumeric, Rng};
 use std::fs::{create_dir_all, remove_dir, remove_file, write};
-use std::io;
-use std::process;
 use std::thread;
 use std::time::Duration;
+use test_data_file::test_data_file;
+
+mod common;
+
+use crate::common::run_command;
 
 const ANY_KEY: &str = "12345678912345678912345678912345";
-
-fn send_receive_once(protocol: &'static str, size: usize)
-{
-    let bind_to = match protocol {
-        #[cfg(feature = "quic-quinn")]
-        "quic" => "[::1]:8923",
-        _ => "127.0.0.1:8923",
-    };
-
-    let allowed_host = match protocol {
-        #[cfg(feature = "quic-quinn")]
-        "quic" => "[::1]:0",
-        _ => "127.0.0.1:0",
-    };
-    let t1 = thread::spawn(move || {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--bind-address",
-                bind_to,
-                "--receive-once",
-                "--allowed-host",
-                allowed_host,
-                "--receive-once-wait",
-                "1",
-                "--protocol",
-                protocol,
-                #[cfg(feature = "quic")]
-                "--cert-verify-dir",
-                #[cfg(feature = "quic")]
-                "tests/certs/cert-verify",
-                #[cfg(feature = "quic")]
-                "--private-key",
-                #[cfg(feature = "quic")]
-                "tests/certs/localhost.key",
-                #[cfg(feature = "quic")]
-                "--public-key",
-                #[cfg(feature = "quic")]
-                "tests/certs/localhost.crt",
-            ],
-            "",
-            10000,
-        )
-    });
-
-    let contents: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(size)
-        .map(char::from)
-        .collect();
-
-    let send_to = match protocol {
-        #[cfg(feature = "quic-quinn")]
-        "quic" => "localhost:8923",
-        _ => "127.0.0.1:8923",
-    };
-
-    thread::sleep(Duration::from_millis(100));
-
-    let t2 = thread::spawn(move || {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--send-using-address",
-                "127.0.0.1:8934,[::1]:8934",
-                "--send-once",
-                "--clipboard",
-                "/dev/stdin",
-                "--allowed-host",
-                send_to,
-                "--protocol",
-                protocol,
-                #[cfg(feature = "quic")]
-                "--cert-verify-dir",
-                #[cfg(feature = "quic")]
-                "tests/certs/cert-verify",
-                #[cfg(feature = "quic")]
-                "--private-key",
-                #[cfg(feature = "quic")]
-                "tests/certs/localhost.key",
-                #[cfg(feature = "quic")]
-                "--public-key",
-                #[cfg(feature = "quic")]
-                "tests/certs/localhost.crt",
-            ],
-            &contents,
-            4000,
-        )
-    });
-
-    let output1 = t1.join().unwrap().unwrap();
-    let output2 = t2.join().unwrap().unwrap();
-
-    let assert1 = Assert::new(output1);
-    let assert2 = Assert::new(output2);
-
-    assert2.stderr(predicate::str::contains("count 1"));
-    assert1.stderr(predicate::str::contains("count 1"));
-}
-
-#[test]
-fn test_send_receive_once()
-{
-    for (protocol, size) in [
-        ("basic", 10),
-        // ("basic", 10 * 1024 * 10),
-        ("tcp", 10 * 1024 * 10),
-        #[cfg(feature = "frames")]
-        ("frames", 10 * 1024 * 10),
-        ("laminar", 10 * 1024 * 10),
-        #[cfg(feature = "quic-quinn")]
-        ("quic", 10 * 1024 * 10),
-        #[cfg(feature = "quic-quiche")]
-        ("quic", 10 * 1024 * 10),
-    ]
-    .to_vec()
-    {
-        send_receive_once(protocol, size);
-    }
-}
 
 #[test]
 #[ignore]
 //cargo test test_receive_once_multicast -- --ignored
-fn test_receive_once_multicast()
-{
-    let t1 = thread::spawn(|| {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--receive-once",
-                "--receive-once-wait",
-                "1",
-                "--verbosity",
-                "debug",
-            ],
-            "",
-            10000,
-        )
-    });
-
-    let output1 = t1.join().unwrap().unwrap();
-    let assert1 = Assert::new(output1);
-    assert1.stderr(predicate::str::contains("count 1"));
+fn test_receive_once_multicast() {
+    assert_cmd_snapshot!(run_command(
+        vec![
+            "--key",
+            ANY_KEY,
+            "--receive-once",
+            "--receive-once-wait",
+            "1",
+            "--verbosity",
+            "debug",
+        ],
+        Duration::from_secs(10),
+        "",
+        true,
+        vec![],
+    ));
 }
 
 #[test]
 #[ignore]
 // cargo test test_send_once_multicast -- --ignored
-fn test_send_once_multicast()
-{
-    let t2 = thread::spawn(move || {
-        run_command(
-            vec!["--key", ANY_KEY, "--send-once", "--clipboard", "/dev/stdin"],
-            "hello",
-            2000,
-        )
-    });
-
-    let output2 = t2.join().unwrap().unwrap();
-    let assert2 = Assert::new(output2);
-    assert2.stderr(predicate::str::contains("count 1"));
+fn test_send_once_multicast() {
+    assert_cmd_snapshot!(run_command(
+        vec!["--key", ANY_KEY, "--send-once", "--clipboard", "/dev/stdin"],
+        Duration::from_secs(2),
+        "hello",
+        true,
+        vec![],
+    ));
 }
 
 #[test]
-fn test_send_heartbeat()
-{
-    let t2 = thread::spawn(move || {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--clipboard",
-                "/dev/stdin",
-                "--ignore-initial-clipboard",
-                "--heartbeat",
-                "1",
-                "--verbosity",
-                "debug",
-                "--bind-address",
-                "0.0.0.0:0",
-            ],
-            "hello",
-            3000,
-        )
-    });
-
-    let output2 = t2.join().unwrap().unwrap();
-    let assert2 = Assert::new(output2);
-    assert2.stderr(predicate::str::contains("heartbeat"));
+fn test_send_heartbeat_without_sending_clipboard_data() {
+    assert_cmd_snapshot!(run_command(
+        vec![
+            "--key",
+            ANY_KEY,
+            "--clipboard",
+            "/dev/stdin",
+            "--ignore-initial-clipboard",
+            "--heartbeat",
+            "10",
+            "--verbosity",
+            "debug=simple",
+            "--bind-address",
+            "0.0.0.0:33321",
+        ],
+        Duration::from_secs(3),
+        "hello",
+        true,
+        vec![],
+    ));
 }
 
 #[test]
-fn test_file_changes()
-{
+fn test_file_changes() {
     let file = "/tmp/test_file_changes";
+    let _ = remove_file(file);
     write(file, b"testdata1").unwrap();
-    let t2 = thread::spawn(move || {
-        run_command(
+    let t1 = thread::spawn(move || {
+        assert_cmd_snapshot!(run_command(
             vec![
                 "--key",
                 ANY_KEY,
@@ -218,62 +83,62 @@ fn test_file_changes()
                 file,
                 "--ignore-initial-clipboard",
                 "--verbosity",
-                "debug",
+                "debug=simple",
                 "--bind-address",
-                "0.0.0.0:0",
+                "0.0.0.0:33322",
             ],
+            Duration::from_secs(3),
             "hello",
-            3000,
-        )
+            true,
+            vec![],
+        ))
     });
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(1000));
     write(file, b"testdata2").unwrap();
-    let output2 = t2.join().unwrap().unwrap();
+    t1.join().unwrap();
     remove_file(file).unwrap();
-
-    let assert2 = Assert::new(output2);
-    assert2.stderr(predicate::str::contains("Sent bytes"));
 }
 
 #[test]
-fn test_file_changes_created_after_startup()
-{
-    let file = "/tmp/test_file_changes_created_after_startup";
-    let t2 = thread::spawn(move || {
-        run_command(
+fn test_file_changes_created_after_startup() {
+    let dir = "/tmp/_test_file_changes_created_after_startup";
+    create_dir_all(dir).unwrap();
+    let file = format!("{dir}/file");
+    remove_file(&file).unwrap_or(());
+    let cfile = file.clone();
+    let t1 = thread::spawn(move || {
+        assert_cmd_snapshot!(run_command(
             vec![
                 "--key",
                 ANY_KEY,
                 "--clipboard",
-                file,
+                &cfile,
                 "--ignore-initial-clipboard",
                 "--verbosity",
-                "debug",
+                "debug=simple",
                 "--bind-address",
-                "0.0.0.0:0",
+                "0.0.0.0:33323",
             ],
+            Duration::from_secs(3),
             "hello",
-            3000,
-        )
+            true,
+            vec![],
+        ))
     });
-    thread::sleep(Duration::from_millis(100));
-    write(file, b"testdata2").unwrap();
-    let output2 = t2.join().unwrap().unwrap();
+    thread::sleep(Duration::from_millis(1000));
+    write(&file, b"testdata2").unwrap();
+    t1.join().unwrap();
     remove_file(file).unwrap();
-
-    let assert2 = Assert::new(output2);
-    assert2.stderr(predicate::str::contains("Sent bytes"));
 }
 
 #[test]
-fn test_directory_changes()
-{
-    let dir = "/tmp/test_directory_changes";
+fn test_directory_changes() {
+    let dir = "/tmp/_test_directory_changes";
     create_dir_all(dir).unwrap();
     let file = format!("{}/_random_file", dir);
     write(&file, b"testdata1").unwrap();
-    let t2 = thread::spawn(move || {
-        run_command(
+    let t1 = thread::spawn(move || {
+        assert_cmd_snapshot!(run_command(
             vec![
                 "--key",
                 ANY_KEY,
@@ -281,33 +146,32 @@ fn test_directory_changes()
                 dir,
                 "--ignore-initial-clipboard",
                 "--verbosity",
-                "debug",
+                "debug=simple",
                 "--bind-address",
-                "0.0.0.0:0",
+                "0.0.0.0:33324",
             ],
+            Duration::from_secs(3),
             "hello",
-            3000,
-        )
+            true,
+            vec![],
+        ))
     });
-    thread::sleep(Duration::from_millis(200));
+    thread::sleep(Duration::from_millis(1000));
     write(&file, b"testdata2").unwrap();
-    let output2 = t2.join().unwrap().unwrap();
+    t1.join().unwrap();
     remove_file(&file).unwrap();
     remove_dir(dir).unwrap();
-
-    let assert2 = Assert::new(output2);
-    assert2.stderr(predicate::str::contains("Sent bytes"));
 }
 
 #[test]
-fn test_directory_changes_created_after_startup()
-{
-    let dir = "/tmp/test_directory_changes_created_after_startup";
+fn test_directory_changes_created_after_startup() {
+    let dir = "/tmp/_test_directory_changes_created_after_startup/dir";
+    create_dir_all(dir).unwrap();
     let file = format!("{}/file", dir);
     remove_file(&file).unwrap_or(());
     remove_dir(dir).unwrap_or(());
-    let t2 = thread::spawn(move || {
-        run_command(
+    let t1 = thread::spawn(move || {
+        assert_cmd_snapshot!(run_command(
             vec![
                 "--key",
                 ANY_KEY,
@@ -315,49 +179,69 @@ fn test_directory_changes_created_after_startup()
                 dir,
                 "--ignore-initial-clipboard",
                 "--verbosity",
-                "debug",
+                "debug=simple",
                 "--bind-address",
-                "0.0.0.0:0",
+                "0.0.0.0:33325",
             ],
+            Duration::from_secs(6),
             "hello",
-            6000,
-        )
+            true,
+            vec![],
+        ))
     });
     thread::sleep(Duration::from_millis(1000));
     create_dir_all(dir).unwrap();
-    // there is a delay between listen for directory and writting to file in that directory
-    thread::sleep(Duration::from_millis(3000));
+    // there is a delay between listen for directory and writing to file in that directory
+    thread::sleep(Duration::from_millis(2000));
     write(&file, b"testdata1").unwrap();
-    let output2 = t2.join().unwrap().unwrap();
+    thread::sleep(Duration::from_millis(1000));
+    t1.join().unwrap();
     remove_file(&file).unwrap();
     remove_dir(dir).unwrap();
-
-    let assert2 = Assert::new(output2);
-    assert2.stderr(predicate::str::contains("Sent bytes"));
 }
 
+#[test_data_file(path = "tests/samples/send_receive_same_port.list")]
 #[test]
-fn test_send_receive_same_port()
-{
+fn test_send_receive_same_port(protocol: Protocol) {
     let size = 2000;
-    let bind_to = "127.0.0.1:8928";
-    let protocol = "basic";
 
-    let allowed_host = "127.0.0.1:0";
+    let bind_to = "127.0.0.1:12910";
+    let allowed_host = "127.0.0.1:12911=localhost";
+
     let t1 = thread::spawn(move || {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--bind-address",
-                bind_to,
-                "--allowed-host",
-                allowed_host,
-                "--protocol",
-                "basic",
-            ],
-            "",
-            3000,
+        assert_cmd_snapshot!(
+            format!("test_send_receive_same_port_client1_{protocol}"),
+            run_command(
+                vec![
+                    "--verbosity",
+                    "debug=simple",
+                    "--key",
+                    ANY_KEY,
+                    "--bind-address",
+                    bind_to,
+                    "--send-using-address",
+                    bind_to,
+                    "--allowed-host",
+                    allowed_host,
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--clipboard",
+                    "/dev/stdin",
+                    "--remote-certificates",
+                    "tests/certs/cert-verify/for-client",
+                    "--private-key",
+                    "tests/certs/testclient.key",
+                    "--certificate-chain",
+                    "tests/certs/testclient.crt",
+                ],
+                Duration::from_secs(3),
+                "client that sends",
+                true,
+                vec![
+                    "drive; id".to_string(),
+                    "TLS1.3 encrypted extensions".to_string()
+                ],
+            )
         )
     });
 
@@ -367,48 +251,140 @@ fn test_send_receive_same_port()
         .map(char::from)
         .collect();
 
-    let send_to = "127.0.0.1:8928";
+    thread::sleep(Duration::from_millis(100));
+
+    let allowed_host = "127.0.0.1:12910=testclient";
+    let bind_to = "127.0.0.1:12911";
+
+    let t2 = thread::spawn(move || {
+        assert_cmd_snapshot!(
+            format!("test_send_receive_same_port_client2_{protocol}"),
+            run_command(
+                vec![
+                    "--verbosity",
+                    "debug=simple",
+                    "--key",
+                    ANY_KEY,
+                    "--bind-address",
+                    bind_to,
+                    "--send-using-address",
+                    bind_to,
+                    "--clipboard",
+                    "/dev/stdin",
+                    "--allowed-host",
+                    allowed_host,
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--remote-certificates",
+                    "tests/certs/cert-verify/for-server",
+                    "--private-key",
+                    "tests/certs/localhost.key",
+                    "--certificate-chain",
+                    "tests/certs/localhost.crt",
+                ],
+                Duration::from_secs(3),
+                &contents,
+                true,
+                vec![
+                    "drive; id".to_string(),
+                    "TLS1.3 encrypted extensions".to_string()
+                ],
+            )
+        )
+    });
+
+    t1.join().unwrap();
+    t2.join().unwrap();
+}
+
+#[test_data_file(path = "tests/samples/send_receive_once.list")]
+#[test]
+fn test_send_receive_once(protocol: Protocol, size: usize) {
+    let bind_to = "127.0.0.1:12903,[::1]:12903";
+    let allowed_host = "127.0.0.1:0,[::1]:0";
+
+    let t1 = thread::spawn(move || {
+        assert_cmd_snapshot!(
+            format!("test_send_receive_once_server_{protocol}_{size}"),
+            run_command(
+                vec![
+                    "--verbosity",
+                    "debug=simple",
+                    "--key",
+                    ANY_KEY,
+                    "--bind-address",
+                    bind_to,
+                    "--receive-once",
+                    "--allowed-host",
+                    allowed_host,
+                    "--receive-once-wait",
+                    "1",
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--remote-certificates",
+                    "tests/certs/cert-verify/for-server",
+                    "--private-key",
+                    "tests/certs/localhost.key",
+                    "--certificate-chain",
+                    "tests/certs/localhost.crt",
+                ],
+                Duration::from_secs(10),
+                "",
+                true,
+                vec![
+                    "drive; id".to_string(),
+                    "TLS1.3 encrypted extensions".to_string()
+                ],
+            )
+        )
+    });
+
+    let contents: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(size)
+        .map(char::from)
+        .collect();
+
+    let send_to = "127.0.0.1:12903=localhost";
 
     thread::sleep(Duration::from_millis(100));
 
     let t2 = thread::spawn(move || {
-        run_command(
-            vec![
-                "--key",
-                ANY_KEY,
-                "--bind-address",
-                "127.0.0.1:8938,[::1]:8938",
-                "--send-using-address",
-                "127.0.0.1:8938,[::1]:8938",
-                "--clipboard",
-                "/dev/stdin",
-                "--allowed-host",
-                send_to,
-                "--protocol",
-                protocol,
-            ],
-            &contents,
-            3000,
+        assert_cmd_snapshot!(
+            format!("test_send_receive_once_client_{protocol}_{size}"),
+            run_command(
+                vec![
+                    "--verbosity",
+                    "debug=simple",
+                    "--key",
+                    ANY_KEY,
+                    "--send-using-address",
+                    "127.0.0.1:12904,[::1]:12904",
+                    "--send-once",
+                    "--clipboard",
+                    "/dev/stdin",
+                    "--allowed-host",
+                    send_to,
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--remote-certificates",
+                    "tests/certs/cert-verify/for-client",
+                    "--private-key",
+                    "tests/certs/testclient.key",
+                    "--certificate-chain",
+                    "tests/certs/testclient.crt",
+                ],
+                Duration::from_secs(4),
+                &contents,
+                true,
+                vec![
+                    "drive; id".to_string(),
+                    "TLS1.3 encrypted extensions".to_string()
+                ],
+            )
         )
     });
 
-    let output1 = t1.join().unwrap().unwrap();
-    let output2 = t2.join().unwrap().unwrap();
-
-    let assert1 = Assert::new(output1);
-    let assert2 = Assert::new(output2);
-
-    assert2.stderr(predicate::str::ends_with("protocol basic\n"));
-    assert1.stderr(predicate::str::ends_with("protocol basic\n"));
-}
-
-fn run_command(args: Vec<&'static str>, stdin: &str, timeout: u64) -> io::Result<process::Output>
-{
-    let mut cmd = Command::cargo_bin("clipboard-sync").unwrap();
-    for arg in args {
-        cmd.arg(arg);
-    }
-    cmd.write_stdin(stdin);
-    cmd.timeout(Duration::from_millis(timeout));
-    cmd.output()
+    t1.join().unwrap();
+    t2.join().unwrap();
 }

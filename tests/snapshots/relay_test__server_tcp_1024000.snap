@@ -1,0 +1,65 @@
+---
+source: tests/relay_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nListening on local_addr=127.0.0.1:8923 protocol=tcp multicast_addr=None\nStarting writer protocol=tcp\nStarting clipboard to protocol forwarder protocol_types=[Tcp] groups=[\"default\"]\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nConnect local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922 server_name=127.0.0.1\nWaiting for stream from remote_addr=127.0.0.1:8922\nTcp receive stream local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922\nSend clipboard on startup path=/dev/stdin\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nRelay header added data_size=144\nTcp send stream stream_size=212 remote_addr=127.0.0.1:8922\nMessage sent data_size=8 network_size=220 message_type=heartbeat\nUsing existing connection local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922 server_name=127.0.0.1\nRelay header added data_size=144\nTcp send stream stream_size=1024204 remote_addr=127.0.0.1:8922\nMessage sent data_size=1024000 network_size=1024212 message_type=file\nReceived stream expected_size=68\nValidate data identity=127.0.0.1\nMessage received data_size=8 group=default message_type=heartbeat\nWaiting for stream from remote_addr=127.0.0.1:8922\nTcp receive stream local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922\nIgnore writing to stdin\nReceived stream expected_size=1024060\nValidate data identity=127.0.0.1\nMessage received data_size=1024000 group=default message_type=file\nWaiting for stream from remote_addr=127.0.0.1:8922\nTcp receive stream local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922\nIgnore writing to stdin\nReceiver connection closed: Connection expected data, but none was received\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:8923"
+    - "--send-using-address"
+    - "127.0.0.1:8923"
+    - "--allowed-host"
+    - "127.0.0.1:8922"
+    - "--protocol"
+    - tcp
+    - "--relay-host"
+    - "127.0.0.1:8922"
+    - "--relay-public-key"
+    - Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=
+    - "--verbosity"
+    - debug=simple
+    - "--clipboard"
+    - /dev/stdin
+    - "--heartbeat"
+    - "20"
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Connect local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922 server_name=127.0.0.1
+Create filesystem reader {"/dev/stdin": {"default"}}
+Ignore writing to stdin
+Ignore writing to stdin
+Listening on local_addr=127.0.0.1:8923 protocol=tcp multicast_addr=None
+Message received data_size=1024000 group=default message_type=file
+Message received data_size=8 group=default message_type=heartbeat
+Message sent data_size=1024000 network_size=1024212 message_type=file
+Message sent data_size=8 network_size=220 message_type=heartbeat
+Ntp server not provided
+Received stream expected_size=1024060
+Received stream expected_size=68
+Receiver connection closed: Connection expected data, but none was received
+Relay header added data_size=144
+Relay header added data_size=144
+Send clipboard on startup path=/dev/stdin
+Starting clipboard to protocol forwarder protocol_types=[Tcp] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=tcp
+Tcp receive stream local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922
+Tcp receive stream local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922
+Tcp receive stream local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922
+Tcp send stream stream_size=1024204 remote_addr=127.0.0.1:8922
+Tcp send stream stream_size=212 remote_addr=127.0.0.1:8922
+Using existing connection local_addr=127.0.0.1:8923 remote_addr=127.0.0.1:8922 server_name=127.0.0.1
+Validate data identity=127.0.0.1
+Validate data identity=127.0.0.1
+Waiting for stream from remote_addr=127.0.0.1:8922
+Waiting for stream from remote_addr=127.0.0.1:8922
+Waiting for stream from remote_addr=127.0.0.1:8922
+Watching for filesystem changes path=/dev/stdin

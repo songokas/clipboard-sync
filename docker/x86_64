@@ -1,4 +1,4 @@
-FROM rust:buster
+FROM rust:slim-buster
 
 RUN dpkg --add-architecture i386 \
     && apt-get update \

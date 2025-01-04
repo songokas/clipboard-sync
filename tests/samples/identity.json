@@ -1,0 +1,33 @@
+{
+    "localhost": {
+        "expected": "127.0.0.1",
+        "local_addr": "127.0.0.1:0",
+        "remote_addr": "127.0.0.1:0",
+        "group": {
+            "name": "test1",
+            "allowed_hosts": {
+                "127.0.0.1": null
+            }
+        }
+    },
+    "8.8.8.8": {
+        "expected": "8.8.8.8",
+        "local_addr": "192.168.0.1:0",
+        "remote_addr": "1.1.1.1:0",
+        "group": {
+            "name": "test4",
+            "visible_ip": "8.8.8.8",
+            "allowed_hosts": {}
+        }
+    },
+    "192.168.0.1": {
+        "expected": "192.168.0.1",
+        "local_addr": "192.168.0.1:0",
+        "remote_addr": "192.168.0.18:0",
+        "group": {
+            "name": "test4",
+            "visible_ip": "192.168.0.1",
+            "allowed_hosts": {}
+        }
+    }
+}

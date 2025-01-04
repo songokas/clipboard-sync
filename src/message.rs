@@ -1,60 +1,29 @@
 use blake2::{Blake2b, Digest};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use chacha20poly1305::{Key, XNonce};
-use indexmap::IndexSet;
+use core::time::Duration;
+use indexmap::{IndexMap, IndexSet};
 use serde::{de, Deserialize, Serialize};
-use std::convert::TryInto;
 use std::net::SocketAddr;
 use x25519_dalek::PublicKey;
 
-#[cfg(test)]
-use chrono::Utc;
-#[cfg(test)]
-use indexmap::indexset;
+use crate::defaults::NONCE_SIZE;
+use crate::protocol::Protocol;
 
-use crate::defaults::{KEY_SIZE, NONCE_SIZE};
-use crate::protocols::Protocol;
+pub type GroupName = String;
+pub type DestinationHost = String;
+pub type ServerName = String;
+pub type AllowedHosts = IndexMap<DestinationHost, Option<ServerName>>;
 
-mod serde_key_str
-{
+mod serde_nonce {
     use super::*;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(key: &Option<Key>, serializer: S) -> Result<S::Ok, S::Error>
-    {
-        match key {
-            Some(v) => serializer.serialize_str(&String::from_utf8_lossy(v)),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D)
-        -> Result<Option<Key>, D::Error>
-    {
-        let str_data: String = Deserialize::deserialize(deserializer)?;
-        if str_data.len() != KEY_SIZE {
-            return Err(de::Error::custom(format!(
-                "Key size must be {} provided {} value {}",
-                KEY_SIZE,
-                str_data.len(),
-                str_data
-            )));
-        }
-        Ok(Some(*Key::from_slice(str_data.as_bytes())))
-    }
-}
-
-mod serde_nonce
-{
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(nonce: &XNonce, serializer: S) -> Result<S::Ok, S::Error>
-    {
+    pub fn serialize<S: Serializer>(nonce: &XNonce, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(nonce)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<XNonce, D::Error>
-    {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<XNonce, D::Error> {
         let nonce_data: Vec<u8> = Deserialize::deserialize(deserializer)?;
         if nonce_data.len() != NONCE_SIZE {
             return Err(de::Error::custom(format!(
@@ -67,258 +36,347 @@ mod serde_nonce
     }
 }
 
+#[repr(u8)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy, Eq, Hash)]
-pub enum MessageType
-{
+pub enum MessageType {
     Text,
     File,
     Files,
     Directory,
-    Frame,
     Handshake,
     Heartbeat,
+    PublicKey,
 }
 
-impl std::fmt::Display for MessageType
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
-    {
-        return match self {
+impl TryFrom<u8> for MessageType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Text,
+            1 => Self::File,
+            2 => Self::Files,
+            3 => Self::Directory,
+            4 => Self::Handshake,
+            5 => Self::Heartbeat,
+            6 => Self::PublicKey,
+            _ => return Err(()),
+        })
+    }
+}
+
+impl std::fmt::Display for MessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
             Self::Text => write!(f, "text"),
             Self::File => write!(f, "file"),
             Self::Files => write!(f, "files"),
             Self::Directory => write!(f, "directory"),
-            Self::Frame => write!(f, "frame"),
             Self::Handshake => write!(f, "handshake"),
             Self::Heartbeat => write!(f, "heartbeat"),
-        };
+            Self::PublicKey => write!(f, "public_key"),
+        }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Message
-{
+pub struct Message {
+    pub message_type: MessageType,
     #[serde(with = "serde_nonce")]
     pub nonce: XNonce,
-    pub group: String,
-    //@TODO move to the end
-    pub data: Vec<u8>,
-    pub message_type: MessageType,
     pub time: u64,
+    pub group: GroupName,
+    pub data: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PublicMessage
-{
+impl From<Message> for Bytes {
+    fn from(value: Message) -> Bytes {
+        let mut bytes = BytesMut::new();
+        bytes.put_u8(value.message_type as u8);
+        bytes.put(Bytes::from(value.nonce.to_vec()));
+        bytes.put_u64(value.time);
+        bytes.put_u32(value.group.len() as u32);
+        bytes.put(Bytes::from(value.group));
+        bytes.put(Bytes::from(value.data));
+        bytes.into()
+    }
+}
+
+impl From<Message> for Vec<u8> {
+    fn from(value: Message) -> Self {
+        let bytes: Bytes = value.into();
+        bytes.into()
+    }
+}
+
+impl TryFrom<Vec<u8>> for Message {
+    type Error = ();
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let mut bytes = Bytes::from(value);
+
+        if bytes.remaining() < 1 {
+            return Err(());
+        }
+
+        let message_type = bytes.get_u8().try_into()?;
+
+        if bytes.remaining() < NONCE_SIZE {
+            return Err(());
+        }
+
+        let nonce_bytes = bytes.copy_to_bytes(NONCE_SIZE);
+
+        let nonce = *XNonce::from_slice(&nonce_bytes);
+
+        if bytes.remaining() < size_of::<u64>() {
+            return Err(());
+        }
+
+        let time = bytes.get_u64();
+
+        if bytes.remaining() < size_of::<u32>() {
+            return Err(());
+        }
+
+        let group_len = bytes.get_u32();
+
+        if bytes.remaining() < group_len as usize {
+            return Err(());
+        }
+
+        let group_bytes = bytes.copy_to_bytes(group_len as usize);
+        let group = String::from_utf8_lossy(&group_bytes).to_string();
+        let data = bytes.copy_to_bytes(bytes.remaining());
+        Ok(Self {
+            message_type,
+            nonce,
+            time,
+            group,
+            data: data.into(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct RelayMessage {
     pub public_key: PublicKey,
-    #[serde(with = "serde_nonce")]
     pub nonce: XNonce,
-    pub data: Vec<u8>,
     pub time: u64,
+    pub data: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct AdditionalData
-{
-    pub group: String,
-    pub identity: String,
+impl From<RelayMessage> for Bytes {
+    fn from(value: RelayMessage) -> Self {
+        let mut bytes = BytesMut::new();
+        bytes.put(Bytes::from(value.public_key.to_bytes().to_vec()));
+        bytes.put(Bytes::from(value.nonce.to_vec()));
+        bytes.put_u64(value.time);
+        bytes.put(Bytes::from(value.data));
+        bytes.into()
+    }
+}
+
+impl TryFrom<&[u8]> for RelayMessage {
+    type Error = ();
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let mut index = 0;
+        let mut end = size_of::<PublicKey>();
+        let public_key: [u8; 32] = value
+            .get(index..end)
+            .ok_or(())?
+            .try_into()
+            .map_err(|_| ())?;
+        let public_key = PublicKey::from(public_key);
+        index = end;
+        end += NONCE_SIZE;
+        let nonce = *XNonce::from_slice(value.get(index..end).ok_or(())?);
+        index = end;
+        end += size_of::<u64>();
+        let time = u64::from_be_bytes(
+            value
+                .get(index..end)
+                .ok_or(())?
+                .try_into()
+                .map_err(|_| ())?,
+        );
+
+        index = end;
+        let id = value.get(index..).ok_or(())?.to_vec();
+
+        Ok(RelayMessage {
+            public_key,
+            nonce,
+            time,
+            data: id,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct AdditionalData {
     pub message_type: MessageType,
+    pub identity: String,
+    pub group: String,
+}
+
+impl From<AdditionalData> for Bytes {
+    fn from(value: AdditionalData) -> Self {
+        let mut bytes = BytesMut::new();
+        bytes.put_u8(value.message_type as u8);
+        bytes.put_u16(value.identity.len() as u16);
+        bytes.put(Bytes::from(value.identity));
+        bytes.put_u16(value.group.len() as u16);
+        bytes.put(Bytes::from(value.group));
+        bytes.into()
+    }
 }
 
 pub type GroupId = [u8; 64];
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Relay
-{
+pub struct Relay {
     pub host: String,
     pub public_key: PublicKey,
 }
 
 #[derive(Debug, Clone)]
-pub struct Group
-{
-    pub name: String,
-    pub allowed_hosts: IndexSet<String>,
+pub struct Group {
+    pub name: GroupName,
+    pub allowed_hosts: AllowedHosts,
     pub key: Key,
     pub visible_ip: Option<String>,
     pub send_using_address: IndexSet<SocketAddr>,
     pub clipboard: String,
     pub protocol: Protocol,
-    pub heartbeat: u64,
-    pub message_valid_for: u16,
+    pub heartbeat: Option<Duration>,
+    pub message_valid_for: Option<Duration>,
     pub relay: Option<Relay>,
 }
 
-impl Group
-{
-    pub fn hash(&self) -> GroupId
-    {
-        return Blake2b::new()
-            .chain(self.key.as_slice())
-            .chain(self.name.clone())
-            .finalize()
-            .as_slice()
-            .try_into()
-            .expect("group id must match hash output");
+impl From<Group> for SendGroup {
+    fn from(group: Group) -> Self {
+        Self {
+            allowed_hosts: group.allowed_hosts,
+            name: group.name,
+            key: group.key,
+            visible_ip: group.visible_ip,
+            heartbeat: group.heartbeat,
+            message_valid_for: group.message_valid_for,
+            relay: group.relay,
+        }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ConfigGroup
-{
-    pub allowed_hosts: Option<IndexSet<String>>,
-    #[serde(default, with = "serde_key_str")]
-    pub key: Option<Key>,
+impl From<Group> for GroupHosts {
+    fn from(group: Group) -> Self {
+        Self {
+            local_addresses: group.send_using_address,
+            remote_addresses: group.allowed_hosts,
+            protocol: group.protocol,
+            heartbeat: group.heartbeat,
+        }
+    }
+}
+
+pub struct GroupHosts {
+    pub local_addresses: IndexSet<SocketAddr>,
+    pub remote_addresses: AllowedHosts,
+    pub protocol: Protocol,
+    pub heartbeat: Option<Duration>,
+}
+
+#[cfg_attr(test, derive(serde::Deserialize))]
+#[derive(Debug, Clone)]
+pub struct SendGroup {
+    pub name: GroupName,
+    pub allowed_hosts: AllowedHosts,
+    #[cfg_attr(test, serde(skip, default = "default_key"))]
+    pub key: Key,
     pub visible_ip: Option<String>,
-    pub send_using_address: Option<IndexSet<SocketAddr>>,
-    pub clipboard: Option<String>,
-    pub protocol: Option<String>,
-    #[serde(default)]
-    pub heartbeat: u64,
-    pub message_valid_for: Option<u16>,
+    pub heartbeat: Option<Duration>,
+    pub message_valid_for: Option<Duration>,
     pub relay: Option<Relay>,
 }
 
+
+impl SendGroup {
+    pub fn hash(&self) -> GroupId {
+        let mut hasher = Blake2b::new();
+        hasher.update(self.key.as_slice());
+        hasher.update(self.name.as_bytes());
+        let result = hasher.finalize();
+        result.into()
+    }
+}
+
 #[cfg(test)]
-impl Message
-{
-    pub fn from_group(name: &str) -> Self
-    {
+fn default_key() -> Key {
+    *Key::from_slice(b"23232323232323232323232323232323")
+}
+
+#[cfg(test)]
+impl Message {
+    pub fn from_group(name: &str) -> Self {
         return Message {
-            nonce: XNonce::from_slice(b"123456789101123456789101").clone(),
+            nonce: *XNonce::from_slice(b"123456789101123456789101"),
             group: name.to_owned(),
             data: [1, 2, 4].to_vec(),
             message_type: MessageType::Text,
-            time: Utc::now().timestamp() as u64,
+            time: chrono::Utc::now().timestamp() as u64,
         };
     }
 }
 
 #[cfg(test)]
-impl Group
-{
-    pub fn from_name(name: &str) -> Self
-    {
-        return Group {
+impl SendGroup {
+    pub fn from_name(name: &str) -> Self {
+        return SendGroup {
             name: name.to_owned(),
-            allowed_hosts: IndexSet::new(),
-            key: Key::from_slice(b"23232323232323232323232323232323").clone(),
+            allowed_hosts: IndexMap::new(),
+            key: *Key::from_slice(b"23232323232323232323232323232323"),
             visible_ip: None,
-            send_using_address: indexset! {"127.0.0.1:2993".parse::<SocketAddr>().unwrap()},
-            clipboard: "/tmp/_test_clip_sync".to_owned(),
-            protocol: Protocol::Basic,
-            heartbeat: 0,
-            message_valid_for: 0,
+            heartbeat: None,
+            message_valid_for: None,
             relay: None,
         };
     }
 
-    pub fn from_addr(name: &str, send_address: &str, allowed_host: &str) -> Self
-    {
-        return Group {
+    pub fn from_addr(name: &str, allowed_host: &str) -> Self {
+        return SendGroup {
             name: name.to_owned(),
-            allowed_hosts: indexset! {allowed_host.to_owned()},
-            key: Key::from_slice(b"23232323232323232323232323232323").clone(),
+            allowed_hosts: indexmap::indexmap! {allowed_host.to_owned() => None},
+            key: *Key::from_slice(b"23232323232323232323232323232323"),
             visible_ip: None,
-            send_using_address: indexset! {send_address.parse().unwrap()},
-            clipboard: "/tmp/_test_clip_sync".to_owned(),
-            protocol: Protocol::Basic,
-            heartbeat: 0,
-            message_valid_for: 0,
+            heartbeat: None,
+            message_valid_for: None,
             relay: None,
         };
-    }
-
-    pub fn from_visible(name: &str, visible_ip: &str) -> Self
-    {
-        let mut group = Group::from_name(name);
-        group.visible_ip = Some(visible_ip.to_owned());
-        return group;
     }
 }
 
 #[cfg(test)]
-mod messagetest
-{
+mod tests {
     use super::*;
 
     #[derive(Serialize, Deserialize, Debug)]
-    struct TestNonce
-    {
+    struct TestNonce {
         #[serde(with = "serde_nonce")]
         pub nonce: XNonce,
     }
 
-    #[derive(Serialize, Deserialize, Debug)]
-    struct TestKey
-    {
-        #[serde(with = "serde_key_str")]
-        pub key: Option<Key>,
-    }
-
     #[test]
-    fn test_key_serialize()
-    {
-        let key_data = "12345678123456781234567812345678";
-        let key = Key::from_slice(key_data.as_bytes());
-        let data = TestKey {
-            key: Some(key.clone()),
-        };
-        let result = bincode::serialize(&data);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_key_deserialize()
-    {
-        let key_data = [
-            32, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
-            56, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
-        ];
-        let result = bincode::deserialize::<TestKey>(&key_data);
-        assert!(result.is_ok());
-
-        let key_data = [
-            32, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
-            56, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56, 56, 49, 50, 51, 52,
-            53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
-        ];
-        let result = bincode::deserialize::<TestKey>(&key_data);
-        assert!(result.is_ok());
-
-        let key_data = [
-            1, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
-            49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
-        ];
-        let result = bincode::deserialize::<TestKey>(&key_data);
-        assert!(result.is_err());
-
-        let key_data = [
-            1, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55, 56,
-        ];
-        let result = bincode::deserialize::<TestKey>(&key_data);
-        assert!(result.is_err());
-
-        let key_data = [];
-        let result = bincode::deserialize::<TestKey>(&key_data);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_nonce_serialize()
-    {
+    fn test_nonce_serialize() {
         let nonce_data = "123456781234567812345678";
         let nonce = XNonce::from_slice(nonce_data.as_bytes());
-        let data = TestNonce {
-            nonce: nonce.clone(),
-        };
+        let data = TestNonce { nonce: *nonce };
         let result = bincode::serialize(&data);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_nonce_deserialize()
-    {
+    fn test_nonce_deserialize() {
         let data = [
             24, 0, 0, 0, 0, 0, 0, 0, 49, 50, 51, 52, 53, 54, 55, 56, 49, 50, 51, 52, 53, 54, 55,
             56, 49, 50, 51, 52, 53, 54, 55, 56,

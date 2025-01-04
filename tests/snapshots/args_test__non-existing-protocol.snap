@@ -1,0 +1,22 @@
+---
+source: tests/args_test.rs
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--protocol"
+    - non-existing
+    - "--verbosity"
+    - info=simple
+snapshot_kind: text
+---
+success: false
+exit_code: 2
+----- stdout -----
+
+----- stderr -----
+error: invalid value 'non-existing' for '--protocol <PROTOCOL>'
+  [possible values: basic, tcp, tcp-tls, quic]
+
+For more information, try '--help'.

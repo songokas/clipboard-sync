@@ -1,0 +1,34 @@
+{
+    "send": {
+        "messages": [
+        {
+            "data_length": 60000,
+            "data_id": "1",
+            "bind_address": "127.0.0.1:0",
+            "destination": "localhost:38401"
+        },
+        {
+            "data_length": 130000,
+            "data_id": "2",
+            "bind_address": "127.0.0.1:38402",
+            "destination": "127.0.0.1:38401",
+            "server_name": "localhost"
+        }
+        ],
+        "success_count": 2
+    },
+    "receive": {
+        "max_length": 130081,
+        "bind_address": "127.0.0.1:38401",
+        "allowed_host": "127.0.0.1:0",
+        "messages": [
+            {
+                "data_id": "1"
+            },
+            {
+                "data_id": "2"
+            }
+        ],
+        "success_count": 2
+    }
+}

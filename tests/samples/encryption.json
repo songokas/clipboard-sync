@@ -1,0 +1,44 @@
+ {
+    "same group and identity": {
+        "content": "content",
+        "identity_to_encrypt": "127.0.0.1",
+        "group_to_encrypt": {
+            "name": "test1",
+            "allowed_hosts": {}
+        },
+        "identity_to_decrypt": "127.0.0.1",
+        "group_to_decrypt": {
+            "name": "test1",
+            "allowed_hosts": {}
+        },
+        "valid": true
+    },
+    "same group different identity": {
+        "content": "content",
+        "identity_to_encrypt": "127.0.0.1",
+        "group_to_encrypt": {
+            "name": "test1",
+            "allowed_hosts": {}
+        },
+        "identity_to_decrypt": "127.0.0.2",
+        "group_to_decrypt": {
+            "name": "test1",
+            "allowed_hosts": {}
+        },
+        "valid": false
+    },
+    "different group same identity": {
+        "content": "content",
+        "identity_to_encrypt": "127.0.0.1",
+        "group_to_encrypt": {
+            "name": "test1",
+            "allowed_hosts": {}
+        },
+        "identity_to_decrypt": "127.0.0.1",
+        "group_to_decrypt": {
+            "name": "test2",
+            "allowed_hosts": {}
+        },
+        "valid": false
+    }
+}

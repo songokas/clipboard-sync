@@ -1,35 +1,43 @@
-use assert_cmd::assert::Assert;
-use assert_cmd::Command;
-use predicates::prelude::*;
+use clipboard_sync::protocol::Protocol;
+use common::run_relay_command;
+use insta_cmd::assert_cmd_snapshot;
 use rand::{distributions::Alphanumeric, Rng};
-use std::io;
-use std::process;
 use std::thread;
 use std::time::Duration;
+use test_data_file::test_data_file;
+
+mod common;
+
+use crate::common::run_command;
 
 const ENCRYPTION_KEY: &str = "12345678912345678912345678912345";
 const PRIVATE_KEY: &str = "33232323233323233333333333333333";
 const PUBLIC_KEY: &str = "Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=";
 
-fn relay_protocol(protocol: &'static str, size: usize)
-{
+#[test_data_file(path = "tests/samples/relay.list")]
+#[test]
+fn relay_protocol(protocol: Protocol, size: usize) {
     let relay_bind = "127.0.0.1:8922";
 
     let t1 = thread::spawn(move || {
-        run_command(
-            "clipboard-relay",
-            vec![
-                "--private-key",
-                PRIVATE_KEY,
-                "--bind-address",
-                relay_bind,
-                "--protocol",
-                protocol,
-                "--verbosity",
-                "debug",
-            ],
-            "",
-            2000,
+        assert_cmd_snapshot!(
+            format!("relay_{protocol}_{size}"),
+            run_relay_command(
+                vec![
+                    "--private-key",
+                    PRIVATE_KEY,
+                    "--bind-address",
+                    relay_bind,
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--verbosity",
+                    "debug=simple",
+                ],
+                Duration::from_millis(6000),
+                "",
+                true,
+                vec![],
+            )
         )
     });
 
@@ -38,43 +46,41 @@ fn relay_protocol(protocol: &'static str, size: usize)
         .take(size)
         .map(char::from)
         .collect();
-    let bind_to2 = match protocol {
-        #[cfg(feature = "quic-quinn")]
-        "quic" => "[::1]:8923",
-        _ => "127.0.0.1:8923",
-    };
+    let bind_to2 = "127.0.0.1:8923";
 
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(200));
 
     let t2 = thread::spawn(move || {
-        run_command(
-            "clipboard-sync",
-            vec![
-                "--key",
-                ENCRYPTION_KEY,
-                "--bind-address",
-                bind_to2,
-                "--send-using-address",
-                bind_to2,
-                "--allowed-host",
-                relay_bind,
-                "--protocol",
-                protocol,
-                "--relay-host",
-                relay_bind,
-                "--relay-public-key",
-                PUBLIC_KEY,
-                "--verbosity",
-                "debug",
-                "--clipboard",
-                "/dev/stdin",
-                "--ntp-server",
-                "",
-                "--heartbeat",
-                "20",
-            ],
-            &contents,
-            2000,
+        assert_cmd_snapshot!(
+            format!("server_{protocol}_{size}"),
+            run_command(
+                vec![
+                    "--key",
+                    ENCRYPTION_KEY,
+                    "--bind-address",
+                    bind_to2,
+                    "--send-using-address",
+                    bind_to2,
+                    "--allowed-host",
+                    "127.0.0.1:8922",
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--relay-host",
+                    relay_bind,
+                    "--relay-public-key",
+                    PUBLIC_KEY,
+                    "--verbosity",
+                    "debug=simple",
+                    "--clipboard",
+                    "/dev/stdin",
+                    "--heartbeat",
+                    "20",
+                ],
+                Duration::from_millis(6000),
+                &contents,
+                true,
+                vec![],
+            )
         )
     });
 
@@ -83,85 +89,47 @@ fn relay_protocol(protocol: &'static str, size: usize)
         .take(size)
         .map(char::from)
         .collect();
-    let bind_to3 = match protocol {
-        #[cfg(feature = "quic-quinn")]
-        "quic" => "[::1]:8924",
-        _ => "127.0.0.1:8924",
-    };
+    // let expected_size = contents.len();
 
-    thread::sleep(Duration::from_millis(100));
+    let bind_to3 = "127.0.0.1:8924";
+
+    thread::sleep(Duration::from_millis(200));
 
     let t3 = thread::spawn(move || {
-        run_command(
-            "clipboard-sync",
-            vec![
-                "--key",
-                ENCRYPTION_KEY,
-                "--bind-address",
-                bind_to3,
-                "--send-using-address",
-                bind_to3,
-                "--allowed-host",
-                relay_bind,
-                "--protocol",
-                protocol,
-                "--relay-host",
-                relay_bind,
-                "--relay-public-key",
-                PUBLIC_KEY,
-                "--verbosity",
-                "debug",
-                "--clipboard",
-                "/dev/stdin",
-                "--ntp-server",
-                "",
-                "--heartbeat",
-                "20",
-            ],
-            &contents,
-            2000,
+        assert_cmd_snapshot!(
+            format!("client_{protocol}_{size}"),
+            run_command(
+                vec![
+                    "--key",
+                    ENCRYPTION_KEY,
+                    "--bind-address",
+                    bind_to3,
+                    "--send-using-address",
+                    bind_to3,
+                    "--allowed-host",
+                    relay_bind,
+                    "--protocol",
+                    &protocol.to_string(),
+                    "--relay-host",
+                    relay_bind,
+                    "--relay-public-key",
+                    PUBLIC_KEY,
+                    "--verbosity",
+                    "debug=simple",
+                    "--clipboard",
+                    "/dev/stdin",
+                    "--heartbeat",
+                    "20",
+                ],
+                Duration::from_millis(6000),
+                &contents,
+                true,
+                vec![],
+            )
         )
     });
 
-    let output1 = t1.join().unwrap().unwrap();
-    let output2 = t2.join().unwrap().unwrap();
-    let output3 = t3.join().unwrap().unwrap();
-
-    let assert1 = Assert::new(output1);
-    let assert_sent = Assert::new(output2.clone());
-    let assert_received = Assert::new(output2);
-    let assert3 = Assert::new(output3);
-
-    assert1.stderr(predicate::str::contains(
-        "from 127.0.0.1:8924 to 127.0.0.1:8923",
-    ));
-    assert_sent.stderr(predicate::str::contains("Sent bytes"));
-    assert_received.stderr(predicate::str::contains(
-        "Packet received from 127.0.0.1:8922",
-    ));
-    assert3.stderr(predicate::str::contains("Sent bytes"));
-}
-
-#[test]
-fn test_relay()
-{
-    for (protocol, size) in [("basic", 10), ("tcp", 10), ("laminar", 10)].to_vec() {
-        relay_protocol(protocol, size);
-    }
-}
-
-fn run_command(
-    command: &str,
-    args: Vec<&'static str>,
-    stdin: &str,
-    timeout: u64,
-) -> io::Result<process::Output>
-{
-    let mut cmd = Command::cargo_bin(command).unwrap();
-    for arg in args {
-        cmd.arg(arg);
-    }
-    cmd.write_stdin(stdin);
-    cmd.timeout(Duration::from_millis(timeout));
-    cmd.output()
+    let _ = t1.join();
+    let _ = t2.join();
+    let _ = t3.join();
 }

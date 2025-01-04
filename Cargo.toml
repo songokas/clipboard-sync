@@ -1,102 +1,134 @@
 [package]
 name = "clipboard-sync"
-version = "2.1.1"
+version = "3.0.0"
 readme = "README.md"
 authors = ["Tomas Jakstas <tom.jakstas@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Secure clipboard sync across your devices"
 homepage = "https://github.com/songokas/clipboard-sync"
 repository = "https://github.com/songokas/clipboard-sync"
 license = "LICENSE"
 default-run = "clipboard-sync"
 
+[profile.release]
+strip = true
+lto = true
+
 [dependencies]
-chacha20poly1305 = "0.9"
-base64 = "0.13"
+clap = { version = "4", features = ["derive"] }
+chacha20poly1305 = "0.10"
+base64 = "0.22"
 chrono = "0.4"
 rand = "0.8"
-bincode = "1"
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.8"
+serde_yaml = "0.9"
 serde_json = "1"
-clap = {version = "2", features = ["yaml"]}
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = [
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "time",
+    "macros",
+] }
 log = "0.4"
-env_logger = "0.9"
-flate2 = "1.0"
+env_logger = "0.11"
 walkdir = "2"
-dirs = "4"
-cached = "0.23"
-jni = "0.19"
-lazy_static = "1"
-indexmap = { version = "1", features = ["serde-1"] }
-laminar = { version = "0.5" }
+dirs = "5"
+jni = "0.21"
+indexmap = { version = "2", features = ["serde"] }
 thiserror = "1"
-notify = "4"
-x25519-dalek = { version = "1", features = ["serde"] }
-blake2 = "0.9"
+x25519-dalek = { version = "2", features = ["serde", "static_secrets"] }
+blake2 = "0.10"
 urlencoding = "2"
-# @TODO simplify/replace/remove
-futures = "0.3"
-crossbeam-channel = "0.5"
-flume = "0.10"
-mio = "0.7"
-#
+tokio-util = "0.7"
+
+sanitise-file-name = "1.0.0"
+bytes = "1.9.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.10"
+android_logger = "0.14"
 
 [build-dependencies]
-cargo-deb = "1.28"
-
-[dev-dependencies]
-assert_cmd = "2"
-predicates = "2"
-tokio-test = "0.4"
+cargo-deb = "2.7"
 
 [lib]
 crate-type = ["lib", "cdylib"]
 
 [dependencies.public-ip]
 version = "0.2"
+# TODO this crate pulls in loads of dependencies
+# default-features = false
+# features = ["tokio-dns-resolver", "opendns"]
 optional = true
 
 [dependencies.quinn]
-version = "0.7"
+version = "0.11"
 optional = true
 
-[dependencies.quiche]
-version = "0.8"
+[dependencies.cached]
+version = "0.53"
+default-features = false
+features = ["async_tokio_rt_multi_thread", "proc_macro"]
 optional = true
 
 [dependencies.rustls]
-version = "0.19"
+version = "0.23"
 optional = true
+default-features = false
+features = ["ring", "std"]
 
 [dependencies.clipboard]
-# using custom implementation due too multiple clipboard types
 git = "https://github.com/songokas/rust-clipboard.git"
-branch = "multiple-targets"
-optional = true
+tag = "0.6.0"
 # path = "../rust-clipboard"
+optional = true
 
 [dependencies.rsntp]
-version = "2.0.0"
+version = "4"
 optional = true
 
+[dependencies.x509-parser]
+version = "0.16"
+optional = true
+
+[dependencies.rustls-tokio-stream]
+version = "0.3"
+optional = true
+
+[dependencies.rcgen]
+version = "0.13"
+optional = true
+
+[dependencies.witty-phrase-generator]
+version = "0.3"
+optional = true
+
+[dependencies.notify-debouncer-full]
+version = "0.4"
+optional = true
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+serial_test = "3"
+tokio-test = "0.4"
+csv = "1"
+insta = { version = "1", features = ["yaml"] }
+insta-cmd = { git = "https://github.com/songokas/insta-cmd.git" }
+test-data-file = { git = "https://github.com/songokas/test-data-file.git" }
+bincode = "1"
+
 [features]
-
-# default quic implementations
-quic = []
-quic-quiche = ["quic", "quiche"]
-quic-quinn = ["quic", "quinn", "rustls"]
-
+default = ["clipboard", "ntp", "quic", "notify-debouncer-full", "cached"]
+tls = [
+    "rustls",
+    "rustls-tokio-stream",
+    "x509-parser",
+    "rcgen",
+    "witty-phrase-generator",
+]
+quic = ["quinn", "tls"]
 ntp = ["rsntp"]
-
-frames = []
-default = ["frames", "clipboard", "public-ip", "ntp"]
-no-x = ["frames", "public-ip", "ntp"]
-
 
 [package.metadata.deb]
 maintainer = "Tomas Jakstas <tom.jakstas@gmail.com>"
@@ -110,26 +142,46 @@ depends = "$auto"
 section = "utility"
 priority = "optional"
 assets = [
-    ["target/release/clipboard-sync", "usr/bin/", "755"],
-    ["target/release/clipboard-relay", "usr/bin/", "755"],
-    ["README.md", "usr/share/doc/cargo-deb/README", "644"],
-    ["debian/service", "lib/systemd/user/clipboard-sync.service", "644"], 
-    ["debian/relay-service", "lib/systemd/system/clipboard-relay.service", "644"],
+    [
+        "target/release/clipboard-sync",
+        "usr/bin/",
+        "755",
+    ],
+    [
+        "target/release/clipboard-relay",
+        "usr/bin/",
+        "755",
+    ],
+    [
+        "README.md",
+        "usr/share/doc/cargo-deb/README",
+        "644",
+    ],
+    [
+        "debian/service",
+        "lib/systemd/user/clipboard-sync.service",
+        "644",
+    ],
+    [
+        "debian/relay-service",
+        "lib/systemd/system/clipboard-relay.service",
+        "644",
+    ],
 ]
 
-[package.metadata.deb.variants.aarch64]
-depends = "libxcb-render0 (>= 1.13.1), libxcb-shape0 (>= 1.13.1), libxcb1 (>= 1.13.1), libbsd0 (>= 0.9.1), libxdmcp6 (>= 1:1.1.2), libxau6 (>= 1:1.0.8), libc6 (>= 2.28), libxcb-xfixes0 (>= 1.13.1)"
+# [package.metadata.deb.variants.aarch64]
+# depends = "libxcb-render0 (>= 1.13.1), libxcb-shape0 (>= 1.13.1), libxcb1 (>= 1.13.1), libbsd0 (>= 0.9.1), libxdmcp6 (>= 1:1.1.2), libxau6 (>= 1:1.0.8), libc6 (>= 2.28), libxcb-xfixes0 (>= 1.13.1)"
 
-[package.metadata.deb.variants.headless]
-features = ["frames", "public-ip", "ntp"]
-default-features = false
-depends = "libc6 (>= 2.28)"
+# [package.metadata.deb.variants.headless]
+# features = ["public-ip", "ntp"]
+# default-features = false
+# depends = "libc6 (>= 2.28)"
 
 [package.metadata.rpm]
 package = "clipboard-sync"
 cargo = { buildflags = ["--release"] }
 targets = { clipboard-sync = { path = "/usr/bin/clipboard-sync" }, clipboard-relay = { path = "/usr/bin/clipboard-relay" } }
-[package.metadata.rpm.files] 
+[package.metadata.rpm.files]
 "../debian/service" = { path = "/lib/systemd/user/clipboard-sync.service" }
 "../debian/relay-service" = { path = "/lib/systemd/system/clipboard-relay.service" }
 

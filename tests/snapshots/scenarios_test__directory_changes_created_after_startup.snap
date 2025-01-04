@@ -1,0 +1,33 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nListening on local_addr=0.0.0.0:33325 protocol=basic\nStarting writer protocol=basic\nStarting clipboard to protocol forwarder protocol_types=[Basic] groups=[\"default\"]\nCreate filesystem reader {\"/tmp/_test_directory_changes_created_after_startup/dir\": {\"default\"}}\nWatching for filesystem changes in parent /tmp/_test_directory_changes_created_after_startup of /tmp/_test_directory_changes_created_after_startup/dir\nStarting filesystem reader\nDirectory/file created /tmp/_test_directory_changes_created_after_startup/dir watching for filesystem changes\nPath modified /tmp/_test_directory_changes_created_after_startup/dir/file\nMessage sent data_size=25 network_size=93 message_type=files\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--clipboard"
+    - /tmp/_test_directory_changes_created_after_startup/dir
+    - "--ignore-initial-clipboard"
+    - "--verbosity"
+    - debug=simple
+    - "--bind-address"
+    - "0.0.0.0:33325"
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/tmp/_test_directory_changes_created_after_startup/dir": {"default"}}
+Directory/file created /tmp/_test_directory_changes_created_after_startup/dir watching for filesystem changes
+Listening on local_addr=0.0.0.0:33325 protocol=basic
+Message sent data_size=25 network_size=93 message_type=files
+Ntp server not provided
+Path modified /tmp/_test_directory_changes_created_after_startup/dir/file
+Starting clipboard to protocol forwarder protocol_types=[Basic] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=basic
+Watching for filesystem changes in parent /tmp/_test_directory_changes_created_after_startup of /tmp/_test_directory_changes_created_after_startup/dir

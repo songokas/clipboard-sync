@@ -1,0 +1,59 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nLoading certificates from configuration directory\nListening on local_addr=127.0.0.1:12911 protocol=tcp-tls multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nNew connection remote_addr=127.0.0.1:12910\ndecided upon suite TLS13_AES_256_GCM_SHA384\nWaiting for stream from remote_addr=127.0.0.1:12910\nTcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910\nReceived stream expected_size=61\nValidate data identity=127.0.0.1\nMessage received data_size=17 group=default message_type=file\nWaiting for stream from remote_addr=127.0.0.1:12910\nIgnore writing to stdin\nTcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910\nLoading certificates from configuration directory\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nStarting clipboard to protocol forwarder protocol_types=[TcpTls] groups=[\"default\"]\nSend clipboard on startup path=/dev/stdin\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nStarting writer protocol=tcp-tls\nUsing existing connection local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910 server_name=testclient\nTcp send stream stream_size=2044 remote_addr=127.0.0.1:12910\nMessage sent data_size=2000 network_size=2052 message_type=file\nReceiver stream error: peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\nSending warning alert CloseNotify\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:12911"
+    - "--send-using-address"
+    - "127.0.0.1:12911"
+    - "--clipboard"
+    - /dev/stdin
+    - "--allowed-host"
+    - "127.0.0.1:12910=testclient"
+    - "--protocol"
+    - tcp-tls
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-server
+    - "--private-key"
+    - tests/certs/localhost.key
+    - "--certificate-chain"
+    - tests/certs/localhost.crt
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/dev/stdin": {"default"}}
+Ignore writing to stdin
+Listening on local_addr=127.0.0.1:12911 protocol=tcp-tls multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost
+Loading certificates from configuration directory
+Loading certificates from configuration directory
+Message received data_size=17 group=default message_type=file
+Message sent data_size=2000 network_size=2052 message_type=file
+New connection remote_addr=127.0.0.1:12910
+Ntp server not provided
+Received stream expected_size=61
+Receiver stream error: peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof
+Send clipboard on startup path=/dev/stdin
+Sending warning alert CloseNotify
+Starting clipboard to protocol forwarder protocol_types=[TcpTls] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=tcp-tls
+Tcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910
+Tcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910
+Tcp send stream stream_size=2044 remote_addr=127.0.0.1:12910
+Using existing connection local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910 server_name=testclient
+Validate data identity=127.0.0.1
+Waiting for stream from remote_addr=127.0.0.1:12910
+Waiting for stream from remote_addr=127.0.0.1:12910
+Watching for filesystem changes path=/dev/stdin
+decided upon suite TLS13_AES_256_GCM_SHA384

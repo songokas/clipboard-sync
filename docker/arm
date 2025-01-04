@@ -1,12 +1,11 @@
-FROM rust:buster
+FROM rust:slim-buster
 
 RUN dpkg --add-architecture armhf \ 
     && dpkg --add-architecture arm64 \ 
     && apt-get update \
     && apt-get install --assume-yes python3 \
-    gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf \
-    gcc-8-aarch64-linux-gnu gcc-8-arm-linux-gnueabihf \
-    binutils-arm-linux-gnueabihf binutils-aarch64-linux-gnu  \
+    g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+    g++-aarch64-linux-gnu binutils-aarch64-linux-gnu\
     libxcb1-dev:armhf libxcb-xfixes0-dev:armhf libxcb-shape0-dev:armhf libxcb-render-util0-dev:armhf \
     libxcb1-dev:arm64 libxcb-xfixes0-dev:arm64 libxcb-shape0-dev:arm64 libxcb-render-util0-dev:arm64
 
@@ -19,5 +18,5 @@ USER builder
 
 RUN rustup install stable \
     && rustup default stable \
-    && rustup target add arm-unknown-linux-gnueabihf armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu \
+    && rustup target add armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu \
     && cargo install cargo-rpm cargo-deb

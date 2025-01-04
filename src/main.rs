@@ -1,332 +1,275 @@
-// #![feature(ip)]
-// #![feature(trait_alias)]
-// #![feature(type_alias_impl_trait)]
+use bytes::Bytes;
+use clipboard_sync::clipboards::ClipboardHash;
+use clipboard_sync::clipboards::ClipboardReadMessage;
+use clipboard_sync::clipboards::ModifiedFiles;
+use clipboard_sync::config_loader::load_configuration;
+use clipboard_sync::defaults::{DEFAULT_CLIPBOARD, MAX_CHANNEL};
+use clipboard_sync::executors::{
+    receiver_executors, sender_protocol_executors, sender_reader_executors,
+};
 
-use chacha20poly1305::Key;
-#[cfg(feature = "ntp")]
-use log::warn;
-use log::{error, info};
-use std::sync::Arc;
+use clipboard_sync::message::{GroupName, MessageType};
+use clipboard_sync::pools::PoolFactory;
+use clipboard_sync::protocols::{StatusHandler, StatusInfo, StatusMessage};
+use core::time::Duration;
+use indexmap::IndexSet;
+use log::{debug, error, info, warn};
+use std::fs::create_dir_all;
+use std::path::{Path, PathBuf};
+use tokio::sync::mpsc::channel;
+use tokio::task::JoinSet;
+use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
-use clap::{load_yaml, App};
 use env_logger::Env;
-use indexmap::{indexmap, IndexSet};
 use std::convert::TryInto;
-use std::net::SocketAddr;
-use std::sync::atomic::AtomicBool;
-use x25519_dalek::PublicKey;
 
-use clipboard_sync::clipboards::Clipboard;
-#[cfg(feature = "quic")]
-use clipboard_sync::config::load_default_certificates;
-use clipboard_sync::config::{generate_config, load_groups, FullConfig};
-use clipboard_sync::defaults::*;
-use clipboard_sync::errors::CliError;
-use clipboard_sync::filesystem::read_file_to_string;
-use clipboard_sync::message::{Group, Relay};
-use clipboard_sync::process::{receive_clipboard, send_clipboard};
-use clipboard_sync::protocols::{Protocol, SocketPool};
-use clipboard_sync::socket::ipv6_support;
+use clap::Parser;
+
+use clipboard_sync::certificate::{
+    generate_der_certificates, random_certificate_subject, CertificateResult,
+};
+use clipboard_sync::config::CliConfig;
+use clipboard_sync::config::{get_app_dir, load_default_certificates};
+use clipboard_sync::errors::{CliError, ConnectionError};
 #[cfg(feature = "ntp")]
 use clipboard_sync::time::update_time_diff;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError> {
-    let yaml = load_yaml!("cli.yml");
-    let matches = App::from_yaml(yaml).get_matches();
-    let verbosity = matches.value_of("verbosity").unwrap_or("info");
-
-    env_logger::Builder::from_env(Env::default().default_filter_or(verbosity)).init();
-
-    let key_data: String = match matches.value_of("key") {
-        Some(expected_key) => match read_file_to_string(expected_key, KEY_SIZE) {
-            Ok((file_contents, _)) => file_contents,
-            Err(_) => expected_key.to_owned(),
-        },
-        None => "".to_owned(),
+    let mut cli_config = CliConfig::parse();
+    let (verbosity, custom_format) = if let Some(v) = cli_config.verbosity.strip_suffix("=simple") {
+        (v.to_string(), true)
+    } else {
+        (cli_config.verbosity.to_string(), false)
     };
 
-    let config_path: Option<String> = match matches.value_of("config") {
-        Some(p) => Some(p.to_owned()),
-        None => {
-            if matches.is_present("autogenerate") || key_data.is_empty() {
-                match generate_config("clipboard-sync") {
-                    Ok(p) => {
-                        let path = p.to_string_lossy().to_string();
-                        info!("Configuration autogeneration {}", path);
-                        Some(path)
-                    }
-                    Err(e) => {
-                        error!("Unable to generate config {}", e);
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        }
-    };
-
-    let (supports_ipv6_sockets, _ipv6_only) = ipv6_support();
-
-    let system_default_host = || DEFAULT_ALLOWED_HOST;
-
-    let default_host = match matches.value_of("protocol") {
-        Some(v) if v == Protocol::Basic.to_string() => system_default_host(),
-        Some(_) => "",
-        _ => system_default_host(),
-    };
-
-    let allowed_host = matches.value_of("allowed-host").unwrap_or(default_host);
-
-    let local_address = matches.value_of("bind-address").unwrap_or(BIND_ADDRESS);
-
-    let send_address = matches.value_of("send-using-address").unwrap_or_else(|| {
-        if supports_ipv6_sockets {
-            SEND_ADDRESS_IPV6
-        } else {
-            SEND_ADDRESS
-        }
-    });
-    let visible_ip = matches.value_of("visible-ip").map(|ip| ip.to_owned());
-
-    let group = matches.value_of("group").unwrap_or(DEFAULT_GROUP);
-    let clipboard_type = matches.value_of("clipboard").unwrap_or(DEFAULT_CLIPBOARD);
-
-    if config_path.is_none() && key_data.len() != KEY_SIZE {
-        return Err(CliError::ArgumentError(format!(
-            "Please provide a valid key with length {}. Current: {}. clipboard-sync --help",
-            KEY_SIZE,
-            key_data.len()
-        )));
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(verbosity));
+    if custom_format {
+        use std::io::Write;
+        builder.format(|buf, record| writeln!(buf, "{}", record.args()));
     }
-    #[cfg(feature = "quic")]
-    let private_key = matches.value_of("private-key");
-    #[cfg(feature = "quic")]
-    let public_key = matches.value_of("public-key");
-    #[cfg(feature = "quic")]
-    let cert_dir = matches.value_of("cert-verify-dir");
+    builder.init();
 
-    #[cfg(feature = "quic")]
-    let load_certs = move || load_default_certificates(private_key, public_key, cert_dir);
+    let private_key = cli_config.private_key.clone();
+    let public_key = cli_config.certificate_chain.clone();
+    let cert_dir = cli_config.remote_certificates.clone();
 
-    let heartbeat = matches
-        .value_of("heartbeat")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    let message_valid_for = matches
-        .value_of("message-valid-for")
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(MESSAGE_VALID_TIME);
-    let ntp_server = matches.value_of("ntp-server").unwrap_or(NTP_SERVER);
-
-    let max_receive_buffer = matches
-        .value_of("max-receive-buffer")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(MAX_RECEIVE_BUFFER);
-    let max_file_size = matches
-        .value_of("max-file-size")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(MAX_FILE_SIZE);
-
-    let relay_host = matches.value_of("relay-host");
-    let relay_public_key = matches.value_of("relay-public-key").and_then(|s| {
-        let key: Option<[u8; KEY_SIZE]> = match base64::decode(s) {
-            Ok(d) => d.try_into().ok(),
-            Err(_) => None,
-        };
-        key.map(PublicKey::from)
-    });
-
-    let relay_config = match relay_host {
-        Some(host) => match relay_public_key {
-            Some(public_key) => Some(Relay {
-                host: host.to_owned(),
-                public_key,
-            }),
-            None => {
-                return Err(CliError::ArgumentError(
-                    "Please provide a valid base64 encoded relay servers public key".into(),
-                ))
+    let tls_server_no_verify = cli_config.danger_server_no_verify;
+    let send_public_key = cli_config.send_public_key;
+    let receive_public_key = cli_config.receive_public_key;
+    let send_once = cli_config.send_once || send_public_key;
+    let receive_once = cli_config.receive_once || receive_public_key;
+    // receive public key to the remote certificate directory
+    if receive_public_key && cli_config.clipboard == DEFAULT_CLIPBOARD {
+        if let Some(remote_cert_dir) = cli_config.remote_certificates.clone().or_else(|| {
+            get_app_dir(cli_config.app_dir.clone())
+                .ok()
+                .map(|p| p.join("cert-verify"))
+        }) {
+            if let Err(e) = create_dir_all(&remote_cert_dir) {
+                warn!(
+                    "Unable to create directory {} {e}",
+                    remote_cert_dir.to_string_lossy()
+                );
+            } else {
+                cli_config.clipboard = remote_cert_dir.to_string_lossy().to_string();
             }
-        },
-        None => None,
-    };
+        }
+    }
 
-    let create_groups_from_cli = || -> Result<FullConfig, CliError> {
-        let cli_protocol = Protocol::from(
-            matches.value_of("protocol"),
-            #[cfg(feature = "quic")]
-            load_certs,
-        )?;
+    let (full_config, config_file_certificates) = load_configuration(cli_config)?;
 
-        if allowed_host.is_empty() {
-            return Err(CliError::ArgumentError(
-                "Please provide --allowed-host or use basic protocol for multicast support".into(),
-            ));
+    let app_dir = full_config.app_dir.clone();
+
+    let load_server_certs = move || -> CertificateResult {
+        let err = |(e, p): (_, PathBuf)| {
+            ConnectionError::BadConfiguration(format!(
+                "Unable to load certificates path={} {e}",
+                p.to_string_lossy()
+            ))
+        };
+        if let Some(c) = config_file_certificates.clone() {
+            debug!("Loading certificates from configuration file");
+            return c.try_into().map_err(err);
         }
 
-        let send_using_address: IndexSet<SocketAddr> = send_address
-            .split(',')
-            .map(|v| {
-                v.parse::<SocketAddr>().map_err(|_| {
-                    CliError::ArgumentError(format!("Invalid send-using-address provided {}", v))
-                })
-            })
-            .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
+        if let Ok(c) = load_default_certificates(
+            app_dir.clone(),
+            private_key.as_deref().map(Path::new),
+            public_key.as_deref().map(Path::new),
+            cert_dir.as_deref().map(Path::new),
+        ) {
+            debug!("Loading certificates from configuration directory");
+            return c.try_into().map_err(err);
+        }
 
-        let key = Key::from_slice(key_data.as_bytes());
-
-        let socket_addresses: IndexSet<SocketAddr> = local_address
-            .split(',')
-            .map(|v| {
-                v.parse::<SocketAddr>().map_err(|_| {
-                    CliError::ArgumentError(format!("Invalid bind-address provided {}", v))
-                })
-            })
-            .collect::<Result<IndexSet<SocketAddr>, CliError>>()?;
-
-        let groups = indexmap! {
-            group.to_owned() => Group {
-                name: group.to_owned(),
-                allowed_hosts: allowed_host.split(',').map(String::from).collect(),
-                key: *key,
-                visible_ip: visible_ip.clone(),
-                send_using_address,
-                clipboard: clipboard_type.to_owned(),
-                protocol: cli_protocol.clone(),
-                heartbeat,
-                message_valid_for,
-                relay: relay_config.clone(),
-            },
-        };
-
-        let full_config = FullConfig::from_protocol_groups(
-            cli_protocol,
-            socket_addresses,
-            groups,
-            max_receive_buffer,
-            max_file_size,
-            matches
-                .value_of("receive-once-wait")
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(RECEIVE_ONCE_WAIT),
-            !matches.is_present("ignore-initial-clipboard"),
-            Some(ntp_server.to_owned()),
-            None,
-        );
-        Ok(full_config)
+        Ok(generate_der_certificates(random_certificate_subject()))
     };
 
-    let create_groups_from_config = |config_path: &str| -> Result<FullConfig, CliError> {
-        return load_groups(
-            config_path,
-            if allowed_host.is_empty() {
-                system_default_host()
-            } else {
-                allowed_host
-            },
-            local_address,
-            send_address,
-            matches.value_of("protocol"),
-            #[cfg(feature = "quic")]
-            load_certs,
-            !matches.is_present("ignore-initial-clipboard"),
-            visible_ip.clone(),
-            key_data.clone(),
-            message_valid_for,
-            ntp_server,
-            max_receive_buffer,
-            max_file_size,
-            clipboard_type,
-            relay_config.clone(),
-            heartbeat,
-        );
+    let server_certs = load_server_certs.clone();
+    let load_client_certs = move || {
+        if tls_server_no_verify {
+            return Ok(None);
+        }
+        server_certs().map(|c| c.into())
     };
 
-    let full_config = config_path
-        .map(|config_path| create_groups_from_config(&config_path))
-        .unwrap_or_else(create_groups_from_cli)?;
-
-    let running = Arc::new(AtomicBool::new(true));
-
-    let (tx, rx) = flume::bounded(MAX_CHANNEL);
-    let (stat_sender, _) = flume::bounded(MAX_CHANNEL);
-
-    let send_once = matches.is_present("send-once");
-    let receive_once = matches.is_present("receive-once");
     let launch_receiver = receive_once || !send_once;
     let launch_sender = send_once || !receive_once;
+    let (network_status_sender, mut network_status_receiver) = channel(MAX_CHANNEL);
+    let (clipboard_status_sender, mut clipboard_status_receiver) = channel(MAX_CHANNEL);
 
-    let mut handles = Vec::new();
-    let pool = Arc::new(SocketPool::default());
+    let mut handles = JoinSet::new();
+
+    let clipboard_hash = ClipboardHash::default();
+    let modified_files = ModifiedFiles::default();
+    let pools = PoolFactory::default();
+    let cancel: CancellationToken = CancellationToken::new();
 
     #[cfg(feature = "ntp")]
     match &full_config.ntp_server {
         Some(s) if !s.is_empty() => {
-            handles.push(tokio::spawn(update_time_diff(running.clone(), s.clone())));
+            handles.spawn(update_time_diff(s.clone(), cancel.clone()));
         }
-        _ => warn!("Ntp server not provided"),
+        _ => debug!("Ntp server not provided"),
     };
 
     if launch_receiver {
-        for (protocol, bind_address) in full_config.get_bind_adresses() {
-            let clipboard = Clipboard::new().expect(
-                "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
-            );
-            let receive = receive_clipboard(
-                Arc::clone(&pool),
-                clipboard,
-                tx.clone(),
-                bind_address,
-                Arc::clone(&running),
-                full_config.clone(),
-                protocol,
-                stat_sender.clone(),
-                receive_once,
-            );
+        receiver_executors(
+            &mut handles,
+            clipboard_status_sender,
+            &full_config,
+            pools.clone(),
+            clipboard_hash.clone(),
+            modified_files.clone(),
+            load_server_certs.clone(),
+            cancel.clone(),
+        );
 
-            handles.push(tokio::spawn(receive));
+        if receive_once {
+            info!("Waiting to receive clipboard once");
+            let message = clipboard_status_receiver.recv().await;
+            let wait_for_copy = if let Some(StatusMessage::Ok(StatusInfo {
+                message_type,
+                data_size,
+                destination,
+                status_handler,
+            })) = message
+            {
+                if receive_public_key || matches!(message_type, MessageType::PublicKey) {
+                    info!("Received public key {data_size} in {destination}. Verify it before using it `openssl x509 -in {destination} -text -noout`");
+                } else {
+                    info!("Received bytes {data_size} in {destination}");
+                }
+                matches!(status_handler, StatusHandler::Clipboard)
+                    .then_some(full_config.receive_once_wait)
+            } else {
+                info!("No data received");
+                None
+            };
+
+            cancel.cancel();
+            if let Some(wait) = wait_for_copy {
+                sleep(wait).await;
+            }
         }
     }
 
     if launch_sender {
-        let clipboard = Clipboard::new().expect(
-            "Unable to initialize clipboard. Possibly missing xcb libraries or no x server",
+        sleep(Duration::from_millis(500)).await;
+
+        let protocol_client = sender_protocol_executors(
+            &mut handles,
+            network_status_sender,
+            &full_config,
+            pools,
+            load_client_certs,
         );
-        let send = send_clipboard(
-            Arc::clone(&pool),
-            clipboard,
-            rx,
-            Arc::clone(&running),
-            full_config.clone(),
-            stat_sender,
-            send_once,
-        );
-        handles.push(tokio::spawn(send));
+        if !send_public_key {
+            sender_reader_executors(
+                &mut handles,
+                protocol_client.clone(),
+                &full_config,
+                clipboard_hash,
+                modified_files,
+                cancel.clone(),
+            );
+        }
+        // send heartbeat on startup
+        let groups: IndexSet<GroupName> = full_config
+            .groups
+            .iter()
+            .filter(|(_, g)| g.heartbeat.is_some())
+            .map(|(k, _)| k.clone())
+            .collect();
+        if !groups.is_empty() {
+            protocol_client
+                .send(ClipboardReadMessage {
+                    groups,
+                    message_type: MessageType::Heartbeat,
+                    data: Bytes::from(0_u64.to_be_bytes().to_vec()),
+                })
+                .await
+                .expect("Unable to send initial heartbeats");
+        }
+
+        #[cfg(feature = "tls")]
+        if send_public_key {
+            let groups: IndexSet<GroupName> =
+                full_config.groups.iter().map(|(k, _)| k.clone()).collect();
+            let certificates = load_server_certs()?;
+            let data: Vec<u8> = certificates
+                .server_certificate_chain
+                .into_iter()
+                .flat_map(|c| clipboard_sync::encryption::der_to_pem(c.as_ref()))
+                .collect();
+            info!(
+                "Sending public key {} to {groups:?}",
+                clipboard_sync::encryption::hash(&data)
+            );
+            protocol_client
+                .send(ClipboardReadMessage {
+                    groups,
+                    message_type: MessageType::PublicKey,
+                    data: Bytes::from(data),
+                })
+                .await
+                .expect("Unable to send public key");
+        }
+
+        if send_once {
+            info!("Waiting to send clipboard once");
+            match network_status_receiver.recv().await {
+                Some(StatusMessage::Ok(m)) => {
+                    info!("Sent bytes {}", m.data_size);
+                }
+                Some(StatusMessage::Err(e)) => {
+                    error!("Failed with error {e}");
+                }
+                None => (),
+            }
+
+            cancel.cancel();
+        }
     }
 
-    let result = futures::future::try_join_all(handles).await;
-    match result {
-        Ok(items) => {
-            let mut result = Ok(());
-            for res in items {
-                match res {
-                    Ok((name, c)) => {
-                        info!("{} count {}", name, c);
-                    }
-                    Err(e) => {
-                        error!("error: {}", e);
-                        result = Err(e);
-                    }
-                }
+    let mut result = Ok(());
+
+    while let Some(item) = handles.join_next().await {
+        match item {
+            Ok(Ok((name, c))) => {
+                debug!("Finished {} processed messages {}", name, c);
             }
-            result
-        }
-        Err(err) => {
-            error!("{}", err);
-            Err(CliError::JoinError(err))
+            Ok(Err(e)) => {
+                error!("Finished with error: {e}");
+                result = Err(e);
+            }
+            Err(e) => {
+                debug!("Failed to join task {e}");
+            }
         }
     }
+
+    result
 }

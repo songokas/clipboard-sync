@@ -1,8 +1,8 @@
 use chrono::Utc;
-use std::convert::TryFrom;
 
 #[cfg(feature = "ntp")]
-use crate::errors::{CliError, ConnectionError};
+use crate::errors::ConnectionError;
+use crate::errors::ValidationError;
 #[cfg(feature = "ntp")]
 use log::{debug, warn};
 #[cfg(feature = "ntp")]
@@ -10,16 +10,14 @@ use rsntp::AsyncSntpClient;
 #[cfg(feature = "ntp")]
 use std::sync::atomic::AtomicI64;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::time::sleep;
+#[cfg(feature = "ntp")]
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 #[cfg(feature = "ntp")]
 static TIME_DIFF: AtomicI64 = AtomicI64::new(0);
 
-pub fn get_time() -> u64
-{
+pub fn get_time() -> u64 {
     #[cfg(feature = "ntp")]
     {
         let diff = TIME_DIFF.load(Ordering::Relaxed);
@@ -30,51 +28,59 @@ pub fn get_time() -> u64
     return Utc::now().timestamp() as u64;
 }
 
-pub fn is_timestamp_valid(timestamp: u64, valid_for: u16) -> bool
-{
-    if valid_for == 0 {
-        return true;
-    }
-    let now = get_time();
-    let timestamp_diff = if now >= timestamp {
+pub fn validate_timestamp(
+    now: u64,
+    timestamp: u64,
+    max_expected: Duration,
+) -> Result<(), ValidationError> {
+    // let now = get_time();
+    let difference = if now >= timestamp {
         now - timestamp
     } else {
         timestamp - now
     };
-
-    let diff = match u16::try_from(timestamp_diff) {
-        Ok(i) => i,
-        _ => return false,
-    };
-    valid_for >= diff
+    if max_expected.as_secs() >= difference {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidTimestamp {
+            difference,
+            max_expected,
+        })
+    }
 }
 
 #[cfg(feature = "ntp")]
 pub async fn update_time_diff(
-    running: Arc<AtomicBool>,
     ntp_address: String,
-) -> Result<(String, u64), CliError>
-{
-    let mut now = Instant::now();
-    let mut updated = 1;
-    while running.load(Ordering::Relaxed) {
-        sleep(Duration::from_millis(500)).await;
+    cancel: tokio_util::sync::CancellationToken,
+) -> crate::defaults::ExecutorResult {
+    use tokio::{
+        select,
+        time::{self},
+    };
 
-        if now.elapsed().as_secs() > 1800 {
-            let diff = get_time_diff(&ntp_address).await;
-            TIME_DIFF.fetch_add(diff, Ordering::Relaxed);
-            now = Instant::now();
-            updated += 1;
+    let mut interval = time::interval(Duration::from_secs(1800));
+    let mut success_count = 0;
+    loop {
+        select! {
+            _ = cancel.cancelled() => {
+                debug!("Ntp cancelled");
+                break;
+            }
+            _ = interval.tick() => {
+                let diff = get_time_diff(&ntp_address).await;
+                TIME_DIFF.fetch_add(diff, Ordering::Relaxed);
+                success_count += 1;
+            }
         }
     }
-    Ok(("ntp updated".into(), updated))
+    Ok(("ntp", success_count))
 }
 
 #[cfg(feature = "ntp")]
-async fn get_time_diff(ntp_address: &str) -> i64
-{
+async fn get_time_diff(ntp_address: &str) -> i64 {
     let real = if let Ok(t) = get_ntp_time(ntp_address).await {
-        t
+        t as i64
     } else {
         return 0;
     };
@@ -87,8 +93,7 @@ async fn get_time_diff(ntp_address: &str) -> i64
 }
 
 #[cfg(feature = "ntp")]
-async fn get_ntp_time(ntp_address: &str) -> Result<i64, ConnectionError>
-{
+async fn get_ntp_time(ntp_address: &str) -> Result<u64, ConnectionError> {
     let client = AsyncSntpClient::new();
     let result = client.synchronize(ntp_address).await.map_err(|e| {
         warn!("Failed to synchronize time: {}", e);
@@ -97,61 +102,39 @@ async fn get_ntp_time(ntp_address: &str) -> Result<i64, ConnectionError>
             ntp_address, e
         ))
     })?;
-    let seconds = result.datetime().timestamp();
+    let seconds = result
+        .datetime()
+        .unix_timestamp()
+        .expect("ntp unix timestamp");
     debug!(
         "ntp time updated. server: {} utc time in seconds: {} utc local time: {}",
         ntp_address,
-        seconds,
+        seconds.as_secs(),
         Utc::now().timestamp()
     );
-    Ok(seconds)
-}
-
-pub async fn run_every(
-    duration: Duration,
-    condition: Arc<AtomicBool>,
-    callback: impl Fn() -> bool,
-) -> u64
-{
-    let mut now = Instant::now();
-    let mut updated = 0;
-    while condition.load(Ordering::Relaxed) {
-        sleep(Duration::from_millis(500)).await;
-
-        if now.elapsed() > duration {
-            if !callback() {
-                break;
-            }
-            updated += 1;
-            now = Instant::now();
-        }
-    }
-    updated
+    Ok(seconds.as_secs())
 }
 
 #[cfg(test)]
-mod timetest
-{
+mod tests {
+    use test_data_file::test_data_file;
+
     use super::*;
 
     #[test]
-    fn test_get_time()
-    {
+    fn test_get_time() {
         assert!(get_time() > 0);
     }
 
+    #[test_data_file(path = "tests/samples/validate_timestamp.csv")]
     #[test]
-    fn is_timespamp_valid()
-    {
-        let now = get_time();
-        assert!(is_timestamp_valid(now - 3, 3));
-        assert!(!is_timestamp_valid(now - 4, 3));
-
-        assert!(is_timestamp_valid(now + 3, 3));
-        assert!(!is_timestamp_valid(now + 4, 3));
-
-        assert!(is_timestamp_valid(now + 3, 0));
-        assert!(is_timestamp_valid(now - 3, 0));
-        assert!(is_timestamp_valid(0, 0));
+    fn test_validate_timestamp(now: u64, timestamp: u64, max_valid_secs: u64, is_ok: bool) {
+        assert_eq!(
+            validate_timestamp(now, timestamp, Duration::from_secs(max_valid_secs)).is_ok(),
+            is_ok
+        );
     }
 }
+
+
+

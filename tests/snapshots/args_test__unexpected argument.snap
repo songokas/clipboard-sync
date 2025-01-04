@@ -1,0 +1,23 @@
+---
+source: tests/args_test.rs
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--unknown"
+    - other
+    - "--verbosity"
+    - info=simple
+snapshot_kind: text
+---
+success: false
+exit_code: 2
+----- stdout -----
+
+----- stderr -----
+error: unexpected argument '--unknown' found
+
+Usage: clipboard-sync <--verbosity <VERBOSITY>|--config <CONFIG>|--allowed-host <ALLOWED_HOST>|--bind-address <BIND_ADDRESS>|--send-using-address <SEND_USING_ADDRESS>|--group <GROUP>|--clipboard <CLIPBOARD>|--key <KEY>|--visible-ip <VISIBLE_IP>|--protocol <PROTOCOL>|--private-key <PRIVATE_KEY>|--certificate-chain <CERTIFICATE_CHAIN>|--remote-certificates <REMOTE_CERTIFICATES>|--autogenerate|--send-once|--receive-once|--receive-once-wait <RECEIVE_ONCE_WAIT>|--ignore-initial-clipboard|--heartbeat <HEARTBEAT>|--ntp-server <NTP_SERVER>|--message-valid-for <MESSAGE_VALID_FOR>|--max-receive-buffer <MAX_RECEIVE_BUFFER>|--max-file-size <MAX_FILE_SIZE>|--relay-host <RELAY_HOST>|--relay-public-key <RELAY_PUBLIC_KEY>|--danger-server-no-verify|--danger-client-no-verify|--send-public-key|--receive-public-key|--app-dir <APP_DIR>>
+
+For more information, try '--help'.

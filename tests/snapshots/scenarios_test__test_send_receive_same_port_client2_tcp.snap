@@ -1,0 +1,55 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nListening on local_addr=127.0.0.1:12911 protocol=tcp multicast_addr=None\nNew connection remote_addr=127.0.0.1:12910\nWaiting for stream from remote_addr=127.0.0.1:12910\nTcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910\nReceived stream expected_size=77\nValidate data identity=127.0.0.1\nMessage received data_size=17 group=default message_type=file\nWaiting for stream from remote_addr=127.0.0.1:12910\nTcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910\nIgnore writing to stdin\nStarting writer protocol=tcp\nStarting clipboard to protocol forwarder protocol_types=[Tcp] groups=[\"default\"]\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nSend clipboard on startup path=/dev/stdin\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nUsing existing connection local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910 server_name=testclient\nTcp send stream stream_size=2060 remote_addr=127.0.0.1:12910\nMessage sent data_size=2000 network_size=2068 message_type=file\nReceiver connection closed: Connection expected data, but none was received\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--verbosity"
+    - debug=simple
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:12911"
+    - "--send-using-address"
+    - "127.0.0.1:12911"
+    - "--clipboard"
+    - /dev/stdin
+    - "--allowed-host"
+    - "127.0.0.1:12910=testclient"
+    - "--protocol"
+    - tcp
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-server
+    - "--private-key"
+    - tests/certs/localhost.key
+    - "--certificate-chain"
+    - tests/certs/localhost.crt
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/dev/stdin": {"default"}}
+Ignore writing to stdin
+Listening on local_addr=127.0.0.1:12911 protocol=tcp multicast_addr=None
+Message received data_size=17 group=default message_type=file
+Message sent data_size=2000 network_size=2068 message_type=file
+New connection remote_addr=127.0.0.1:12910
+Ntp server not provided
+Received stream expected_size=77
+Receiver connection closed: Connection expected data, but none was received
+Send clipboard on startup path=/dev/stdin
+Starting clipboard to protocol forwarder protocol_types=[Tcp] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=tcp
+Tcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910
+Tcp receive stream local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910
+Tcp send stream stream_size=2060 remote_addr=127.0.0.1:12910
+Using existing connection local_addr=127.0.0.1:12911 remote_addr=127.0.0.1:12910 server_name=testclient
+Validate data identity=127.0.0.1
+Waiting for stream from remote_addr=127.0.0.1:12910
+Waiting for stream from remote_addr=127.0.0.1:12910
+Watching for filesystem changes path=/dev/stdin

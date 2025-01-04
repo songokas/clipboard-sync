@@ -1,0 +1,34 @@
+---
+source: tests/scenarios_test.rs
+description: "Ntp server not provided\nStarting filesystem writer\nListening on local_addr=0.0.0.0:33321 protocol=basic\nStarting writer protocol=basic\nStarting clipboard to protocol forwarder protocol_types=[Basic] groups=[\"default\"]\nCreate filesystem reader {\"/dev/stdin\": {\"default\"}}\nNot sending heartbeats for temporary sockets local_addr=0.0.0.0:0\nWatching for filesystem changes path=/dev/stdin\nStarting filesystem reader\nMessage sent data_size=8 network_size=76 message_type=heartbeat\n"
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--clipboard"
+    - /dev/stdin
+    - "--ignore-initial-clipboard"
+    - "--heartbeat"
+    - "10"
+    - "--verbosity"
+    - debug=simple
+    - "--bind-address"
+    - "0.0.0.0:33321"
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Create filesystem reader {"/dev/stdin": {"default"}}
+Listening on local_addr=0.0.0.0:33321 protocol=basic
+Message sent data_size=8 network_size=76 message_type=heartbeat
+Not sending heartbeats for temporary sockets local_addr=0.0.0.0:0
+Ntp server not provided
+Starting clipboard to protocol forwarder protocol_types=[Basic] groups=["default"]
+Starting filesystem reader
+Starting filesystem writer
+Starting writer protocol=basic
+Watching for filesystem changes path=/dev/stdin

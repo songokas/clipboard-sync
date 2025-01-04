@@ -1,0 +1,68 @@
+{
+    "send": {
+        "messages": [
+        {
+            "data_length": 1,
+            "data_id": "1",
+            "bind_address": "127.0.0.1:38301",
+            "destination": "localhost:38300"
+        },
+        {
+            "data_length": 2,
+            "data_id": "2",
+            "bind_address": "127.0.0.1:38301",
+            "destination": "127.0.0.1:38300",
+            "server_name": "localhost"
+        },
+        {
+            "data_length": 3,
+            "data_id": "3",
+            "bind_address": "127.0.0.1:0",
+            "destination": "localhost:38300"
+        },
+        {
+            "data_length": 4,
+            "data_id": "4",
+            "bind_address": "127.0.0.1:38302",
+            "destination": "127.0.0.1:38300",
+            "server_name": "localhost"
+        },
+        {
+            "data_length": 100,
+            "data_id": "max_length_reached",
+            "bind_address": "127.0.0.1:0",
+            "destination": "127.0.0.1:38300",
+            "server_name": "localhost"
+        },
+        {
+            "data_length": 5,
+            "data_id": "failed_to_bind",
+            "bind_address": "127.0.0.1:0",
+            "destination": "127.0.0.1:0",
+            "verify_sent": false
+
+        }
+        ],
+        "success_count": 5
+    },
+    "receive": {
+        "max_length": 100,
+        "bind_address": "127.0.0.1:38300",
+        "allowed_host": "127.0.0.1:0",
+        "messages": [
+            {
+                "data_id": "1"
+            },
+            {
+                "data_id": "2"
+            },
+            {
+                "data_id": "3"
+            },
+            {
+                "data_id": "4"
+            }
+        ],
+        "success_count": 4
+    }
+}

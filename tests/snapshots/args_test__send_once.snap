@@ -1,0 +1,23 @@
+---
+source: tests/args_test.rs
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--bind-address"
+    - "127.0.0.1:8922"
+    - "--send-once"
+    - "--clipboard"
+    - tests/temp1
+    - "--verbosity"
+    - info=simple
+snapshot_kind: text
+---
+success: true
+exit_code: 0
+----- stdout -----
+
+----- stderr -----
+Waiting to send clipboard once
+Sent bytes 27

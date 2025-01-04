@@ -1,8 +1,8 @@
 
 ANDROID_APP ?= $(HOME)/AndroidStudioProjects/clipboard-sync-android/
-HEADLESS_OPTIONS = --release --no-default-features --features "frames public-ip ntp"
-ANDROID_OPTIONS = --release --no-default-features --features "frames public-ip" --lib
-DEB_OPTIONS = --no-build
+HEADLESS_OPTIONS = --release --no-default-features --features "ntp quic notify-debouncer-full cached"
+ANDROID_OPTIONS = --release --no-default-features --features "quic cached" --lib
+DEB_OPTIONS = --no-build --no-strip
 ARCHS=i686-unknown-linux-gnu x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ANDROID_ARCHS=x86_64-linux-android i686-linux-android arm-linux-androideabi aarch64-linux-android 
 USER_ID ?= $(shell id -u)
@@ -10,7 +10,7 @@ GROUP_ID ?= $(shell id -g)
 LIB_NAME = libclipboard_sync.so
 CERT_PATH ?= $(HOME)/.ssh/app-sign-cert.pem
 KEY_PATH ?= $(HOME)/.ssh/app-sign-key.pem
-VERSION = 2.1.1
+VERSION = 3.0.0
 
 define docker_build
 	docker run \
@@ -18,6 +18,8 @@ define docker_build
 		--env CARGO_HOME=$(PWD)/target/cache \
 		--user $(USER_ID):$(GROUP_ID) \
 		--volume $(PWD):$(PWD) \
+		-v ${HOME}/.gnupg/:/home/builder/.gnupg/:ro \
+        -v /run/user/$(id -u)/:/run/user/$(id -u)/:ro \
 		--workdir $(PWD) \
 		$(1) \
 		$(2)
@@ -25,30 +27,24 @@ endef
 
 all: docker build deb rpm pkg windows android
 
-build-binaries:
-	$(call docker_build, clipboard-sync/x86_64, cargo build --target x86_64-unknown-linux-gnu $(HEADLESS_OPTIONS))
-	@strip target/x86_64-unknown-linux-gnu/release/clipboard-sync
-	@strip target/x86_64-unknown-linux-gnu/release/clipboard-relay
+build:
+	cross build --target x86_64-unknown-linux-gnu $(HEADLESS_OPTIONS)
 	@mv target/x86_64-unknown-linux-gnu/release/clipboard-sync target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless
-
-build: build-binaries
-	$(call docker_build, clipboard-sync/x86_64, cargo build --target x86_64-unknown-linux-gnu --release)
-	$(call docker_build, clipboard-sync/x86_64, cargo build --target i686-unknown-linux-gnu --release)
-	$(call docker_build, clipboard-sync/arm, cargo build --target aarch64-unknown-linux-gnu --release)
-	$(call docker_build, clipboard-sync/arm, cargo build --target armv7-unknown-linux-gnueabihf $(HEADLESS_OPTIONS))
-
-strip:
-	$(foreach arch, $(ARCHS), cargo strip --target $(arch);)
+	cross build --target x86_64-unknown-linux-gnu --release
+	cross build --target i686-unknown-linux-gnu --release
+	cross build --target aarch64-unknown-linux-gnu $(HEADLESS_OPTIONS)
+	cross build --target armv7-unknown-linux-gnueabihf $(HEADLESS_OPTIONS)
 
 docker:
 	docker build -t clipboard-sync/x86_64 -f docker/x86_64 docker/
 	docker build -t clipboard-sync/arm -f docker/arm docker/
+	docker build -t arch/makepkg -f docker/arch docker/
 
 deb: build
 	@$(call docker_build, clipboard-sync/x86_64, cargo deb --target x86_64-unknown-linux-gnu $(DEB_OPTIONS))
 	@$(call docker_build, clipboard-sync/x86_64, cargo deb --target i686-unknown-linux-gnu $(DEB_OPTIONS))
-	@$(call docker_build, clipboard-sync/arm, cargo deb --target aarch64-unknown-linux-gnu $(DEB_OPTIONS) --variant aarch64)
-	@$(call docker_build, clipboard-sync/arm, cargo deb --target armv7-unknown-linux-gnueabihf $(DEB_OPTIONS) --variant headless)
+	@$(call docker_build, clipboard-sync/arm, cargo deb --target aarch64-unknown-linux-gnu $(DEB_OPTIONS))
+	@$(call docker_build, clipboard-sync/arm, cargo deb --target armv7-unknown-linux-gnueabihf $(DEB_OPTIONS))
 
 rpm: build
 	@$(call docker_build, clipboard-sync/x86_64, cargo rpm build --target x86_64-unknown-linux-gnu)
@@ -57,14 +53,7 @@ rpm: build
 pkg:
 	@mkdir -p target/pkgbuild
 	@cp arch/PKGBUILD target/pkgbuild
-	cd target/pkgbuild && makepkg -s --force --sign
-
-pkg-in-vagrant:
-	vagrant up arch
-	vagrant rsync arch
-	vagrant ssh arch --command "sudo pacman --noconfirm -S glibc rust cargo binutils base-devel"
-	vagrant ssh arch --command "cd /vagrant && make pkg"
-	vagrant scp arch:/vagrant/target/pkgbuild/clipboard-sync-*.pkg.tar* ./dist/
+	@$(call docker_build, arch/makepkg, bash -c "cd target/pkgbuild && makepkg -s --force --sign")
 
 windows:
 	cross build --target x86_64-pc-windows-gnu --release
@@ -76,7 +65,7 @@ msi:
 	cargo wix
 
 android:
-	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(ANDROID_OPTIONS);)
+	$(foreach arch, $(ANDROID_ARCHS), cross build --target $(arch) $(ANDROID_OPTIONS) ;)
 
 android-copy: android
 	@cp target/i686-linux-android/release/libclipboard_sync.so $(ANDROID_APP)/app/src/main/jniLibs/x86/libclipboard_sync.so
@@ -88,19 +77,12 @@ clean:
 	cargo clean
 
 clippy:
-	cargo clippy -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
-	cargo clippy --features quic-quinn -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
-	cargo clippy --features quic-quiche -- -A clippy::too_many_arguments -A clippy::nonstandard_macro_braces
+	cargo clippy
 	
 test: clippy
 	cargo test
-	echo "Testing quic quiche"
-	cargo test --features quic-quiche
-	echo "Testing quic quinn"
-	cargo test --features quic-quinn
 
-sign: sign-windows sign-rpm
-
+sign: sign-rpm
 	@dpkg-sig -s builder target/x86_64-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)_amd64.deb
 	@dpkg-sig -s builder target/i686-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)_i386.deb
 	@dpkg-sig -s builder target/aarch64-unknown-linux-gnu/debian/clipboard-sync-aarch64_$(VERSION)_arm64.deb
@@ -120,14 +102,7 @@ sign-windows:
 distdir:
 	mkdir -p dist
 
-# to release:
-# build on windows: cargo wix
-# copy to target/clipboard-sync-$(VERSION)-x86_64.msi from windows
-# make android-copy
-# build android apk
-# create tag
-# make release
-release: distdir dist deb strip rpm sign pkg-in-vagrant
+copy:
 	cp target/*/debian/clipboard-sync* dist/
 	cp target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/* dist/
 	cp target/i686-unknown-linux-gnu/release/rpmbuild/RPMS/i686/* dist/
@@ -135,5 +110,18 @@ release: distdir dist deb strip rpm sign pkg-in-vagrant
 	cp target/i686-unknown-linux-gnu/release/clipboard-sync dist/clipboard-sync-i686-binary
 	cp target/x86_64-unknown-linux-gnu/release/clipboard-sync-headless dist/clipboard-sync-amd64-headless-binary
 	@cp ~/AndroidStudioProjects/clipboard-sync-android/app/release/app-release.apk dist/clipboard-sync-android_$(VERSION).apk
+	cp target/x86_64-pc-windows-gnu/release/clipboard-sync.exe dist/
+	cp target/x86_64-pc-windows-gnu/release/clipboard-relay.exe dist/
+
+hash:
+	./sign.sh
+# to release:
+# build on windows: cargo wix
+# copy to target/clipboard-sync-$(VERSION)-x86_64.msi from windows
+# make android-copy
+# build android apk
+# create tag
+# make release
+release: distdir dist deb rpm windows sign copy hash
 	
-.PHONY: clean android windows docker deb rpm pkg strip all release sign sign-windows distdir sign-rpm
+.PHONY: hash copy clean android windows docker deb rpm pkg all release sign sign-windows distdir sign-rpm

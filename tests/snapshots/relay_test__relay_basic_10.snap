@@ -1,0 +1,33 @@
+---
+source: tests/relay_test.rs
+description: "Server public key Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=\nListen on 127.0.0.1:8922 protocol basic\nReceived data_size=220 remote_addr=127.0.0.1:8923\nRelay finished total bytes sent,received 76 to 0 destinations\nReceived data_size=222 remote_addr=127.0.0.1:8923\nRelay finished total bytes sent,received 78 to 0 destinations\nReceived data_size=220 remote_addr=127.0.0.1:8924\nRelay from=127.0.0.1:8924 to=127.0.0.1:8923 data_size=76 network_size=76\nRelay finished total bytes sent,received 76 to 1 destinations\nReceived data_size=222 remote_addr=127.0.0.1:8924\nRelay from=127.0.0.1:8924 to=127.0.0.1:8923 data_size=78 network_size=78\nRelay finished total bytes sent,received 78 to 1 destinations\n"
+info:
+  program: clipboard-relay
+  args:
+    - "--private-key"
+    - "33232323233323233333333333333333"
+    - "--bind-address"
+    - "127.0.0.1:8922"
+    - "--protocol"
+    - basic
+    - "--verbosity"
+    - debug=simple
+snapshot_kind: text
+---
+success: false
+exit_code: -1
+----- stdout -----
+
+----- stderr -----
+Listen on 127.0.0.1:8922 protocol basic
+Received data_size=220 remote_addr=127.0.0.1:8923
+Received data_size=220 remote_addr=127.0.0.1:8924
+Received data_size=222 remote_addr=127.0.0.1:8923
+Received data_size=222 remote_addr=127.0.0.1:8924
+Relay finished total bytes sent,received 76 to 0 destinations
+Relay finished total bytes sent,received 76 to 1 destinations
+Relay finished total bytes sent,received 78 to 0 destinations
+Relay finished total bytes sent,received 78 to 1 destinations
+Relay from=127.0.0.1:8924 to=127.0.0.1:8923 data_size=76 network_size=76
+Relay from=127.0.0.1:8924 to=127.0.0.1:8923 data_size=78 network_size=78
+Server public key Bj3xcJXgG4kuRolMZrIbbfY1wajtjPr4ssxSqFFhaGk=

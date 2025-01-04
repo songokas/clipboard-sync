@@ -1,0 +1,19 @@
+---
+source: tests/args_test.rs
+info:
+  program: clipboard-sync
+  args:
+    - "--key"
+    - "12345678912345678912345678912345"
+    - "--send-using-address"
+    - non-existing
+    - "--verbosity"
+    - info=simple
+snapshot_kind: text
+---
+success: false
+exit_code: 1
+----- stdout -----
+
+----- stderr -----
+Error: ArgumentError("Invalid send-using-address provided non-existing")
