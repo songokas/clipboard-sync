@@ -11,7 +11,7 @@ file copying is supported as well (linux,windows,android only)
 ### Deb
 
 ```
-wget https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync_3.0.0-1_amd64.deb && sudo apt install ./clipboard-sync_3.0.0_amd64.deb
+wget https://github.com/songokas/clipboard-sync/releases/download/3.0.0/clipboard-sync_3.0.0-1_amd64.deb && sudo apt install ./clipboard-sync_3.0.0-1_amd64.deb
 ```
 
 ### RRM
