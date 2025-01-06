@@ -11,7 +11,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use x25519_dalek::PublicKey;
 
-use crate::config::{create_groups_from_config_file, generate_config, get_app_dir, FullConfig};
+use crate::config::{
+    create_groups_from_config_file, generate_config, get_app_dir, BindAddresses, FullConfig,
+};
 use crate::config::{CliConfig, FileCertificates};
 use crate::defaults::*;
 use crate::errors::CliError;
@@ -51,10 +53,6 @@ pub fn load_configuration(
             }
         }
     };
-    // let default_allowed_host = cli_config
-    //     .allowed_host
-    //     .clone()
-    //     .or_else(|| DEFAULT_ALLOWED_HOST.to_string().into());
     let cli_allowed_hosts: Option<AllowedHosts> = cli_config.allowed_host.as_deref().map(|s| {
         s.split(',')
             .filter(|s| !s.is_empty())
@@ -181,17 +179,20 @@ fn create_groups_from_cli(
         },
     };
 
-    let full_config = FullConfig::from_protocol_groups(
-        cli_config.protocol,
-        socket_addresses,
+    let mut bind_addresses: BindAddresses = BindAddresses::new();
+    bind_addresses.insert(cli_config.protocol, socket_addresses);
+    let full_config = FullConfig {
+        bind_addresses,
         groups,
-        cli_config.max_receive_buffer,
-        cli_config.max_file_size,
-        cli_config.receive_once_wait,
-        !cli_config.ignore_initial_clipboard,
-        cli_config.ntp_server,
-        cli_config.app_dir,
-        !cli_config.danger_client_no_verify,
-    );
+        max_receive_buffer: cli_config.max_receive_buffer,
+        max_file_size: cli_config.max_file_size,
+        receive_once_wait: cli_config.receive_once_wait,
+        send_clipboard_on_startup: !cli_config.ignore_initial_clipboard,
+        ntp_server: cli_config.ntp_server,
+        app_dir: cli_config.app_dir,
+        tls_client_auth: !cli_config.danger_client_no_verify,
+        max_connections: cli_config.max_connections,
+    };
+
     Ok(full_config)
 }

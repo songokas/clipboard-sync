@@ -171,12 +171,12 @@ pub async fn is_closed(socket: &OwnedWriteHalf) -> bool {
 #[cfg(test)]
 mod tcptest {
     use super::*;
-    use crate::encryptor::GroupEncryptor;
     use crate::message::SendGroup;
     use crate::pools::tcp_stream_pool::TcpStreamPool;
     use crate::protocol_readers::tcp::create_tcp_reader;
     use crate::protocol_writers::tcp::tcp_writer_executor;
-    use indexmap::{indexmap, indexset};
+    use crate::{encryptor::GroupEncryptor, protocol_readers::ReceiverConfig};
+    use indexmap::indexmap;
     use serial_test::serial;
     use tokio::sync::mpsc::channel;
     use tokio_util::sync::CancellationToken;
@@ -205,17 +205,17 @@ mod tcptest {
         let stream_pool = TcpStreamPool::default();
         let spool = stream_pool.clone();
 
+        let receiver_config = ReceiverConfig {
+            local_addr: local_server,
+            max_len: max_length,
+            cancel: scancel,
+            multicast_ips: Default::default(),
+            max_connections: 5,
+            multicast_local_addr: None,
+        };
+
         let receiver_result = tokio::spawn(async move {
-            create_tcp_reader(
-                reader_sender,
-                receiver_encryptor,
-                spool,
-                indexset! {},
-                local_server,
-                max_length,
-                scancel,
-            )
-            .await
+            create_tcp_reader(reader_sender, receiver_encryptor, spool, receiver_config).await
         });
         let sender_result = tokio::spawn(async move {
             tcp_writer_executor(

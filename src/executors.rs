@@ -1,3 +1,4 @@
+use core::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
 
 use tokio::{sync::mpsc::Sender, task::JoinSet};
@@ -21,6 +22,7 @@ use crate::{
     multicast::to_multicast_ips,
     pools::PoolFactory,
     protocol::Protocol,
+    protocol_readers::ReceiverConfig,
     protocols::{ProtocolReadMessage, StatusMessage},
 };
 
@@ -93,16 +95,27 @@ pub fn receiver_protocol_executors(
     for (protocol, bind_address) in full_config.get_bind_addresses() {
         let groups = full_config.get_groups_by_protocol(protocol);
         let multicast_ips = to_multicast_ips(bind_address, &groups);
+        let multicast_local_addr = match protocol {
+            Protocol::Basic => None,
+            Protocol::Tcp | Protocol::TcpTls => bind_address.into(),
+            // can not bind on the same udp port
+            Protocol::Quic => SocketAddr::new(bind_address.ip(), bind_address.port() + 1).into(),
+        };
+        let config = ReceiverConfig {
+            local_addr: bind_address,
+            max_len: full_config.max_receive_buffer,
+            cancel: cancel.clone(),
+            multicast_ips,
+            multicast_local_addr,
+            max_connections: full_config.max_connections,
+        };
         match protocol {
             Protocol::Basic => {
                 handles.spawn(crate::protocol_readers::basic::create_basic_reader(
                     clipboard_forwarder_client.clone(),
                     GroupEncryptor::new(groups),
                     pools.upd.clone(),
-                    bind_address,
-                    multicast_ips,
-                    full_config.max_receive_buffer,
-                    cancel.clone(),
+                    config,
                 ));
             }
             Protocol::Tcp => {
@@ -110,10 +123,7 @@ pub fn receiver_protocol_executors(
                     clipboard_forwarder_client.clone(),
                     GroupEncryptor::new(groups),
                     pools.tcp.clone(),
-                    multicast_ips,
-                    bind_address,
-                    full_config.max_receive_buffer,
-                    cancel.clone(),
+                    config,
                 ));
             }
             Protocol::TcpTls => {
@@ -122,12 +132,9 @@ pub fn receiver_protocol_executors(
                     clipboard_forwarder_client.clone(),
                     crate::encryptor::NoEncryptor::new(groups),
                     pools.tcp_tls.clone(),
-                    multicast_ips,
-                    bind_address,
-                    full_config.max_receive_buffer,
+                    config,
                     _load_certs.clone(),
                     full_config.tls_client_auth,
-                    cancel.clone(),
                 ));
             }
             Protocol::Quic => {
@@ -136,12 +143,9 @@ pub fn receiver_protocol_executors(
                     clipboard_forwarder_client.clone(),
                     crate::encryptor::NoEncryptor::new(groups),
                     pools.quic.clone(),
-                    multicast_ips,
-                    bind_address,
-                    full_config.max_receive_buffer,
+                    config,
                     _load_certs.clone(),
                     full_config.tls_client_auth,
-                    cancel.clone(),
                 ));
             }
         };

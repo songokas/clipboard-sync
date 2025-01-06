@@ -25,6 +25,7 @@ pub const MAX_FILE_SIZE: usize = 22 * 1024 * 1024;
 pub const MAX_RECEIVE_BUFFER: usize = 50 * 1024 * 1024;
 pub const MAX_UDP_PAYLOAD: usize = 63535;
 pub const MAX_UDP_BUFFER: usize = MAX_UDP_PAYLOAD + 500;
+pub const MAX_CONNECTIONS: usize = 100;
 
 pub const DATA_TIMEOUT: Duration = Duration::from_secs(12);
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(60);

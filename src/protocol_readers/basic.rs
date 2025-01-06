@@ -1,11 +1,9 @@
-use indexmap::IndexSet;
 use log::debug;
 use log::error;
 use log::info;
 use log::trace;
 use log::warn;
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -13,7 +11,6 @@ use tokio::select;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 
 use crate::defaults::ExecutorResult;
 use crate::defaults::INIDICATION_SIZE;
@@ -32,18 +29,22 @@ use crate::protocols::ProtocolReadMessage;
 
 use crate::socket::split_into_messages;
 
+use super::ReceiverConfig;
+
 pub async fn create_basic_reader<V>(
     sender: Sender<ProtocolReadMessage>,
     verifier: V,
     udp_pool: UdpSocketPool,
-    local_addr: SocketAddr,
-    multicast_ips: IndexSet<IpAddr>,
-    max_len: usize,
-    cancel: CancellationToken,
+    config: ReceiverConfig,
 ) -> ExecutorResult
 where
     V: MessageDecryptor + IdentityVerifier,
 {
+    let ReceiverConfig {
+        local_addr,
+        multicast_ips,
+        ..
+    } = config.clone();
     let socket = Arc::new(obtain_server_socket(local_addr).await?);
 
     for ip in multicast_ips.into_iter().filter(|i| i.is_multicast()) {
@@ -52,15 +53,14 @@ where
 
     udp_pool.add(socket.clone()).await;
 
-    basic_reader_executor(sender, verifier, socket, max_len, cancel).await
+    basic_reader_executor(sender, verifier, socket, config).await
 }
 
 async fn basic_reader_executor<V>(
     sender: Sender<ProtocolReadMessage>,
     verifier: V,
     socket: Arc<UdpSocket>,
-    max_len: usize,
-    cancel: CancellationToken,
+    config: ReceiverConfig,
 ) -> ExecutorResult
 where
     V: IdentityVerifier + MessageDecryptor,
@@ -69,6 +69,12 @@ where
     let mut buffer = [0; MAX_UDP_BUFFER];
     let mut success_count = 0;
     let bound_addr = socket.local_addr().expect("Bound address");
+    let ReceiverConfig {
+        max_len,
+        cancel,
+        max_connections,
+        ..
+    } = config;
 
     info!(
         "Listening on local_addr={bound_addr} protocol={}",
@@ -105,6 +111,10 @@ where
                     continue;
                 };
                 if size_read == 1 && buffer[0] == 49 {
+                    if handles.len() > max_connections {
+                        info!("Connection limit={max_connections} reached. Ignoring connection");
+                        continue;
+                    }
                     let socket = tcp_locks.entry((bound_addr, remote_addr)).or_default().clone();
                     handles.spawn(async move {
                         // we can only receive once per local remote socket

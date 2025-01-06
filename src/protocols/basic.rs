@@ -59,8 +59,9 @@ mod tests {
     use crate::message::SendGroup;
     use crate::pools::udp_pool::UdpSocketPool;
     use crate::protocol_readers::basic::create_basic_reader;
+    use crate::protocol_readers::ReceiverConfig;
     use crate::protocol_writers::basic::basic_writer_executor;
-    use indexmap::{indexmap, IndexSet};
+    use indexmap::indexmap;
     use serial_test::serial;
     use tokio::spawn;
     use tokio::sync::mpsc::channel;
@@ -137,14 +138,20 @@ mod tests {
             .parse()
             .unwrap();
 
+        let receiver_config = ReceiverConfig {
+            local_addr: local_server,
+            max_len: max_length,
+            cancel: scancel,
+            multicast_ips: Default::default(),
+            max_connections: 5,
+            multicast_local_addr: None,
+        };
+
         let receiver_result = tokio::spawn(create_basic_reader(
             reader_sender,
             receiver_encryptor,
             udp_pool.clone(),
-            local_server,
-            IndexSet::new(),
-            max_length,
-            scancel,
+            receiver_config,
         ));
         let sender_result = tokio::spawn(basic_writer_executor(
             writer_receiver,

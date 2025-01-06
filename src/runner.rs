@@ -20,9 +20,9 @@ use tokio_util::sync::CancellationToken;
 use x25519_dalek::PublicKey;
 
 use crate::clipboards::ClipboardReadMessage;
-use crate::config::FullConfig;
 use crate::config::UserCertificates;
-use crate::defaults::{get_default_hosts, ExecutorResult, CLIPBOARD_NAME};
+use crate::config::{BindAddresses, FullConfig};
+use crate::defaults::{get_default_hosts, ExecutorResult, CLIPBOARD_NAME, MAX_CONNECTIONS};
 use crate::defaults::{KEY_SIZE, MESSAGE_VALID_DURATION};
 use crate::defaults::{MAX_CHANNEL, RECEIVE_ONCE_WAIT};
 use crate::encryption::random;
@@ -182,7 +182,6 @@ pub fn create_config(
         .unwrap_or_else(|| *Key::from_slice(&random(KEY_SIZE)));
 
     let send_using_address = config.send_using_address;
-    let socket_address = config.bind_address;
 
     let user_certificates = if let (Some(private_key), Some(certificate_chain)) =
         (config.private_key, config.certificate_chain)
@@ -231,18 +230,20 @@ pub fn create_config(
         relay,
     };
     let groups = indexmap! { config.group => group };
-    let full_config = FullConfig::from_protocol_groups(
-        config.protocol,
-        socket_address,
+    let mut bind_addresses: BindAddresses = BindAddresses::new();
+    bind_addresses.insert(config.protocol, config.bind_address);
+    let full_config = FullConfig {
+        bind_addresses,
         groups,
-        config.max_receive_size,
-        config.max_file_size,
-        RECEIVE_ONCE_WAIT,
-        true,
-        None,
-        Some(config.app_dir),
-        !config.danger_client_no_verify,
-    );
+        max_receive_buffer: config.max_receive_size,
+        max_file_size: config.max_file_size,
+        receive_once_wait: RECEIVE_ONCE_WAIT,
+        send_clipboard_on_startup: true,
+        ntp_server: None,
+        app_dir: Some(config.app_dir),
+        tls_client_auth: !config.danger_client_no_verify,
+        max_connections: MAX_CONNECTIONS,
+    };
 
     Ok((
         full_config,

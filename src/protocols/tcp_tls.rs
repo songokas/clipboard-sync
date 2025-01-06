@@ -44,14 +44,14 @@ impl WriteStream for TlsStreamWrite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::FileCertificates;
     use crate::encryptor::NoEncryptor;
     use crate::errors::ConnectionError;
     use crate::message::SendGroup;
     use crate::pools::tls_stream_pool::TlsStreamPool;
     use crate::protocol_readers::tcp_tls::create_tcp_tls_reader;
     use crate::protocol_writers::tcp_tls::tcp_tls_writer_executor;
-    use indexmap::{indexmap, IndexSet};
+    use crate::{config::FileCertificates, protocol_readers::ReceiverConfig};
+    use indexmap::indexmap;
     use serial_test::serial;
     use tokio::sync::mpsc::channel;
     use tokio_util::sync::CancellationToken;
@@ -108,17 +108,23 @@ mod tests {
         let stream_pool = TlsStreamPool::default();
         let spool = stream_pool.clone();
 
+        let receiver_config = ReceiverConfig {
+            local_addr: local_server,
+            max_len: max_length,
+            cancel: scancel,
+            multicast_ips: Default::default(),
+            max_connections: 5,
+            multicast_local_addr: None,
+        };
+
         let receiver_result = tokio::spawn(async move {
             create_tcp_tls_reader(
                 reader_sender,
                 receiver_encryptor,
                 spool,
-                IndexSet::new(),
-                local_server,
-                max_length,
+                receiver_config,
                 obtain_server_certs,
                 false,
-                scancel,
             )
             .await
         });

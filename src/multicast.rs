@@ -223,6 +223,26 @@ pub async fn advertise_service(
     Ok(())
 }
 
+pub async fn create_multicast_socket(
+    local_addr: Option<SocketAddr>,
+    multicast_ips: IndexSet<IpAddr>,
+) -> Result<Option<UdpSocket>, std::io::Error> {
+    let Some(local_addr) = local_addr else {
+        return Ok(None);
+    };
+    if !multicast_ips.is_empty() {
+        let multicast_socket = UdpSocket::bind(local_addr).await?;
+        let mut joined = false;
+        for ip in multicast_ips.into_iter().filter(|i| i.is_multicast()) {
+            join_multicast(&multicast_socket, ip, local_addr.ip())?;
+            joined = true;
+        }
+        Ok(joined.then_some(multicast_socket))
+    } else {
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

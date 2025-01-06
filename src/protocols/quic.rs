@@ -102,13 +102,13 @@ mod tests {
     use core::convert::TryInto;
 
     use super::*;
-    use crate::config::FileCertificates;
     use crate::encryptor::NoEncryptor;
     use crate::message::SendGroup;
     use crate::pools::connection_pool::ConnectionPool;
     use crate::protocol_readers::quic::create_quic_reader;
     use crate::protocol_writers::quic::quic_writer_executor;
-    use indexmap::{indexmap, IndexSet};
+    use crate::{config::FileCertificates, protocol_readers::ReceiverConfig};
+    use indexmap::indexmap;
     use serial_test::serial;
     use tokio::sync::mpsc::channel;
     use tokio_util::sync::CancellationToken;
@@ -164,17 +164,22 @@ mod tests {
 
         let pool = ConnectionPool::default();
         let spool = pool.clone();
+        let receiver_config = ReceiverConfig {
+            local_addr: local_server,
+            max_len: max_length,
+            cancel: scancel,
+            multicast_ips: Default::default(),
+            max_connections: 5,
+            multicast_local_addr: None,
+        };
         let receiver_result = tokio::spawn(async move {
             create_quic_reader(
                 reader_sender,
                 receiver_encryptor,
                 spool,
-                IndexSet::new(),
-                local_server,
-                max_length,
+                receiver_config,
                 obtain_server_certs,
                 true,
-                scancel,
             )
             .await
         });

@@ -1,6 +1,4 @@
-use core::net::IpAddr;
 use core::ops::DerefMut;
-use indexmap::IndexSet;
 use log::{debug, error, info};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -9,12 +7,11 @@ use tokio::select;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 
 use crate::defaults::{ExecutorResult, WAIT_TIMEOUT};
 use crate::encryptor::MessageDecryptor;
 use crate::identity::IdentityVerifier;
-use crate::multicast::{advertise_service, join_multicast};
+use crate::multicast::{advertise_service, create_multicast_socket};
 use crate::pools::tcp_stream_pool::TcpStreamPool;
 use crate::protocol::Protocol;
 use crate::protocol_readers::{process_receive_stream_result, StreamReceiveError};
@@ -22,38 +19,32 @@ use crate::protocols::tcp::obtain_server_socket;
 use crate::protocols::ProtocolReadMessage;
 use crate::stream::{receive_stream, ReadStream};
 
+use super::ReceiverConfig;
+
 pub async fn create_tcp_reader<T>(
     sender: Sender<ProtocolReadMessage>,
     verifier: T,
     tcp_stream_pool: TcpStreamPool,
-    multicast_ips: IndexSet<IpAddr>,
-    local_addr: SocketAddr,
-    max_len: usize,
-    cancel: CancellationToken,
+    config: ReceiverConfig,
 ) -> ExecutorResult
 where
     T: MessageDecryptor + IdentityVerifier,
 {
+    let ReceiverConfig {
+        local_addr,
+        multicast_ips,
+        multicast_local_addr,
+        ..
+    } = config.clone();
     let listener = obtain_server_socket(local_addr)?;
-    let bound_addr = listener.local_addr().expect("Bound address");
-
-    let multicast_socket = if !multicast_ips.is_empty() {
-        let multicast_socket = UdpSocket::bind(bound_addr).await?;
-        for ip in multicast_ips.into_iter().filter(|i| i.is_multicast()) {
-            join_multicast(&multicast_socket, ip, bound_addr.ip())?;
-        }
-        multicast_socket.into()
-    } else {
-        None
-    };
+    let multicast_socket = create_multicast_socket(multicast_local_addr, multicast_ips).await?;
     tcp_reader_executor(
         sender,
         verifier,
         tcp_stream_pool,
         listener,
         multicast_socket,
-        max_len,
-        cancel,
+        config,
     )
     .await
 }
@@ -64,16 +55,21 @@ async fn tcp_reader_executor<T>(
     tcp_stream_pool: TcpStreamPool,
     listener: TcpListener,
     multicast_socket: Option<UdpSocket>,
-    max_len: usize,
-    cancel: CancellationToken,
+    config: ReceiverConfig,
 ) -> ExecutorResult
 where
     T: IdentityVerifier + MessageDecryptor,
 {
-    let mut stream_handles: JoinSet<Result<_, StreamReceiveError>> = JoinSet::new();
+    let mut handles: JoinSet<Result<_, StreamReceiveError>> = JoinSet::new();
     let mut success_count = 0;
     let bound_addr = listener.local_addr().expect("Bound address");
     let server_name = None;
+    let ReceiverConfig {
+        max_len,
+        cancel,
+        max_connections,
+        ..
+    } = config;
 
     info!(
         "Listening on local_addr={bound_addr} protocol={} multicast_addr={}",
@@ -91,20 +87,24 @@ where
                 break;
             }
             (stream, remote_addr) = tcp_stream_pool.wait_for_new_read_stream(bound_addr) => {
-                stream_handles.spawn(wait_for_stream(stream, remote_addr, max_len));
+                handles.spawn(wait_for_stream(stream, remote_addr, max_len));
             }
             Err(e) = async { advertise_service(multicast_socket.as_ref().expect("Multicast socket"), Protocol::Tcp, bound_addr.port(), server_name.clone()).await }, if multicast_socket.is_some() => {
                 debug!("Multicast failed {e}");
             }
             // new connection
             new_connection = listener.accept() => {
+                if handles.len() > max_connections {
+                    info!("Connection limit={max_connections} reached. Ignoring connection");
+                    continue;
+                }
                 accept_new_connection(new_connection, &verifier, &tcp_stream_pool, bound_addr).await;
             }
-            Some(stream_finished) = stream_handles.join_next(), if !stream_handles.is_empty() => {
+            Some(stream_finished) = handles.join_next(), if !handles.is_empty() => {
                 match process_receive_stream_result(stream_finished, &verifier, &sender).await {
                     Ok((stream, remote_addr)) => {
                         success_count += 1;
-                        stream_handles.spawn(wait_for_stream(stream, remote_addr, max_len));
+                        handles.spawn(wait_for_stream(stream, remote_addr, max_len));
                     }
                     Err(Some(remote_addr)) => {
                         tcp_stream_pool.remove(bound_addr, remote_addr).await;

@@ -21,13 +21,14 @@ pub struct StreamReceiveError {
     remote_addr: SocketAddr,
 }
 
-#[allow(dead_code)]
-pub struct ReceiverConfiguration {
+#[derive(Clone)]
+pub struct ReceiverConfig {
     pub local_addr: SocketAddr,
     pub max_len: usize,
     pub cancel: CancellationToken,
     pub multicast_ips: IndexSet<IpAddr>,
-    pub multicast_local_addr: SocketAddr,
+    pub max_connections: usize,
+    pub multicast_local_addr: Option<SocketAddr>,
 }
 
 type ReceiveFinishedResult<T> =

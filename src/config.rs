@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use crate::clipboards::{ClipboardSystem, Paths};
 use crate::defaults::{
-    get_default_hosts, BIND_ADDRESS, CLIPBOARD_NAME, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_FILE_SIZE,
-    MAX_RECEIVE_BUFFER, MESSAGE_VALID_FOR_STR_SECS, PACKAGE_NAME, RECEIVE_ONCE_WAIT_STR_SECS,
+    get_default_hosts, BIND_ADDRESS, CLIPBOARD_NAME, DEFAULT_CLIPBOARD, KEY_SIZE, MAX_CONNECTIONS,
+    MAX_FILE_SIZE, MAX_RECEIVE_BUFFER, MESSAGE_VALID_FOR_STR_SECS, PACKAGE_NAME,
+    RECEIVE_ONCE_WAIT_STR_SECS,
 };
 use crate::encryption::random_alphanumeric;
 use crate::errors::CliError;
@@ -129,6 +130,9 @@ pub struct CliConfig {
 
     #[arg(long, help = "path to application directory")]
     pub app_dir: Option<PathBuf>,
+
+    #[arg(long, help = "max connections per protocol", default_value_t = MAX_CONNECTIONS)]
+    pub max_connections: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -206,64 +210,10 @@ pub struct FullConfig {
     pub ntp_server: Option<String>,
     pub app_dir: Option<PathBuf>,
     pub tls_client_auth: bool,
+    pub max_connections: usize,
 }
 
 impl FullConfig {
-    // TODO
-    #[allow(clippy::too_many_arguments)]
-    pub fn from_protocol_groups(
-        protocol: Protocol,
-        bind_all: IndexSet<SocketAddr>,
-        groups: Groups,
-        max_receive_buffer: usize,
-        max_file_size: usize,
-        receive_once_wait: Duration,
-        send_clipboard_on_startup: bool,
-        ntp_server: Option<String>,
-        app_dir: Option<PathBuf>,
-        tls_client_auth: bool,
-    ) -> Self {
-        let mut bind_addresses: BindAddresses = IndexMap::new();
-        bind_addresses.insert(protocol, bind_all);
-        Self {
-            bind_addresses,
-            groups,
-            max_receive_buffer,
-            max_file_size,
-            receive_once_wait,
-            send_clipboard_on_startup,
-            ntp_server,
-            app_dir,
-            tls_client_auth,
-        }
-    }
-
-    // TODO
-    #[allow(clippy::too_many_arguments)]
-    pub fn from_config(
-        bind_addresses: BindAddresses,
-        groups: Groups,
-        max_receive_buffer: usize,
-        max_file_size: usize,
-        receive_once_wait: Duration,
-        send_clipboard_on_startup: bool,
-        ntp_server: Option<String>,
-        app_dir: Option<PathBuf>,
-        tls_client_auth: bool,
-    ) -> Self {
-        Self {
-            bind_addresses,
-            groups,
-            max_receive_buffer,
-            max_file_size,
-            receive_once_wait,
-            send_clipboard_on_startup,
-            ntp_server,
-            app_dir,
-            tls_client_auth,
-        }
-    }
-
     pub fn get_bind_addresses(&self) -> IndexSet<(Protocol, SocketAddr)> {
         self.bind_addresses
             .iter()
@@ -531,18 +481,18 @@ pub fn create_groups_from_config_file(
     } else {
         cli_config.ntp_server
     };
-
-    let full_config = FullConfig::from_config(
+    let full_config = FullConfig {
         bind_addresses,
         groups,
-        cli_config.max_receive_buffer,
-        cli_config.max_file_size,
+        max_receive_buffer: cli_config.max_receive_buffer,
+        max_file_size: cli_config.max_file_size,
         receive_once_wait,
-        !cli_config.ignore_initial_clipboard,
+        send_clipboard_on_startup: !cli_config.ignore_initial_clipboard,
         ntp_server,
-        user_config.app_dir.map(PathBuf::from),
-        !cli_config.danger_client_no_verify,
-    );
+        app_dir: user_config.app_dir.map(PathBuf::from),
+        tls_client_auth: !cli_config.danger_client_no_verify,
+        max_connections: cli_config.max_connections,
+    };
     Ok((full_config, user_config.certificates))
 }
 

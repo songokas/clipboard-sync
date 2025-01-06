@@ -1,14 +1,10 @@
-use indexmap::IndexSet;
 use log::{debug, error, info};
 use tokio::net::UdpSocket;
 use tokio::select;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 
-use core::net::IpAddr;
 use quinn::Endpoint;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::certificate::CertificateInfo;
@@ -16,44 +12,38 @@ use crate::certificate::CertificateResult;
 use crate::defaults::{ExecutorResult, WAIT_TIMEOUT};
 use crate::encryptor::MessageDecryptor;
 use crate::identity::IdentityVerifier;
-use crate::multicast::{advertise_service, join_multicast};
+use crate::multicast::advertise_service;
+use crate::multicast::create_multicast_socket;
 use crate::pools::connection_pool::ConnectionPool;
 use crate::protocol::Protocol;
 use crate::protocol_readers::{process_receive_stream_result, StreamReceiveError};
 use crate::protocols::quic::{obtain_server_endpoint, read_stream};
 use crate::protocols::ProtocolReadMessage;
 
-#[allow(clippy::too_many_arguments)]
+use super::ReceiverConfig;
+
 pub async fn create_quic_reader<V>(
     sender: Sender<ProtocolReadMessage>,
     verifier: V,
     pool: ConnectionPool,
-    multicast_ips: IndexSet<IpAddr>,
-    local_addr: SocketAddr,
-    max_len: usize,
+    config: ReceiverConfig,
     obtain_certs: impl Fn() -> CertificateResult,
     client_auth: bool,
-    cancel: CancellationToken,
 ) -> ExecutorResult
 where
     V: IdentityVerifier + MessageDecryptor,
 {
+    let ReceiverConfig {
+        local_addr,
+        multicast_ips,
+        multicast_local_addr,
+        ..
+    } = config.clone();
     let certificates = obtain_certs()?;
     let certificate_info = certificates.certificate_info();
     let endpoint = obtain_server_endpoint(local_addr, certificates, client_auth)?;
     let bound_addr = endpoint.local_addr().expect("Bound address");
-    let multicast_socket = if !multicast_ips.is_empty() {
-        // can not bind on the same udp port
-        let multicast_socket =
-            UdpSocket::bind(SocketAddr::new(bound_addr.ip(), bound_addr.port() + 1)).await?;
-
-        for ip in multicast_ips.into_iter().filter(|i| i.is_multicast()) {
-            join_multicast(&multicast_socket, ip, bound_addr.ip())?;
-        }
-        multicast_socket.into()
-    } else {
-        None
-    };
+    let multicast_socket = create_multicast_socket(multicast_local_addr, multicast_ips).await?;
     pool.add_server_endpoint(endpoint.clone(), bound_addr).await;
     quic_reader_executor(
         sender,
@@ -62,13 +52,11 @@ where
         endpoint,
         multicast_socket,
         certificate_info,
-        max_len,
-        cancel,
+        config,
     )
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn quic_reader_executor<V>(
     sender: Sender<ProtocolReadMessage>,
     verifier: V,
@@ -76,8 +64,7 @@ async fn quic_reader_executor<V>(
     endpoint: Endpoint,
     multicast_socket: Option<UdpSocket>,
     certificate_info: Option<CertificateInfo>,
-    max_len: usize,
-    cancel: CancellationToken,
+    config: ReceiverConfig,
 ) -> ExecutorResult
 where
     V: IdentityVerifier + MessageDecryptor,
@@ -88,6 +75,12 @@ where
     let server_name = certificate_info
         .as_ref()
         .and_then(|i| i.dns_names.first().cloned());
+    let ReceiverConfig {
+        max_len,
+        cancel,
+        max_connections,
+        ..
+    } = config;
 
     info!(
         "Listening on local_addr={bound_addr} protocol={} multicast_addr={} certificate_serial={} certificate_dns={}",
@@ -137,6 +130,11 @@ where
                     inc.ignore();
                     continue;
                 };
+                if handles.len() > max_connections {
+                    info!("Connection limit={max_connections} reached. Ignoring connection");
+                    inc.refuse();
+                    continue;
+                }
 
                 debug!("New connection remote_addr={remote_addr}");
 
