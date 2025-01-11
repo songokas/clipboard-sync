@@ -79,7 +79,7 @@ features = ["ring", "std"]
 
 [dependencies.clipboard]
 git = "https://github.com/songokas/rust-clipboard.git"
-tag = "0.6.0"
+tag = "0.6.1"
 # path = "../rust-clipboard"
 optional = true
 
