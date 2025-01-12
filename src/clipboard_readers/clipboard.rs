@@ -67,9 +67,12 @@ async fn clipboard_read_executor(
     }
 
     let hash = clipboard_hash.clone();
+    drop(clipboard);
 
     // detached thread on purpose
     std::thread::spawn(move || -> Result<(), SendError<ClipboardBytes>> {
+        // new clipboard for osx
+        let mut clipboard = Clipboard::new().expect("Clipboard created");
         loop {
             match read_clipboard(&mut clipboard, hash.clone(), true) {
                 Ok(Some(bytes)) => {
