@@ -239,7 +239,8 @@ fn test_send_receive_same_port(protocol: Protocol) {
                 true,
                 vec![
                     "drive; id".to_string(),
-                    "TLS1.3 encrypted extensions".to_string()
+                    "TLS1.3 encrypted extensions".to_string(),
+                    "Got CertificateRequest CertificateRequestPayloadTls13".to_string(),
                 ],
             )
         )
@@ -287,7 +288,8 @@ fn test_send_receive_same_port(protocol: Protocol) {
                 true,
                 vec![
                     "drive; id".to_string(),
-                    "TLS1.3 encrypted extensions".to_string()
+                    "TLS1.3 encrypted extensions".to_string(),
+                    "Got CertificateRequest CertificateRequestPayloadTls13".to_string(),
                 ],
             )
         )
@@ -333,7 +335,8 @@ fn test_send_receive_once(protocol: Protocol, size: usize) {
                 true,
                 vec![
                     "drive; id".to_string(),
-                    "TLS1.3 encrypted extensions".to_string()
+                    "TLS1.3 encrypted extensions".to_string(),
+                    "Got CertificateRequest CertificateRequestPayloadTls13".to_string(),
                 ],
             )
         )
@@ -379,7 +382,8 @@ fn test_send_receive_once(protocol: Protocol, size: usize) {
                 true,
                 vec![
                     "drive; id".to_string(),
-                    "TLS1.3 encrypted extensions".to_string()
+                    "TLS1.3 encrypted extensions".to_string(),
+                    "Got CertificateRequest CertificateRequestPayloadTls13".to_string(),
                 ],
             )
         )
