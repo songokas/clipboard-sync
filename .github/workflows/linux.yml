@@ -28,4 +28,4 @@ jobs:
         run: |
           cargo fmt --check
           cargo clippy
-          cargo test
+          xvfb-run cargo test
