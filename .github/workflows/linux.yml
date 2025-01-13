@@ -1,4 +1,4 @@
-name: linux-test-data-file
+name: linux-clipboard-sync
 
 on:
   push:

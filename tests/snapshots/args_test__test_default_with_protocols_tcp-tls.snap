@@ -12,6 +12,12 @@ info:
     - "--allowed-host"
     - "[::1]:0"
     - "--ignore-initial-clipboard"
+    - "--remote-certificates"
+    - tests/certs/cert-verify/for-server
+    - "--private-key"
+    - tests/certs/localhost.key
+    - "--certificate-chain"
+    - tests/certs/localhost.crt
     - "--verbosity"
     - info=simple
 snapshot_kind: text
@@ -21,4 +27,4 @@ exit_code: -1
 ----- stdout -----
 
 ----- stderr -----
-Listening on local_addr=[::]:12001 protocol=tcp-tls multicast_addr=None certificate_serial=29:25:61:3d:e0:b5:b8:3f:5b:1a:59:e9:f1:18:16:ac:b2:44:45:a5 certificate_dns=pryingly-hard-roof
+Listening on local_addr=[::]:12001 protocol=tcp-tls multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost
