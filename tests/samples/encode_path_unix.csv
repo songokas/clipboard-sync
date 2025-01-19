@@ -1,0 +1,7 @@
+path,encoded
+hello/amigo/1,hello/amigo/1
+file:///hello/amigo/1,file%3A/hello/amigo/1
+/hello/amigo/1,/hello/amigo/1
+///hello/amigo/1,/hello/amigo/1
+"/hello with spaces/amigo/1","/hello%20with%20spaces/amigo/1"
+"^,&%$%20hello/","%5E%2C%26%25%24%2520hello"

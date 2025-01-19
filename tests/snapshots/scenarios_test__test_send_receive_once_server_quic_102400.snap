@@ -1,6 +1,6 @@
 ---
 source: tests/scenarios_test.rs
-description: "Ntp server not provided\nStarting clipboard writer\nLoading certificates from configuration directory\nWaiting to receive clipboard once\nLoading certificates from configuration directory\nListening on local_addr=127.0.0.1:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nListening on local_addr=[::1]:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nNew connection remote_addr=127.0.0.1:12904\ndecided upon suite TLS13_AES_256_GCM_SHA384\ndrive; id=0\ndrive; id=0\ndrive; id=0\nNew stream available remote_addr=127.0.0.1:12904\nReceive stream remote_addr=127.0.0.1:12904\nStream accepted\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\nStream finished reading\nValidate data identity=127.0.0.1\nMessage received data_size=102400 group=default message_type=file\nReceive stream remote_addr=127.0.0.1:12904\ndrive; id=0\ndrive; id=0\nReceiver connection closed: closed by peer: 0\nReceived bytes 102400 in clipboard\nQuic reader cancelled\nQuic reader cancelled\ndrive; id=0\nFinished quic reader processed messages 0\nFinished quic reader processed messages 1\nFinished protocol to clipboard forwarder processed messages 1\nFinished clipboard writer processed messages 1\n"
+description: "Ntp server not provided\nStarting clipboard writer\nWaiting to receive clipboard once\nLoading certificates from configuration directory\nLoading certificates from configuration directory\nListening on local_addr=127.0.0.1:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nListening on local_addr=[::1]:12903 protocol=quic multicast_addr=None certificate_serial=46:8d:f7:de:e1:27:f9:0d:06:c6:1f:ea:05:36:d8:2e:ad:69:09:35 certificate_dns=localhost\nNew connection remote_addr=127.0.0.1:12904\ndecided upon suite TLS13_AES_256_GCM_SHA384\ndrive; id=0\ndrive; id=0\ndrive; id=0\nNew stream available remote_addr=127.0.0.1:12904\nReceive stream remote_addr=127.0.0.1:12904\nStream accepted\ndrive; id=0\ndrive; id=0\ndrive; id=0\ndrive; id=0\nStream finished reading\nValidate data identity=127.0.0.1\nMessage received data_size=102400 group=default message_type=file\nReceive stream remote_addr=127.0.0.1:12904\nReceived bytes 102400 in clipboard\ndrive; id=0\nQuic reader cancelled\nQuic reader cancelled\ndrive; id=0\ndrive; id=0\nFinished quic reader processed messages 0\nFinished quic reader processed messages 1\nFinished protocol to clipboard forwarder processed messages 1\nFinished clipboard writer processed messages 1\n"
 info:
   program: clipboard-sync
   args:
@@ -47,7 +47,6 @@ Quic reader cancelled
 Receive stream remote_addr=127.0.0.1:12904
 Receive stream remote_addr=127.0.0.1:12904
 Received bytes 102400 in clipboard
-Receiver connection closed: closed by peer: 0
 Starting clipboard writer
 Stream accepted
 Stream finished reading

@@ -31,6 +31,7 @@ use crate::{defaults::CLIPBOARD_NAME, message::MessageType};
 
 pub type ModifiedFiles = Arc<Mutex<HashSet<PathBuf>>>;
 pub type Paths = HashMap<PathBuf, IndexSet<GroupName>>;
+pub type ClipboardTargets = Vec<(ClipboardType, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub enum ClipboardSystem {
@@ -110,22 +111,20 @@ impl fmt::Display for ClipboardType {
     }
 }
 
-pub fn create_text_targets(contents: Bytes) -> HashMap<ClipboardType, Vec<u8>> {
-    let mut clipboard_list = HashMap::new();
-    clipboard_list.insert(ClipboardType::Text, contents.to_vec());
+pub fn create_text_targets(contents: Bytes) -> ClipboardTargets {
+    let mut clipboard_list = Vec::new();
+    clipboard_list.push((ClipboardType::Text, contents.to_vec()));
     #[cfg(target_os = "linux")]
     {
-        clipboard_list.insert(ClipboardType::Plain, contents.to_vec());
-        clipboard_list.insert(ClipboardType::PlainUtf8, contents.to_vec());
-        clipboard_list.insert(ClipboardType::SimpleText, contents.to_vec());
+        clipboard_list.push((ClipboardType::Plain, contents.to_vec()));
+        clipboard_list.push((ClipboardType::PlainUtf8, contents.to_vec()));
+        clipboard_list.push((ClipboardType::SimpleText, contents.to_vec()));
     }
     clipboard_list
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn create_targets_for_cut_files(
-    files: Vec<PathBuf>,
-) -> (HashMap<ClipboardType, String>, String) {
+#[cfg(target_os = "linux")]
+pub fn create_targets_for_cut_files(files: Vec<PathBuf>) -> (ClipboardTargets, String) {
     use crate::encryption::hash;
 
     let file_content = files
@@ -138,30 +137,46 @@ pub fn create_targets_for_cut_files(
     let cut_content = [String::from("cut"), file_content.clone()].join("\n");
 
     let hash_str = hash(file_content.as_bytes());
-    let mut clipboard_list = HashMap::new();
-    clipboard_list.insert(ClipboardType::GnomeFiles, cut_content.clone());
-    clipboard_list.insert(ClipboardType::KdeFiles, file_content.clone());
-    clipboard_list.insert(ClipboardType::KdeFilesCut, "1".into());
-    clipboard_list.insert(ClipboardType::MateFiles, cut_content);
-    clipboard_list.insert(ClipboardType::UriList, file_content.clone());
-    clipboard_list.insert(ClipboardType::Text, file_content.clone());
 
-    (clipboard_list, hash_str)
+    let cut_content = cut_content.into_bytes();
+    let file_content = file_content.into_bytes();
+    (
+        vec![
+            (ClipboardType::GnomeFiles, cut_content.clone()),
+            (ClipboardType::KdeFiles, file_content.clone()),
+            (ClipboardType::KdeFilesCut, "1".as_bytes().to_vec()),
+            (ClipboardType::MateFiles, cut_content),
+            (ClipboardType::UriList, file_content.clone()),
+            (ClipboardType::Text, file_content),
+        ],
+        hash_str,
+    )
 }
 
-#[cfg(target_os = "windows")]
-pub fn create_targets_for_cut_files(
-    files: Vec<PathBuf>,
-) -> (HashMap<ClipboardType, String>, String) {
+#[cfg(not(target_os = "linux"))]
+pub fn create_targets_for_cut_files(files: Vec<PathBuf>) -> (ClipboardTargets, String) {
     use crate::encryption::hash;
+    #[cfg(target_os = "macos")]
+    let contents_for_hash = files
+        .iter()
+        .filter_map(|pb| {
+            crate::filesystem::encode_path(pb.as_path()).map(|s| format!("file://{}", s))
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
     let file_content = files
         .into_iter()
         .map(|f| f.to_string_lossy().to_string())
         .collect::<Vec<String>>()
         .join("\n");
-    let mut clipboard_list = HashMap::new();
-    let hash_str = hash(file_content.as_bytes());
-    clipboard_list.insert(ClipboardType::Files, file_content);
 
-    (clipboard_list, hash_str)
+    #[cfg(target_os = "macos")]
+    let hash_str = hash(contents_for_hash.as_bytes());
+    #[cfg(not(target_os = "macos"))]
+    let hash_str = hash(file_content.as_bytes());
+
+    (
+        vec![(ClipboardType::Files, file_content.into_bytes())],
+        hash_str,
+    )
 }

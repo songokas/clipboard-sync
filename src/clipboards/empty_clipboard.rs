@@ -32,10 +32,7 @@ impl EmptyClipboardContext {
         return Ok(());
     }
 
-    pub fn set_multiple_targets(
-        &mut self,
-        _: HashMap<ClipboardType, Vec<u8>>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn set_multiple_targets(&mut self, _: ClipboardTargets) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 }

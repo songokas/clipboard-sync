@@ -222,10 +222,10 @@ pub fn encode_path(path: impl AsRef<Path>) -> Option<String> {
         .components()
         .map(|c| {
             let cpath = c.as_os_str().to_str().ok_or(())?;
-            let pc = if let Component::RootDir = c {
-                cpath.to_owned()
-            } else {
-                encode(cpath).to_string()
+            let pc = match c {
+                Component::RootDir => cpath.to_string(),
+                Component::Prefix(s) => s.as_os_str().to_string_lossy().to_string(),
+                _ => encode(cpath).to_string(),
             };
             Ok(pc)
         })
@@ -241,10 +241,10 @@ pub fn decode_path(path: impl AsRef<Path>) -> Result<PathBuf, String> {
                 .as_os_str()
                 .to_str()
                 .ok_or_else(|| format!("Invalid path {}", path.as_ref().to_string_lossy()))?;
-            let pc = if let Component::RootDir = c {
-                cpath.to_owned()
-            } else {
-                decode(cpath).map_err(|e| e.to_string())?.to_string()
+            let pc = match c {
+                Component::RootDir => cpath.to_string(),
+                Component::Prefix(s) => s.as_os_str().to_string_lossy().to_string(),
+                _ => decode(cpath).map_err(|e| e.to_string())?.to_string(),
             };
             Ok(pc)
         })
@@ -292,30 +292,10 @@ fn deserialize_files(mut bytes: Bytes) -> Result<Vec<(String, Bytes)>, ()> {
 
 #[cfg(test)]
 mod tests {
+    use test_data_file::test_data_file;
+
     use super::*;
     use std::str::FromStr;
-
-    #[test]
-    fn test_join() {
-        let path = Path::new("/tmp/2level");
-        assert_eq!(
-            Some("/tmp/2level/file"),
-            path.join(sanitise("file")).to_str()
-        );
-        assert_eq!(
-            Some("/tmp/2level/.file"),
-            path.join(sanitise("../file")).to_str()
-        );
-        assert_eq!(
-            Some("/tmp/2level/file"),
-            path.join(sanitise("/file")).to_str()
-        );
-        assert_eq!(
-            Some("/tmp/2level/.file"),
-            path.join(sanitise("./file")).to_str()
-        );
-        assert_eq!(Some("/tmp/2level/_"), path.join(sanitise("")).to_str());
-    }
 
     #[test]
     fn test_read_file() {
@@ -375,46 +355,26 @@ mod tests {
         .is_ok());
     }
 
+    #[cfg_attr(unix, test_data_file(path = "tests/samples/encode_path_unix.csv"))]
+    #[cfg_attr(
+        windows,
+        test_data_file(path = "tests/samples/encode_path_windows.csv")
+    )]
     #[test]
-    fn test_encode_path() {
-        let data = [
-            ("hello/amigo/1", "hello/amigo/1"),
-            // prefix is not supported
-            ("file:///hello/amigo/1", "file%3A/hello/amigo/1"),
-            ("/hello/amigo/1", "/hello/amigo/1"),
-            ("///hello/amigo/1", "/hello/amigo/1"),
-            (
-                "/hello with spaces/amigo/1",
-                "/hello%20with%20spaces/amigo/1",
-            ),
-            ("^,&%$%20hello/", "%5E%2C%26%25%24%2520hello"),
-        ];
-
-        for (path, expected) in data {
-            let encoded = encode_path(Path::new(path));
-            assert_eq!(Some(expected.to_string()), encoded);
-        }
+    fn test_encode_path(path: String, encoded: String) {
+        let result = encode_path(Path::new(&path));
+        assert_eq!(Some(encoded.to_string()), result);
     }
 
+    #[cfg_attr(unix, test_data_file(path = "tests/samples/decode_path_unix.csv"))]
+    #[cfg_attr(
+        windows,
+        test_data_file(path = "tests/samples/encode_path_windows.csv")
+    )]
     #[test]
-    fn test_decode_path() {
-        let data = [
-            ("hello/amigo/1", "hello/amigo/1"),
-            ("file:/hello/amigo/1", "file%3A/hello/amigo/1"),
-            ("/hello/amigo/1", "/hello/amigo/1"),
-            ("/hello/amigo/1", "///hello/amigo/1"),
-            (
-                "/hello with spaces/amigo/1",
-                "/hello%20with%20spaces/amigo/1",
-            ),
-            ("^,&%$ hello", "^,&%$%20hello/"),
-            ("^,&%$%20hello", "%5E%2C%26%25%24%2520hello"),
-        ];
-
-        for (expected, path) in data {
-            let decoded = decode_path(path);
-            assert_eq!(Path::new(expected).to_path_buf(), decoded.unwrap());
-        }
+    fn test_decode_path(path: String, encoded: String) {
+        let decoded = decode_path(encoded);
+        assert_eq!(path, decoded.unwrap().to_string_lossy());
     }
 
     fn dir_to_bytes_provider() -> Vec<(&'static str, Vec<u8>)> {

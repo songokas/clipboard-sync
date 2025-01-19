@@ -14,7 +14,7 @@ use crate::{
     clipboards::{Clipboard, ClipboardHash, ClipboardType},
     defaults::{ExecutorResult, MAX_CHANNEL},
     encryption::hash,
-    errors::{CliError, ClipboardError},
+    errors::ClipboardError,
     filesystem::{decode_path, files_to_bytes},
     message::{GroupName, MessageType},
 };
@@ -54,27 +54,17 @@ async fn clipboard_read_executor(
     cancel: CancellationToken,
 ) -> ExecutorResult {
     debug!("Starting clipboard reader read_initial={read_initial}");
-    let mut clipboard = Clipboard::new().expect("Clipboard created");
+
     let mut success_count = 0;
     let (clip_sender, mut clip_receiver) = channel(MAX_CHANNEL);
-    if read_initial {
-        if let Ok(Some(bytes)) = read_clipboard(&mut clipboard, clipboard_hash.clone(), false) {
-            clip_sender
-                .send(bytes)
-                .await
-                .map_err(|_| CliError::ChannelClosed)?
-        }
-    }
-
     let hash = clipboard_hash.clone();
-    drop(clipboard);
 
     // detached thread on purpose
     std::thread::spawn(move || -> Result<(), SendError<ClipboardBytes>> {
-        // new clipboard for osx
+        let mut block = !read_initial;
         let mut clipboard = Clipboard::new().expect("Clipboard created");
         loop {
-            match read_clipboard(&mut clipboard, hash.clone(), true) {
+            match read_clipboard(&mut clipboard, hash.clone(), block) {
                 Ok(Some(bytes)) => {
                     trace!("Clipboard read {}", bytes.message_type);
                     clip_sender.blocking_send(bytes)?;
@@ -82,6 +72,7 @@ async fn clipboard_read_executor(
                 Ok(None) => (),
                 Err(e) => debug!("Clipboard error: {e}"),
             }
+            block = true;
             sleep(Duration::from_millis(500));
         }
     });

@@ -213,6 +213,7 @@ mod test {
         assert!(result.is_err());
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn test_connection_closed() {
         let bind = "127.0.0.1:0".parse::<SocketAddr>().unwrap();

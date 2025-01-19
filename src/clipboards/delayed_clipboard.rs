@@ -1,10 +1,11 @@
 use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
-use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
 use crate::clipboards::ClipboardType;
+
+use super::ClipboardTargets;
 
 pub struct DelayedClipboardContext {
     context: Option<ClipboardContext>,
@@ -42,7 +43,7 @@ impl DelayedClipboardContext {
 
     pub fn set_multiple_targets(
         &mut self,
-        targets: HashMap<ClipboardType, Vec<u8>>,
+        targets: ClipboardTargets,
     ) -> Result<(), Box<dyn Error>> {
         self.start()?
             .set_multiple_targets(targets.into_iter().map(|(k, v)| (k.into(), v)))

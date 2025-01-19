@@ -1,0 +1,4 @@
+- path: "c:hello\\amigo\\1"
+  encoded: "c:hello\\amigo\\1"
+- path: "c:\\hello with spaces\\amigo\\1"
+  encoded: "c:\\hello%20with%20spaces\\amigo\\1"
