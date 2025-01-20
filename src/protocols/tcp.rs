@@ -168,8 +168,6 @@ pub async fn is_closed(socket: &OwnedWriteHalf) -> bool {
     r.is_read_closed()
 }
 
-// TODO windows works only the first run
-#[cfg(not(windows))]
 #[cfg(test)]
 mod tcptest {
     use super::*;

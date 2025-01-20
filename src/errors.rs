@@ -51,8 +51,8 @@ pub enum DnsError {
 pub enum ConnectionError {
     #[error("Timeout of {} ms occurred while waiting for {0}", .1.as_millis())]
     Timeout(&'static str, Duration),
-    #[error("Connection limit reached expected {max_len} received {received}")]
-    LimitReached { received: usize, max_len: usize },
+    #[error("Connection data limit reached expected {max_len} received {received}")]
+    DataLimitReached { received: usize, max_len: usize },
     #[error("Connection expected data, but none was received")]
     NoData,
     #[error(transparent)]

@@ -43,7 +43,7 @@ pub async fn read_stream(
         stream
             .read_to_end(max_len)
             .await
-            .map_err(|_| ConnectionError::LimitReached {
+            .map_err(|_| ConnectionError::DataLimitReached {
                 received: max_len + 1,
                 max_len,
             })?;

@@ -358,7 +358,7 @@ mod tests {
     #[cfg_attr(unix, test_data_file(path = "tests/samples/encode_path_unix.csv"))]
     #[cfg_attr(
         windows,
-        test_data_file(path = "tests/samples/encode_path_windows.csv")
+        test_data_file(path = "tests/samples/encode_path_windows.yaml")
     )]
     #[test]
     fn test_encode_path(path: String, encoded: String) {
@@ -369,7 +369,7 @@ mod tests {
     #[cfg_attr(unix, test_data_file(path = "tests/samples/decode_path_unix.csv"))]
     #[cfg_attr(
         windows,
-        test_data_file(path = "tests/samples/encode_path_windows.csv")
+        test_data_file(path = "tests/samples/encode_path_windows.yaml")
     )]
     #[test]
     fn test_decode_path(path: String, encoded: String) {

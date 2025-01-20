@@ -66,6 +66,7 @@ mod helpers {
 
     use std::collections::HashMap;
     use std::collections::HashSet;
+    use std::net::UdpSocket;
 
     use super::*;
     use crate::encryption::random;
@@ -91,6 +92,18 @@ mod helpers {
     ) {
         let mut data_sample: HashMap<String, Vec<u8>> = HashMap::new();
 
+        let random1 = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+
+        let random2 = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+
         for send in sample["send"]["messages"].as_array().unwrap() {
             let data = random(send["data_length"].as_u64().unwrap() as usize);
             data_sample.insert(send["data_id"].as_str().unwrap().to_string(), data);
@@ -101,7 +114,11 @@ mod helpers {
                 .as_str()
                 .unwrap()
                 .split(',')
-                .map(|s| s.parse().unwrap())
+                .map(|s| {
+                    let s = s.replace("{RANDOM1}", &random1.to_string());
+                    let s = s.replace("{RANDOM2}", &random2.to_string());
+                    s.parse().unwrap()
+                })
                 .collect();
             timeout(
                 Duration::from_millis(5000),

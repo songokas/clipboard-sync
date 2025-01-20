@@ -56,7 +56,7 @@ pub async fn receive_stream(
     debug!("Received stream expected_size={expected_size}");
 
     if expected_size > max_len {
-        return Err(ConnectionError::LimitReached {
+        return Err(ConnectionError::DataLimitReached {
             received: expected_size,
             max_len,
         });

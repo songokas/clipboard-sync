@@ -4,13 +4,13 @@
         {
             "data_length": 1,
             "data_id": "1",
-            "bind_address": "127.0.0.1:38301",
+            "bind_address": "127.0.0.1:{RANDOM1}",
             "destination": "localhost:38300"
         },
         {
             "data_length": 2,
             "data_id": "2",
-            "bind_address": "127.0.0.1:38301",
+            "bind_address": "127.0.0.1:{RANDOM1}",
             "destination": "127.0.0.1:38300",
             "server_name": "localhost"
         },
@@ -23,7 +23,7 @@
         {
             "data_length": 4,
             "data_id": "4",
-            "bind_address": "127.0.0.1:38302",
+            "bind_address": "127.0.0.1:{RANDOM2}",
             "destination": "127.0.0.1:38300",
             "server_name": "localhost"
         },
