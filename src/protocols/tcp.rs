@@ -255,6 +255,8 @@ mod tcptest {
         }
     }
 
+    // different behavior across platforms
+    #[ignore]
     #[tokio::test]
     #[serial]
     async fn test_tcp_reuse_behaviour() {
