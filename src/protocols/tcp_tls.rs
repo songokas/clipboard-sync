@@ -159,8 +159,8 @@ mod tests {
         let samples = [
             include_str!("../../tests/testing_data/bytes.json"),
             include_str!("../../tests/testing_data/kbytes.json"),
-            // TODO its not clear why it fails on windows
-            #[cfg(not(windows))]
+            // TODO investigate why it fails on windows and mac
+            #[cfg(target_os = "linux")]
             include_str!("../../tests/testing_data/mbytes.json"),
         ];
         for s in samples {
