@@ -158,6 +158,10 @@ impl WriteStream for OwnedWriteHalf {
     async fn writable_stream(&mut self) -> Result<(), std::io::Error> {
         self.writable().await
     }
+
+    async fn flush(&mut self) -> Result<(), std::io::Error> {
+        AsyncWriteExt::flush(self).await
+    }
 }
 
 pub async fn is_closed(socket: &OwnedWriteHalf) -> bool {

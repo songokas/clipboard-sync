@@ -39,6 +39,10 @@ impl WriteStream for TlsStreamWrite {
     async fn writable_stream(&mut self) -> Result<(), std::io::Error> {
         Ok(())
     }
+
+    async fn flush(&mut self) -> Result<(), std::io::Error> {
+        AsyncWriteExt::flush(self).await
+    }
 }
 
 #[cfg(test)]
@@ -159,8 +163,6 @@ mod tests {
         let samples = [
             include_str!("../../tests/testing_data/bytes.json"),
             include_str!("../../tests/testing_data/kbytes.json"),
-            // TODO investigate why it fails on windows and mac
-            #[cfg(target_os = "linux")]
             include_str!("../../tests/testing_data/mbytes.json"),
         ];
         for s in samples {

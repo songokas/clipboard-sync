@@ -17,6 +17,8 @@ pub trait WriteStream {
     async fn writable_stream(&mut self) -> Result<(), std::io::Error>;
 
     async fn write_buffer(&mut self, buffer: &[u8]) -> Result<usize, std::io::Error>;
+
+    async fn flush(&mut self) -> Result<(), std::io::Error>;
 }
 
 #[allow(async_fn_in_trait)]
@@ -129,6 +131,7 @@ pub async fn write_to_stream(
                     data_to_send.len()
                 );
                 if total_written >= data_to_send.len() {
+                    stream.flush().await?;
                     return Ok(total_written);
                 }
             }
