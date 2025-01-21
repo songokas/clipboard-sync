@@ -84,10 +84,10 @@ test: clippy
 	cargo test
 
 sign: sign-rpm
-	@dpkg-sig -s builder target/x86_64-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)_amd64.deb
-	@dpkg-sig -s builder target/i686-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)_i386.deb
-	@dpkg-sig -s builder target/aarch64-unknown-linux-gnu/debian/clipboard-sync-aarch64_$(VERSION)_arm64.deb
-	@dpkg-sig -s builder target/armv7-unknown-linux-gnueabihf/debian/clipboard-sync-headless_$(VERSION)_armhf.deb
+	@dpkg-sig -s builder target/x86_64-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)-1_amd64.deb
+	@dpkg-sig -s builder target/i686-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)-1_i386.deb
+	@dpkg-sig -s builder target/aarch64-unknown-linux-gnu/debian/clipboard-sync_$(VERSION)-1_arm64.deb
+	@dpkg-sig -s builder target/armv7-unknown-linux-gnueabihf/debian/clipboard-sync_$(VERSION)-1_armhf.deb
 
 sign-rpm:
 	@rpm --addsign target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/clipboard-sync-$(VERSION)-1.x86_64.rpm
