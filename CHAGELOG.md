@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+## [3.0.1] - 2025-01-04
+
+## Added
+
+- max connection limit
+- ci tests
+
+## Changed
+
+- clipboard bump version
+
+## Fixed
+
+- macos support
+- tcptls buffer flush
+
 ## [3.0.0] - 2025-01-04
 
 ## Added

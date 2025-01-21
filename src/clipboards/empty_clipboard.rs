@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::clipboards::ClipboardTargets;
 use crate::clipboards::ClipboardType;
 
 pub struct EmptyClipboardContext {}
